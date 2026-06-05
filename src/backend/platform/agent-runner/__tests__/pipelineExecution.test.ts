@@ -128,7 +128,7 @@ describe('runPipelineSequence', () => {
         return readFileSync(filePath, 'utf-8');
       }
       if (filePath.endsWith('parallel-ok.md')) {
-        return '# Parallel OK\n\n## Decision\n\nComplex execution authorized.\n';
+        return '# Parallel OK\n\n## Decision\n\nComplex\n';
       }
       return null;
     });
@@ -362,7 +362,7 @@ describe('runPipelineSequence', () => {
   it('runs single Dalton during QA remediation even when parallel-ok.md is active', async () => {
     readTextFile.mockImplementation(async (filePath: string) => {
       if (filePath.endsWith('parallel-ok.md')) {
-        return '# Parallel OK\n\n## Decision\n\nComplex execution authorized.\n';
+        return '# Parallel OK\n\n## Decision\n\nComplex\n';
       }
       return null;
     });
@@ -433,7 +433,9 @@ describe('runPipelineSequence', () => {
       path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'test-task-id', 'handoffs'),
       path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'test-task-id', 'ImplementationSteps'),
       undefined,
-      undefined,
+      expect.objectContaining({
+        runtimeToProviderAgentId: expect.any(Function),
+      }),
       path.join(
         repoRoot,
         '.platform-state',
@@ -580,6 +582,51 @@ describe('runPipelineSequence', () => {
     await runPipelineSequence({ repoRoot, taskId: 'test-task-id', startAt: 'dalton' });
 
     expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'test-task-id', 'ImplementationSteps', 'slice-template.md'))).toBe(false);
+    expect(runRoleAgent.mock.calls.map(([call]) => call.agentId)).toEqual([
+      'dalton',
+      'ron',
+    ]);
+  });
+
+  it('removes slice-template.xml before starting Dalton for XML slice tasks', async () => {
+    writeFileSync(
+      path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'test-task-id', '.task.json'),
+      JSON.stringify({
+        schema_version: 1,
+        taskId: 'test-task-id',
+        contextPackBinding: {
+          contextPackPath: null,
+          dataHostDir: null,
+          dataContainerDir: null,
+          repoBindings: [],
+        },
+        materialization: {
+          strategy: 'copy',
+          cloned: [],
+          skipped: [],
+        },
+        frozenAt: '2026-03-26T00:00:00Z',
+        finalizedAt: null,
+        state: 'active',
+        sliceArtifactFormat: 'xml',
+      }, null, 2) + '\n',
+      'utf-8',
+    );
+    writeFileSync(
+      path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'test-task-id', 'ImplementationSteps', 'slice-template.xml'),
+      '<?xml version="1.0"?><executionSlice />\n',
+    );
+    readTextFile.mockImplementation(async (filePath: string) => {
+      if (filePath.endsWith('parallel-ok.md')) {
+        return null;
+      }
+      return null;
+    });
+
+    const { runPipelineSequence } = await import('../pipeline/sequencer.js');
+    await runPipelineSequence({ repoRoot, taskId: 'test-task-id', startAt: 'dalton' });
+
+    expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'test-task-id', 'ImplementationSteps', 'slice-template.xml'))).toBe(false);
     expect(runRoleAgent.mock.calls.map(([call]) => call.agentId)).toEqual([
       'dalton',
       'ron',

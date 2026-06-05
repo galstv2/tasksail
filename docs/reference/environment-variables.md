@@ -55,6 +55,17 @@ local use.
 | `TASKSAIL_LOG_PROGRESS_FORCE` | Set to `1` to force progress lines even in CI. | unset | runtime |
 | `NO_COLOR` | Any non-empty value disables ANSI color in progress output. | unset | runtime |
 
+Structured logs are written to global level files under `.platform-state/logs`
+and agent-scoped copies under `logs/agent/<taskId>/<agentId>.jsonl` when a
+record has both task and agent context. Those agent shard records are fanout
+copies for agent-local debugging, not duplicate events to remove. With
+`LOG_LEVEL=debug`, debug records use the existing physical `logs/info`
+directory with `"level":"debug"`; TaskSail does not currently create a
+physical `logs/debug` directory. Default info logs are intended for operator
+milestones and actionable outcomes, while debug logs retain lower-level
+diagnostics. Task terminal history is separate from structured logs and remains
+under `.platform-state/runtime/tasks/<taskId>/terminal-events.json`.
+
 ## Container runtime
 
 The persistent choice lives in `.platform-state/platform.json`; these env vars

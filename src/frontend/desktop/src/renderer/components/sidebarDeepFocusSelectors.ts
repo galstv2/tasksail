@@ -274,7 +274,7 @@ export function labelPrimaryForDisplay(
   return spansRepos ? `${repoBasename}/${label}` : label;
 }
 
-function scopedTargetLabel(target: ContextPackDeepFocusTarget): string {
+export function scopedTargetLabel(target: ContextPackDeepFocusTarget): string {
   const path = normalizeRelativePath(target.path);
   if (path.length > 0) return basename(path);
   if (target.kind === 'directory' && target.repoLocalPath) return basename(target.repoLocalPath);

@@ -40,6 +40,11 @@ export interface CopyTreeFastDeps {
 const execFileAsync = promisify(execFileCb);
 const MAX_REFLINK_TREE_CONCURRENCY = 32;
 
+// SEC-TS-08: bound the recursive ReFS-reflink walk so untrusted deeply nested or
+// huge subtrees cannot overflow the stack / exhaust memory. Mutable so tests can
+// exercise the caps with small values.
+export const REFLINK_WALK_LIMITS = { maxDepth: 200, maxEntries: 50_000 };
+
 const defaultDeps: CopyTreeFastDeps = {
   platform: process.platform,
   execFile: async (file, args, options) => {
@@ -231,12 +236,25 @@ async function reflinkTreeWindows(src: string, dst: string): Promise<void> {
   await walkAndReflink(src, dst, reflinkFileSync);
 }
 
-async function walkAndReflink(
+export async function walkAndReflink(
   src: string,
   dst: string,
   reflinkFileSync: (s: string, d: string) => number,
+  depth = 0,
+  budget: { entries: number } = { entries: 0 },
 ): Promise<void> {
+  if (depth > REFLINK_WALK_LIMITS.maxDepth) {
+    throw new Error(
+      `copyTreeFast: directory nesting exceeds ${REFLINK_WALK_LIMITS.maxDepth} levels (runaway tree at ${src})`,
+    );
+  }
   const entries = await fs.promises.readdir(src, { withFileTypes: true });
+  budget.entries += entries.length;
+  if (budget.entries > REFLINK_WALK_LIMITS.maxEntries) {
+    throw new Error(
+      `copyTreeFast: entry count exceeds ${REFLINK_WALK_LIMITS.maxEntries} (runaway tree under ${src})`,
+    );
+  }
   await fs.promises.mkdir(dst, { recursive: true });
   const nonDirectories = entries.filter((entry) => !entry.isDirectory());
   await runBounded(nonDirectories, MAX_REFLINK_TREE_CONCURRENCY, async (entry) => {
@@ -255,6 +273,8 @@ async function walkAndReflink(
         path.join(src, entry.name),
         path.join(dst, entry.name),
         reflinkFileSync,
+        depth + 1,
+        budget,
       );
     }
   }

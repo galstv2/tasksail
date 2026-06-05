@@ -224,6 +224,7 @@ export async function toggleExternalMcpServer(
 // ---------------------------------------------------------------------------
 
 const PROBE_TIMEOUT_MS = 10_000;
+const MAX_SSE_PROBE_BYTES = 64 * 1024;
 
 function makeInitializeBody(): string {
   return JSON.stringify({
@@ -299,6 +300,9 @@ function postJsonRpc(
           reject(new Error(`HTTP ${res.statusCode}`));
         }
       });
+      // A mid-stream socket error emits on the response stream; without a
+      // handler it becomes an uncaughtException that exits the app.
+      res.on('error', (err) => reject(err));
     });
 
     req.on('error', (err) => reject(err));
@@ -373,6 +377,14 @@ async function probeSse(
       let buffer = '';
       res.on('data', (chunk: Buffer) => {
         buffer += chunk.toString();
+        // Cap the probe buffer so a server that streams without ever sending an
+        // endpoint event cannot grow it without bound.
+        if (buffer.length > MAX_SSE_PROBE_BYTES) {
+          clearTimeout(timer);
+          req.destroy();
+          reject(new Error('SSE probe exceeded the maximum buffer size without an endpoint event'));
+          return;
+        }
         // Parse SSE events looking for the endpoint event.
         const lines = buffer.split('\n');
         for (const line of lines) {
@@ -395,6 +407,7 @@ async function probeSse(
         clearTimeout(timer);
         reject(new Error('SSE stream ended without providing a message endpoint'));
       });
+      res.on('error', (err) => { clearTimeout(timer); reject(err); });
     });
 
     req.on('error', (err) => { clearTimeout(timer); reject(err); });

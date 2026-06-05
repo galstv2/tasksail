@@ -1,7 +1,9 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { writeTextFileAtomic } from '../core/index.js';
 
 import { loadPlatformConfig } from './load.js';
+import { DEFAULT_PLATFORM_CONFIG_PATH, RUNTIME_PLATFORM_CONFIG_PATH } from './paths.js';
 import type { PlatformConfig, PlatformConfigValidationError } from './types.js';
 
 export type PlatformConfigSeedResult =
@@ -10,8 +12,6 @@ export type PlatformConfigSeedResult =
   | { action: 'updated'; config: PlatformConfig }
   | { action: 'failed'; errors: PlatformConfigValidationError[] };
 
-const DEFAULT_PLATFORM_CONFIG_PATH = 'config/platform.default.json';
-const RUNTIME_PLATFORM_CONFIG_PATH = '.platform-state/platform.json';
 
 /**
  * Seed the runtime platform config from the checked-in default.
@@ -62,7 +62,7 @@ export async function seedPlatformConfig(
       if (runtimeRaw.trim() === mergedRaw.trim()) {
         return { action: 'up-to-date', config: runtimeResult.config };
       }
-      await writeFile(runtimePath, mergedRaw, 'utf-8');
+      await writeTextFileAtomic(runtimePath, mergedRaw);
       const mergedResult = await loadPlatformConfig(runtimePath);
       if (!mergedResult.valid) {
         return { action: 'failed', errors: mergedResult.errors };
@@ -70,11 +70,10 @@ export async function seedPlatformConfig(
       return { action: 'updated', config: mergedResult.config };
     }
 
-    await writeFile(runtimePath, defaultRaw, 'utf-8');
+    await writeTextFileAtomic(runtimePath, defaultRaw);
     return { action: 'updated', config: defaultResult.config };
   }
 
-  await mkdir(path.dirname(runtimePath), { recursive: true });
-  await writeFile(runtimePath, defaultRaw, 'utf-8');
+  await writeTextFileAtomic(runtimePath, defaultRaw);
   return { action: 'created', config: defaultResult.config };
 }

@@ -11,6 +11,7 @@ import {
   mkdirSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -72,7 +73,9 @@ describe('buildWorktreeBindingMap', () => {
     const taskId = 'wt-inject-test';
     // Real directories so realpath() resolves; otherwise we'd test the fallback.
     const originalRoot = path.join(repoRoot, 'origin', 'crud-app');
-    const worktreeRoot = path.join(repoRoot, 'worktrees', 'crud-app');
+    // Worktrees live under the per-task base (queue/operations.ts); the
+    // SEC-TS-01 containment guard in buildWorktreeBindingMap enforces this.
+    const worktreeRoot = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'crud-app');
     mkdirSync(originalRoot, { recursive: true });
     mkdirSync(worktreeRoot, { recursive: true });
 
@@ -118,7 +121,7 @@ describe('buildWorktreeBindingMap', () => {
   it('builds substitution map from readonlyContextBindings', async () => {
     const taskId = 'wt-inject-readonly-test';
     const originalRoot = path.join(repoRoot, 'origin', 'support-lib');
-    const worktreeRoot = path.join(repoRoot, 'worktrees', 'support-lib');
+    const worktreeRoot = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'support-lib');
     mkdirSync(originalRoot, { recursive: true });
     mkdirSync(worktreeRoot, { recursive: true });
 
@@ -157,6 +160,86 @@ describe('buildWorktreeBindingMap', () => {
     expect(map.applied).toBe(true);
     expect(rewritePath(path.join(canonicalOriginal, 'src', 'app.ts'), map))
       .toBe(path.join(canonicalWorktree, 'src', 'app.ts'));
+  });
+
+  it('SEC-TS-01: drops a repoBinding whose worktreeRoot escapes the per-task base', async () => {
+    const taskId = 'wt-inject-escape';
+    const originalRoot = path.join(repoRoot, 'origin', 'crud-app');
+    // worktreeRoot points OUTSIDE AgentWorkSpace/tasks/<taskId>/worktrees — a
+    // tampered .task.json attempting to redirect the confinement allowedDirs.
+    const escapeRoot = path.join(repoRoot, 'evil-target');
+    mkdirSync(originalRoot, { recursive: true });
+    mkdirSync(escapeRoot, { recursive: true });
+
+    const sidecarDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
+    mkdirSync(sidecarDir, { recursive: true });
+    writeFileSync(
+      path.join(sidecarDir, '.task.json'),
+      JSON.stringify({
+        schema_version: 1,
+        taskId,
+        contextPackBinding: {
+          contextPackPath: null,
+          dataHostDir: null,
+          dataContainerDir: null,
+          repoBindings: [
+            { originalRoot, worktreeRoot: escapeRoot, worktreeBranch: `task/${taskId}`, baseCommitSha: 'deadbeef' },
+          ],
+        },
+        materialization: { strategy: 'copy', cloned: [], skipped: [] },
+        frozenAt: '2026-04-19T00:00:00Z',
+        finalizedAt: null,
+        state: 'active',
+      }),
+    );
+
+    const map = await buildWorktreeBindingMap(taskId, repoRoot);
+    // Binding dropped: no substitution, so confinement is NOT redirected.
+    expect(map.applied).toBe(false);
+    expect(map.substitutions.size).toBe(0);
+    const canonicalOriginal = realpathSync(originalRoot);
+    expect(rewritePath(path.join(canonicalOriginal, 'src', 'app.ts'), map))
+      .toBe(path.join(canonicalOriginal, 'src', 'app.ts'));
+  });
+
+  it('SEC-TS-01: drops a repoBinding whose worktreeRoot symlinks out of the base', async () => {
+    const taskId = 'wt-inject-symlink';
+    const originalRoot = path.join(repoRoot, 'origin', 'crud-app');
+    const secret = path.join(repoRoot, 'outside-secret');
+    mkdirSync(originalRoot, { recursive: true });
+    mkdirSync(secret, { recursive: true });
+
+    const base = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees');
+    mkdirSync(base, { recursive: true });
+    // A symlink planted UNDER the base but resolving outside it must not pass
+    // the containment check (the guard tests the realpath'd value).
+    const sneaky = path.join(base, 'sneaky');
+    symlinkSync(secret, sneaky);
+
+    const sidecarDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
+    writeFileSync(
+      path.join(sidecarDir, '.task.json'),
+      JSON.stringify({
+        schema_version: 1,
+        taskId,
+        contextPackBinding: {
+          contextPackPath: null,
+          dataHostDir: null,
+          dataContainerDir: null,
+          repoBindings: [
+            { originalRoot, worktreeRoot: sneaky, worktreeBranch: `task/${taskId}`, baseCommitSha: 'deadbeef' },
+          ],
+        },
+        materialization: { strategy: 'copy', cloned: [], skipped: [] },
+        frozenAt: '2026-04-19T00:00:00Z',
+        finalizedAt: null,
+        state: 'active',
+      }),
+    );
+
+    const map = await buildWorktreeBindingMap(taskId, repoRoot);
+    expect(map.applied).toBe(false);
+    expect(map.substitutions.size).toBe(0);
   });
 });
 

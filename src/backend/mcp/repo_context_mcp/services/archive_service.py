@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Any, Callable
 
@@ -19,6 +20,59 @@ from ..utils import (
 from .record_cache import ScopedRecordCache
 
 logger = logging.getLogger(__name__)
+
+# SEC-PY-07: bound the archive record scan. scope_dir is HTTP-controlled, so an
+# unbounded rglob + load_json is a DoS vector on a large or crafted tree.
+_RECORD_SCAN_LIMIT = 10000
+_MAX_RECORD_BYTES = 1024 * 1024  # 1 MiB
+_SCAN_SKIP_DIRS = frozenset(
+    {"node_modules", ".git", "__pycache__", ".venv", "venv"}
+)
+
+
+def _iter_bounded_json_files(root: Path) -> list[Path]:
+    """Bounded recursive collection of ``*.json`` files under *root*.
+
+    Mirrors the 6.1 ``repo_category_probe._rglob_any`` fix: an ``os.scandir``
+    stack-walk that skips heavy/transient dirs, does not follow directory
+    symlinks, and stops after ``_RECORD_SCAN_LIMIT`` entries — so an
+    HTTP-controlled ``scope_dir`` cannot trigger an unbounded walk. Returns a
+    sorted list for deterministic grouping.
+    """
+    paths: list[Path] = []
+    examined = 0
+    stack = [root]
+    while stack:
+        try:
+            scanner = os.scandir(stack.pop())
+        except OSError:
+            continue
+        # Iterate lazily (no list()) so a single huge flat directory cannot
+        # pre-materialize all entries before the limit check fires.
+        with scanner:
+            for entry in scanner:
+                examined += 1
+                if examined > _RECORD_SCAN_LIMIT:
+                    logger.warning(
+                        "Archive record scan hit limit (%d) under %s",
+                        _RECORD_SCAN_LIMIT,
+                        root,
+                    )
+                    paths.sort()
+                    return paths
+                try:
+                    if entry.is_dir(follow_symlinks=False):
+                        if (
+                            entry.name not in _SCAN_SKIP_DIRS
+                            and not entry.name.startswith(".staging-")
+                        ):
+                            stack.append(Path(entry.path))
+                    elif entry.name.endswith(".json") and entry.is_file():
+                        paths.append(Path(entry.path))
+                except OSError:
+                    continue
+    paths.sort()
+    return paths
 
 
 class TaskArchiveService:
@@ -80,11 +134,32 @@ class TaskArchiveService:
         if not scope_dir.exists():
             return []
 
+        def _is_transient_path(p: Path) -> bool:
+            return any(
+                part.startswith(".staging-")
+                or part in (".indexes.lock", ".pack-writer.lock")
+                for part in p.parts
+            )
+
         grouped: dict[str, list[tuple[Path, dict[str, Any]]]] = {}
-        for path in sorted(scope_dir.rglob("*.json")):
+        for path in _iter_bounded_json_files(scope_dir):
+            if _is_transient_path(path):
+                continue
+            try:
+                size = path.stat().st_size
+            except OSError:
+                logger.warning("Skipping unreadable archive record at %s", path)
+                continue
+            if size > _MAX_RECORD_BYTES:
+                logger.warning(
+                    "Skipping oversized archive record (%d bytes) at %s",
+                    size,
+                    path,
+                )
+                continue
             try:
                 payload = load_json(path)
-            except ValueError:
+            except (ValueError, OSError):
                 logger.warning("Skipping unreadable archive record at %s", path)
                 continue
             if not isinstance(payload, dict):
@@ -495,6 +570,10 @@ class TaskArchiveService:
             )
 
         record = load_json(record_path)
+        if not isinstance(record, dict):
+            raise ValueError(
+                "Shared retrospective memory record is not a JSON object"
+            )
         if record.get("record_type") != "glopml-retrospective-memory":
             raise ValueError(
                 "Shared retrospective memory record has an unexpected type"

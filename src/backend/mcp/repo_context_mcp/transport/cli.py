@@ -11,6 +11,7 @@ from ..services import (
     RESEED_IN_PROGRESS_ERROR_CODE,
     ReseedAlreadyInProgressError,
 )
+from ..services.plan import VALID_PLAN_MODES
 from ..utils import ensure_non_empty_string
 
 
@@ -98,7 +99,7 @@ class RepoContextCli:
         seed_parser.add_argument("--plan-file", default=self.default_plan_file)
         seed_parser.add_argument(
             "--plan-mode",
-            choices=("prefer-plan", "require-plan", "manifest-only"),
+            choices=VALID_PLAN_MODES,
             default="prefer-plan",
             help="Whether to prefer or require an approved dry-run plan.",
         )

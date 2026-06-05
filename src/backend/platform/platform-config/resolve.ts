@@ -4,9 +4,7 @@ import type { ContainerBackend, ContainerEngineHost } from '../core/index.js';
 import type { PlatformConfigLoadResult } from './types.js';
 import { VALID_ENGINE_HOSTS, isValidWslDistroName } from './types.js';
 import { loadPlatformConfig } from './load.js';
-
-const RUNTIME_PLATFORM_CONFIG_PATH = '.platform-state/platform.json';
-const DEFAULT_PLATFORM_CONFIG_PATH = 'config/platform.default.json';
+import { RUNTIME_PLATFORM_CONFIG_PATH, DEFAULT_PLATFORM_CONFIG_PATH } from './paths.js';
 
 export interface ResolvedContainerEngineHost {
   host: ContainerEngineHost;

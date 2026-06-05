@@ -104,6 +104,9 @@ def resolve_path(base_dir: Path, value: str) -> Path:
 
 
 def load_json(path: Path) -> dict[str, Any]:
+    # Intentionally local: emits manifest-specific operator-facing error
+    # messages. Distinct by design from lib.io.load_json (generic messages,
+    # TypeError on non-object) and repo_context_mcp.utils.load_json.
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:

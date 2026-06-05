@@ -932,6 +932,7 @@ export function installAppTestHarness(): void {
           action: 'taskBoard.readBoard',
           mode: 'read-only',
           message: '0 open, 0 pending, 0 failed, 0 completed.',
+          boardSnapshotSequence: 1,
           dropboxItems: [],
           pendingItems: [],
           errorItems: [],

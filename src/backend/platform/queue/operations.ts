@@ -3,7 +3,7 @@ import { existsSync, readdirSync, realpathSync } from 'node:fs';
 import { readdir, readFile, writeFile, unlink, rm } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { createLogger, emitTaskProgressEvent, moveFile, readTextFile, ensureDir, findRepoRoot, copyFileSafe, resolvePath } from '../core/index.js';
+import { createLogger, emitTaskProgressEvent, moveFile, readTextFile, ensureDir, findRepoRoot, copyFileSafe, resolvePath, writeTextFileAtomic } from '../core/index.js';
 import {
   cleanupActivePlannerFocusSnapshot,
   moveStagedPlannerFocusSnapshot,
@@ -582,6 +582,12 @@ export interface ActivateNextPendingItemOptions {
   repoRoot: string;
   /** Optional context pack dir override (used by legacy callers that resolve it externally). */
   contextPackDir?: string;
+  /**
+   * Internal re-drive depth counter used by rollback retry logic.
+   * External callers must not set this; it defaults to 0 and is capped at 1
+   * to prevent unbounded recursion if a re-driven activation also fails.
+   */
+  activationRollbackRetryDepth?: number;
 }
 
 export const ACTIVATION_GATE_REASON = {
@@ -643,10 +649,21 @@ async function readActiveWorkspaceContextPackDir(repoRoot: string): Promise<stri
  * Returns `{ activated: false }` when there are no pending items or the
  *   workspace is not ready.
  */
+const ACTIVATION_ROLLBACK_RETRY_MAX_DEPTH = 1;
+
+// Tracks the last rollback re-drive promise for test observability. Zero overhead
+// in production (single variable write). Tests await this to deterministically
+// verify that the re-drive fires and completes after a failed activation rolls back.
+let _lastRollbackRedrive: Promise<ActivateNextPendingItemResult> | null = null;
+/** @internal — test use only; do not call from production code. */
+export function _getLastRollbackRedriveForTest(): Promise<ActivateNextPendingItemResult> | null {
+  return _lastRollbackRedrive;
+}
+
 export async function activateNextPendingItemIfReady(
   options: ActivateNextPendingItemOptions,
 ): Promise<ActivateNextPendingItemResult> {
-  const { paths, repoRoot, contextPackDir } = options;
+  const { paths, repoRoot, contextPackDir, activationRollbackRetryDepth = 0 } = options;
   const { pendingDir, templatesDir } = paths;
 
   await Promise.all([
@@ -1001,7 +1018,7 @@ export async function activateNextPendingItemIfReady(
       const repoLabels = allRepoLabels.slice(0, branchOwnedMaterializationOrigins.length);
       const readonlyContextRepoLabels = allRepoLabels.slice(branchOwnedMaterializationOrigins.length);
       if (branchAuthorityPartition) {
-        log.info('activation.branch_authority_partition.resolved', {
+        log.debug('activation.branch_authority_partition.resolved', {
           taskId,
           branchOwnedCount: branchAuthorityPartition.branchOwnedRoots.length,
           readonlyContextCount: branchAuthorityPartition.readonlyContextRoots.length,
@@ -1324,10 +1341,9 @@ export async function activateNextPendingItemIfReady(
     sliceArtifactFormat,
   };
 
-  await writeFile(
+  await writeTextFileAtomic(
     perTaskSidecarPath,
     JSON.stringify(perTaskSidecar, null, 2) + '\n',
-    'utf-8',
   );
   await transferStagedSnapshotToActiveTask(repoRoot, taskId);
   if (await checkpointKill('post-sidecar')) {
@@ -1422,14 +1438,16 @@ export async function activateNextPendingItemIfReady(
       await ensureSharedMcpRunning(repoRoot);
     } catch (bootstrapErr) {
       log.error('shared_mcp.bootstrap.failed', bootstrapErr, { taskId });
-      await rollbackActivationClaim({
-        repoRoot,
-        paths,
-        taskId,
-        activeMarkerPath,
-        repoBindings: rollbackBindings,
-        readonlyContextBindings: rollbackReadonlyContextBindings,
-      });
+      await withDirLock(paths.queueLockDir, 'ActivationRollback', () =>
+        rollbackActivationClaim({
+          repoRoot,
+          paths,
+          taskId,
+          activeMarkerPath,
+          repoBindings: rollbackBindings,
+          readonlyContextBindings: rollbackReadonlyContextBindings,
+        }),
+      );
       await clearProgress('shared-mcp-bootstrap-failed');
       const reason = 'shared-mcp-bootstrap-failed';
       await emitTaskProgressEvent({
@@ -1438,6 +1456,19 @@ export async function activateNextPendingItemIfReady(
         taskId,
         event: { type: 'queue.active.skipped', input: { reason } },
       });
+      if (activationRollbackRetryDepth < ACTIVATION_ROLLBACK_RETRY_MAX_DEPTH) {
+        const rdrivePromise = activateNextPendingItemIfReady({
+          paths, repoRoot, contextPackDir,
+          activationRollbackRetryDepth: activationRollbackRetryDepth + 1,
+        });
+        _lastRollbackRedrive = rdrivePromise;
+        rdrivePromise.catch((rdriveErr: unknown) => {
+          log.warn('activation.rollback_redrive.failed', {
+            taskId,
+            error: rdriveErr instanceof Error ? rdriveErr.message : String(rdriveErr),
+          });
+        });
+      }
       return { activated: false, reason: ACTIVATION_GATE_REASON.SHARED_MCP_BOOTSTRAP_FAILED };
     }
   } else {
@@ -1477,14 +1508,16 @@ export async function activateNextPendingItemIfReady(
     await writeProgress('starting-pipeline');
     pipelineResult = await startPipeline(taskId, repoRoot);
   } catch (err) {
-    await rollbackActivationClaim({
-      repoRoot,
-      paths,
-      taskId,
-      activeMarkerPath,
-      repoBindings: rollbackBindings,
-      readonlyContextBindings: rollbackReadonlyContextBindings,
-    });
+    await withDirLock(paths.queueLockDir, 'ActivationRollback', () =>
+      rollbackActivationClaim({
+        repoRoot,
+        paths,
+        taskId,
+        activeMarkerPath,
+        repoBindings: rollbackBindings,
+        readonlyContextBindings: rollbackReadonlyContextBindings,
+      }),
+    );
     await clearProgress('pipeline-spawn-failed');
     log.error('pipeline.spawn.failed', err, { taskId });
     const reason = 'pipeline-spawn-failed';
@@ -1499,6 +1532,19 @@ export async function activateNextPendingItemIfReady(
       taskId,
       event: { type: 'activation.skipped', input: { reason } },
     });
+    if (activationRollbackRetryDepth < ACTIVATION_ROLLBACK_RETRY_MAX_DEPTH) {
+      const rdrivePromise = activateNextPendingItemIfReady({
+        paths, repoRoot, contextPackDir,
+        activationRollbackRetryDepth: activationRollbackRetryDepth + 1,
+      });
+      _lastRollbackRedrive = rdrivePromise;
+      rdrivePromise.catch((rdriveErr: unknown) => {
+        log.warn('activation.rollback_redrive.failed', {
+          taskId,
+          error: rdriveErr instanceof Error ? rdriveErr.message : String(rdriveErr),
+        });
+      });
+    }
     return { activated: false, reason: ACTIVATION_GATE_REASON.PIPELINE_SPAWN_FAILED };
   }
   if ('deferred' in pipelineResult && pipelineResult.deferred) {
@@ -1679,8 +1725,9 @@ async function rollbackActivationClaim(options: {
     }
     if (rollbackBinding.createdBranch && binding.worktreeBranch) {
       await execFileAsync('git', [
+        // SEC-TS-05: '--' guards against an agent-authored branch name starting with '-'.
         '-C', binding.originalRoot,
-        'branch', '-D', binding.worktreeBranch,
+        'branch', '-D', '--', binding.worktreeBranch,
       ]).catch(() => {});
     }
   }

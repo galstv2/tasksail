@@ -7,9 +7,25 @@ import {
   ensurePathWithinDropbox,
   isPathInsideOrEqual,
   isPathWithinBoundary,
+  relativePathEscapes,
   pathIdentityKey,
   samePathIdentity,
 } from '../paths.js';
+
+describe('relativePathEscapes', () => {
+  it('SEC-TS-04: flags relative paths that escape via ..', () => {
+    expect(relativePathEscapes('../../outside')).toBe(true);
+    expect(relativePathEscapes('..')).toBe(true);
+    expect(relativePathEscapes('a/../../b')).toBe(true);
+  });
+  it('passes absolute and contained-relative paths', () => {
+    expect(relativePathEscapes('/etc/passwd')).toBe(false);
+    expect(relativePathEscapes('contextpacks/mypack')).toBe(false);
+    expect(relativePathEscapes('./local')).toBe(false);
+    expect(relativePathEscapes('a/b/c')).toBe(false);
+    expect(relativePathEscapes('a/../b')).toBe(false);
+  });
+});
 
 describe('findRepoRoot', () => {
   it('finds the repo root from the current directory', () => {

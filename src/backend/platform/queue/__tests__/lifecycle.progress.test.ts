@@ -75,13 +75,14 @@ describe('queue lifecycle progress narrative', () => {
     const { taskId, repoSlug } = await runLifecycleScenario();
 
     const progressLines = stderrChunks().filter(isHumanProgressLine);
+    const worktreeLine = `[pipeline] writable task branch worktree ${repoSlug} on task/${taskId}\n`;
     expect(progressLines).toContain(`[queue] promoted to pending ${taskId}\n`);
-    expect(progressLines).toContain(`[pipeline] worktree ${repoSlug} on task/${taskId}\n`);
+    expect(progressLines).toContain(worktreeLine);
     expect(progressLines).toContain(`[queue] activated ${taskId}  repos=1\n`);
     expect(progressLines).toContain(`[pipeline] completed ${taskId} [ok]\n`);
     expect(progressLines.indexOf(`[queue] promoted to pending ${taskId}\n`))
-      .toBeLessThan(progressLines.indexOf(`[pipeline] worktree ${repoSlug} on task/${taskId}\n`));
-    expect(progressLines.indexOf(`[pipeline] worktree ${repoSlug} on task/${taskId}\n`))
+      .toBeLessThan(progressLines.indexOf(worktreeLine));
+    expect(progressLines.indexOf(worktreeLine))
       .toBeLessThan(progressLines.indexOf(`[queue] activated ${taskId}  repos=1\n`));
     expect(progressLines.indexOf(`[queue] activated ${taskId}  repos=1\n`))
       .toBeLessThan(progressLines.indexOf(`[pipeline] completed ${taskId} [ok]\n`));

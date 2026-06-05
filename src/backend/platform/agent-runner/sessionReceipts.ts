@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { writeTextFile } from '../core/index.js';
+import { writeTextFileAtomic } from '../core/index.js';
 import { readTextFile } from '../core/io.js';
 
 type PromptAuditMetadata = {
@@ -75,7 +75,7 @@ export async function writeSessionStartReceipt(options: {
       `Started ${options.displayName}${options.launchPhase ? ` ${options.launchPhase}` : ''} runtime.`,
     ],
   };
-  await writeTextFile(receiptPath, JSON.stringify(receipt, null, 2) + '\n');
+  await writeTextFileAtomic(receiptPath, JSON.stringify(receipt, null, 2) + '\n');
   return receiptPath;
 }
 
@@ -112,7 +112,7 @@ export async function writeSessionMonitorHeartbeat(options: {
     updated_at: receiptTimestamp(),
     updated_by: 'src/backend/platform/agent-runner/agentSession.ts',
   };
-  await writeTextFile(options.receiptPath, JSON.stringify(payload, null, 2) + '\n');
+  await writeTextFileAtomic(options.receiptPath, JSON.stringify(payload, null, 2) + '\n');
 }
 
 /**
@@ -144,5 +144,5 @@ export async function writeSessionTerminalReceipt(options: {
   payload.latest_output_lines = [
     `${(payload.role_name as string) ?? options.agentId} exited ${options.terminalStatus} (exit_code=${options.exitCode}).`,
   ];
-  await writeTextFile(options.receiptPath, JSON.stringify(payload, null, 2) + '\n');
+  await writeTextFileAtomic(options.receiptPath, JSON.stringify(payload, null, 2) + '\n');
 }

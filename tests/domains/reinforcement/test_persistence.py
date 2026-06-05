@@ -242,6 +242,25 @@ class TestPersistence:
         assert len(loaded) == 1
         assert loaded[0].status == "reviewed"
 
+    def test_delete_realignment_session_returns_found_flag(
+        self, store: ReinforcementStore,
+    ) -> None:
+        # MD-2: the found/not-found result is computed inside the locked
+        # modifier (no check-then-act race), and stays accurate.
+        session = RealignmentSession(
+            realignment_id="RA-DEL", trigger_task_id="T-1",
+            trigger_feedback_id="FB-1",
+            participating_agents=["software-engineer"],
+            failure_analysis="", root_cause="", corrective_actions=[],
+            status="open", meeting_notes="",
+            created_at="2026-01-01T00:00:00Z",
+        )
+        store.save_realignment_session(session)
+        assert store.delete_realignment_session("RA-MISSING") is False
+        assert len(store.load_realignment_sessions()) == 1
+        assert store.delete_realignment_session("RA-DEL") is True
+        assert store.load_realignment_sessions() == []
+
     def test_error_status_round_trips(self, store: ReinforcementStore) -> None:
         session = RealignmentSession(
             realignment_id="RA-ERROR", trigger_task_id="T-1",

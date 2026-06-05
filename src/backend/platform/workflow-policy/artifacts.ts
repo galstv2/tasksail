@@ -1,10 +1,13 @@
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
-import { readTextFile, resolvePaths, stripHtmlComments } from '../core/index.js';
+import { createLogger, readTextFile, resolvePaths, stripHtmlComments } from '../core/index.js';
 import { requireAuthorizedActiveContextPack } from '../context-pack/active.js';
 import { resolveQueuePaths, type QueuePaths } from '../queue/paths.js';
-import { readRuntimeWorkflowFacts } from '../agent-runner/runtimeFacts.js';
+import {
+  computeRuntimeFactsSourceSignature,
+  readRuntimeWorkflowFacts,
+} from '../agent-runner/runtimeFacts.js';
 import {
   CONTENT_SECTION_EXCLUSIONS,
   METADATA_LINE,
@@ -26,6 +29,7 @@ import type { WorkspaceArtifact } from './types.js';
 
 const NESTED_SECTION_HEADING = /^(#{3,6})\s+(.*\S)\s*$/;
 const MARKDOWN_CONTRACT = loadMarkdownContract();
+const log = createLogger('platform/workflow-policy/artifacts');
 
 export function parseSections(text: string | null | undefined): Record<string, string[]> {
   const sections: Record<string, string[]> = {};
@@ -267,12 +271,34 @@ export async function parallelOkHasActiveApproval(
     : path.join(rootDir, '.platform-state', 'runtime');
   const runtimeFacts = await readRuntimeWorkflowFacts(taskRuntime);
   const authoritative = runtimeFacts?.parallel?.active_approval;
-  if (typeof authoritative === 'boolean') {
+  const runtimeFactsCurrent = Boolean(
+    taskId
+    && runtimeFacts?.source_signature
+    && runtimeFacts.source_signature === await computeRuntimeFactsSourceSignature({
+      repoRoot: rootDir,
+      taskId,
+      taskRuntime,
+    }),
+  );
+  if (runtimeFactsCurrent && typeof authoritative === 'boolean') {
     return authoritative;
   }
 
-  const decisionText = normalizeText(stripHtmlCommentsLines(artifact.sections[SECTION_NAMES.DECISION] ?? [])).toLowerCase();
-  return decisionText.includes('complex') && !decisionText.includes('simple');
+  // SEC-TS-03: exact 'complex' only — a substring match let agent-authored
+  // prose trip the fleet-execution gate. Current runtime facts are derived from
+  // detectParallelOk, which now uses the same strict matcher; stale or unsigned
+  // facts fall back to parsing the live artifact.
+  const decisionText = normalizeText(stripHtmlCommentsLines(artifact.sections[SECTION_NAMES.DECISION] ?? [])).toLowerCase().trim();
+  if (decisionText !== 'simple' && decisionText !== 'complex') {
+    log.warn('parallel_ok.decision.invalid_fallback_simple', {
+      taskId,
+      source: 'workflow-policy',
+      artifact: artifact.relativePath,
+      decision: decisionText.length > 0 ? decisionText.slice(0, 120) : '<empty>',
+      fallback: 'simple',
+    });
+  }
+  return decisionText === 'complex';
 }
 
 export async function hasPendingMarkdownFiles(rootDir: string): Promise<boolean> {

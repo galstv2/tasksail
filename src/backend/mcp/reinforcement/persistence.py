@@ -20,7 +20,11 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, Callable
 
-from src.backend.scripts.python.lib.io import atomic_write_json, load_json_safe
+from src.backend.scripts.python.lib.io import (
+    atomic_write_json,
+    atomic_write_text,
+    load_json_safe,
+)
 from src.backend.scripts.python.lib.locking import acquire_file_lock, release_file_lock
 
 from .models import (
@@ -369,24 +373,28 @@ class ReinforcementStore:
 
     def delete_realignment_session(self, realignment_id: str) -> bool:
         """Remove a realignment session from the active sessions store."""
+        found = False
+
         def _delete(data: dict[str, Any]) -> dict[str, Any]:
+            nonlocal found
             self._ensure_collection(data, SCHEMA_VERSION_REALIGNMENT_SESSIONS)
+            original = data["entries"]
             data["entries"] = [
                 entry
-                for entry in data["entries"]
+                for entry in original
                 if entry.get("realignment_id") != realignment_id
             ]
+            # Existence check inside the locked modifier removes the
+            # check-then-act race against a concurrent writer.
+            found = len(data["entries"]) != len(original)
             return data
 
-        before = self.load_realignment_sessions()
-        if all(session.realignment_id != realignment_id for session in before):
-            return False
         self._locked_read_modify_write(
             self._realignment_sessions_path(),
             _delete,
             self._realignment_sessions_read_path(),
         )
-        return True
+        return found
 
     def save_realignment_notes(
         self,
@@ -396,7 +404,7 @@ class ReinforcementStore:
         notes_dir = self._realignment_notes_dir()
         notes_dir.mkdir(parents=True, exist_ok=True)
         notes_path = notes_dir / f"{realignment_id}.md"
-        notes_path.write_text(notes, encoding="utf-8")
+        atomic_write_text(notes_path, notes)
         return notes_path
 
     # ------------------------------------------------------------------

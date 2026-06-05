@@ -20,6 +20,7 @@ from ..services import (
     RESEED_MARKER_STALE_AFTER_SECONDS,
     ReseedAlreadyInProgressError,
 )
+from ..services.plan import VALID_PLAN_MODES
 from ..utils import (
     attach_request_id,
     ensure_non_empty_string,
@@ -30,6 +31,37 @@ from ..utils import (
 
 logger = logging.getLogger("repo-context-mcp")
 TASK_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+
+# SEC-PY-03: GET routes that serve context-pack file content (gated when
+# REPO_CONTEXT_MCP_REQUIRE_GET_AUTH is enabled). Discovery/health routes
+# (/health, /sse, /status, /capabilities) stay open.
+_GATED_GET_ROUTES = frozenset(
+    {
+        "/shared-retrospective-memory",
+        "/context-pack-conventions",
+        "/behavior-corrections",
+    }
+)
+
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+# Wildcard/empty BIND addresses are listen directives, not client-facing hosts.
+# Binding 0.0.0.0 is the normal in-container address (exposure is controlled by
+# the host port bind, e.g. 127.0.0.1:8811), so these are never added to the
+# Host/Origin allowlist and must NOT disable DNS-rebind validation.
+_WILDCARD_BIND_HOSTS = frozenset({"0.0.0.0", "::", ""})
+
+
+def _normalize_host_name(value: str) -> str:
+    """Lowercased hostname from a Host header value, sans port and brackets.
+
+    '[::1]:8811' -> '::1'; 'localhost:8811' -> 'localhost'; '::1' -> '::1'.
+    """
+    value = value.strip().lower()
+    if value.startswith("[") and "]" in value:
+        return value[1 : value.index("]")]
+    if value.count(":") == 1:
+        return value.rsplit(":", 1)[0]
+    return value
 
 
 class RepoContextHttpHandler:
@@ -213,6 +245,22 @@ class RepoContextHttpHandler:
 
             def do_GET(self) -> None:  # noqa: N802
                 request_id = runtime.resolve_request_id(self.headers)
+                if not self._host_origin_allowed(request_id):
+                    return
+                try:
+                    self._dispatch_get(request_id)
+                except BaseException:
+                    try:
+                        self._write_json(
+                            500,
+                            {"error": "internal server error"},
+                            request_id,
+                        )
+                    except Exception:  # noqa: BLE001
+                        logger.debug("Failed to send 500 error response for request %s", request_id, exc_info=True)
+                    raise
+
+            def _dispatch_get(self, request_id: str) -> None:
                 parsed = urlparse(self.path)
                 if parsed.path == "/health":
                     self._write(
@@ -278,6 +326,11 @@ class RepoContextHttpHandler:
                     )
                     return
 
+                if parsed.path in _GATED_GET_ROUTES and not self._authorize_get(
+                    request_id
+                ):
+                    return
+
                 if parsed.path == "/shared-retrospective-memory":
                     try:
                         summary = (
@@ -286,8 +339,13 @@ class RepoContextHttpHandler:
                     except ValueError as exc:
                         self._write_json(400, {"error": str(exc)}, request_id)
                         return
-                    except Exception as exc:  # noqa: BLE001
-                        self._write_json(500, {"error": str(exc)}, request_id)
+                    except Exception:  # noqa: BLE001
+                        logger.exception(
+                            "GET %s failed (%s)", parsed.path, request_id
+                        )
+                        self._write_json(
+                            500, {"error": "internal server error"}, request_id
+                        )
                         return
 
                     self._write_json(200, summary, request_id)
@@ -305,8 +363,13 @@ class RepoContextHttpHandler:
                     except ValueError as exc:
                         self._write_json(400, {"error": str(exc)}, request_id)
                         return
-                    except Exception as exc:  # noqa: BLE001
-                        self._write_json(500, {"error": str(exc)}, request_id)
+                    except Exception:  # noqa: BLE001
+                        logger.exception(
+                            "GET %s failed (%s)", parsed.path, request_id
+                        )
+                        self._write_json(
+                            500, {"error": "internal server error"}, request_id
+                        )
                         return
 
                     self._write_json(200, summary, request_id)
@@ -324,8 +387,13 @@ class RepoContextHttpHandler:
                     except ValueError as exc:
                         self._write_json(400, {"error": str(exc)}, request_id)
                         return
-                    except Exception as exc:  # noqa: BLE001
-                        self._write_json(500, {"error": str(exc)}, request_id)
+                    except Exception:  # noqa: BLE001
+                        logger.exception(
+                            "GET %s failed (%s)", parsed.path, request_id
+                        )
+                        self._write_json(
+                            500, {"error": "internal server error"}, request_id
+                        )
                         return
 
                     self._write_json(200, summary, request_id)
@@ -362,6 +430,58 @@ class RepoContextHttpHandler:
                     {"error": f"Unknown GET path: {parsed.path}"},
                     request_id,
                 )
+
+            def _allowed_request_hosts(self) -> set[str]:
+                # Loopback is ALWAYS allowed. A wildcard bind (0.0.0.0/::) is a
+                # listen directive, not a client-facing host, so it is never added
+                # — binding 0.0.0.0 is the normal container address and must not
+                # weaken DNS-rebind protection. Genuine external exposure is
+                # declared explicitly via REPO_CONTEXT_MCP_ALLOWED_HOSTS.
+                allowed = set(_LOOPBACK_HOSTS)
+                bind_host = _normalize_host_name(
+                    os.getenv("REPO_CONTEXT_MCP_HOST", "127.0.0.1")
+                )
+                if bind_host and bind_host not in _WILDCARD_BIND_HOSTS:
+                    allowed.add(bind_host)
+                for extra in os.getenv(
+                    "REPO_CONTEXT_MCP_ALLOWED_HOSTS", ""
+                ).split(","):
+                    normalized = _normalize_host_name(extra)
+                    if normalized:
+                        allowed.add(normalized)
+                return allowed
+
+            def _host_origin_allowed(self, request_id: str) -> bool:
+                # SEC-PY-05: reject a foreign Host/Origin to mitigate DNS-rebinding
+                # against the loopback-exposed service. Always enforced.
+                allowed = self._allowed_request_hosts()
+
+                host = str(self.headers.get("Host", "") or "").strip()
+                if host and _normalize_host_name(host) not in allowed:
+                    logger.warning(
+                        "Rejected foreign Host %r from %s",
+                        host,
+                        self.client_address,
+                    )
+                    self._write_json(
+                        403, {"error": "host not allowed"}, request_id
+                    )
+                    return False
+
+                origin = str(self.headers.get("Origin", "") or "").strip()
+                if origin:
+                    origin_host = (urlparse(origin).hostname or "").lower()
+                    if origin_host not in allowed:
+                        logger.warning(
+                            "Rejected foreign Origin %r from %s",
+                            origin,
+                            self.client_address,
+                        )
+                        self._write_json(
+                            403, {"error": "origin not allowed"}, request_id
+                        )
+                        return False
+                return True
 
             def _authorize_post(self, request_id: str) -> bool:
                 if not runtime.auth_token:
@@ -408,8 +528,22 @@ class RepoContextHttpHandler:
                     return False
                 return True
 
+            def _authorize_get(self, request_id: str) -> bool:
+                # SEC-PY-03: opt-in token gate for file-content GET routes.
+                # Default off to preserve the unauthenticated read contract;
+                # enable with REPO_CONTEXT_MCP_REQUIRE_GET_AUTH once callers are
+                # confirmed to send the token.
+                require = os.getenv(
+                    "REPO_CONTEXT_MCP_REQUIRE_GET_AUTH", ""
+                ).strip().lower() in {"1", "true", "yes"}
+                if not require:
+                    return True
+                return self._authorize_post(request_id)
+
             def do_POST(self) -> None:  # noqa: N802
                 request_id = runtime.resolve_request_id(self.headers)
+                if not self._host_origin_allowed(request_id):
+                    return
                 try:
                     self._dispatch_post(request_id)
                 except BaseException:
@@ -491,6 +625,14 @@ class RepoContextHttpHandler:
                     )
                     return
 
+                if not isinstance(payload, dict):
+                    self._write_json(
+                        400,
+                        {"error": "request body must be a JSON object"},
+                        request_id,
+                    )
+                    return
+
                 if parsed.path == "/seed":
                     self._handle_seed(payload, request_id)
                     return
@@ -538,6 +680,13 @@ class RepoContextHttpHandler:
                         field_name="plan_file",
                     )
                     plan_mode = str(payload.get("plan_mode") or "prefer-plan")
+                    if plan_mode not in VALID_PLAN_MODES:
+                        self._write_json(
+                            400,
+                            {"error": f"invalid plan_mode: {plan_mode}"},
+                            request_id,
+                        )
+                        return
                     seed_scope_key = runtime.resolve_seed_scope_key(
                         context_pack_dir=context_pack_dir,
                         manifest=manifest,

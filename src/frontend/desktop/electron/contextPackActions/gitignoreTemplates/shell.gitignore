@@ -1,0 +1,10 @@
+
+# Shell script test output
+*.log
+bats-report/
+test-output/
+
+# Temporary files created during script execution
+tmp/
+temp/
+*.tmp

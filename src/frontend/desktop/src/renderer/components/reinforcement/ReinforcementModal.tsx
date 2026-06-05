@@ -47,21 +47,22 @@ function ReinforcementModal({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, handleKeyDown]);
 
+  // All four hooks are now keyed on activeContextPackDir (the identity boundary).
   const {
     tasks, availableYears, selectedYear, loading: tasksLoading,
     error: tasksError, onSelectYear, reload: reloadTasks,
-  } = useReinforcementTasks(hasActiveContextPack);
+  } = useReinforcementTasks(activeContextPackDir);
 
   const {
     overview, loading: overviewLoading, error: overviewError,
     reload: reloadOverview,
-  } = useReinforcementOverview(hasActiveContextPack);
+  } = useReinforcementOverview(activeContextPackDir);
 
   const {
     sessions, selectedSessionId,
     loading: sessionsLoading, error: sessionsError, analysisRun,
     onSelectSession, runAnalysis, dismissRealignment, completeAnalysisRun, reload: reloadSessions,
-  } = useRealignmentSessions(hasActiveContextPack);
+  } = useRealignmentSessions(activeContextPackDir);
   const { events: streamEvents } = useStreamEvents(50);
   const runStartEventId = useRef<string | null>(null);
   const lastCompletionEventId = useRef<string | null>(null);
@@ -75,7 +76,7 @@ function ReinforcementModal({
     [contextPackSessions, selectedSessionId],
   );
 
-  const doc = useRealignmentDocument(hasActiveContextPack);
+  const doc = useRealignmentDocument(activeContextPackDir);
   const { reload: reloadDocument } = doc;
 
   const feedback = useFeedbackSubmission();
@@ -83,6 +84,17 @@ function ReinforcementModal({
   const prefilled = useRef(false);
   const { onSelectTask, onSubmit: submitFeedback } = feedback;
   const currentTaskId = feedback.draft.taskId;
+
+  // Reset optimistic state and prefill when pack changes
+  const prevPackDirRef = useRef(activeContextPackDir);
+  useEffect(() => {
+    if (prevPackDirRef.current !== activeContextPackDir) {
+      prevPackDirRef.current = activeContextPackDir;
+      setOptimisticReviewedTaskIds(new Set());
+      prefilled.current = false;
+      feedback.onReset();
+    }
+  }, [activeContextPackDir]);
 
   useEffect(() => {
     if (tasks.length > 0 && !currentTaskId && !prefilled.current) {
@@ -92,29 +104,23 @@ function ReinforcementModal({
   }, [tasks, currentTaskId, onSelectTask]);
 
   const handleSubmit = useCallback(() => {
-    if (activeContextPackDir) {
-      submitFeedback(activeContextPackDir).then((outcome) => {
-        if (!outcome) return;
-        setOptimisticReviewedTaskIds((current) => new Set(current).add(outcome.taskId));
-        reloadTasks();
-        reloadOverview();
-        reloadSessions().catch(() => {});
-      }).catch(() => {});
-    }
-  }, [activeContextPackDir, reloadOverview, reloadSessions, reloadTasks, submitFeedback]);
-
-  const visibleTasks = useMemo(
-    () => tasks.map((task) => (
-      optimisticReviewedTaskIds.has(task.taskId)
-        ? {
-          ...task,
-          reviewStatus: 'reviewed' as const,
-          feedbackCount: Math.max(task.feedbackCount ?? 0, 1),
-        }
-        : task
-    )),
-    [optimisticReviewedTaskIds, tasks],
-  );
+    if (!activeContextPackDir) return;
+    // Block feedback submit if the draft taskId is not in the current loaded tasks
+    const draftTaskId = feedback.draft.taskId;
+    if (!draftTaskId || !tasks.some((t) => t.taskId === draftTaskId)) return;
+    const submittedPackDir = activeContextPackDir;
+    submitFeedback(activeContextPackDir).then((outcome) => {
+      if (!outcome) return;
+      // Ignore a stale continuation if the modal switched packs while the submit
+      // was in flight — do not apply pack A optimistic state or reloads onto pack B.
+      // prevPackDirRef.current always reflects the latest active pack.
+      if (prevPackDirRef.current !== submittedPackDir) return;
+      setOptimisticReviewedTaskIds((current) => new Set(current).add(outcome.taskId));
+      reloadTasks();
+      reloadOverview();
+      reloadSessions().catch(() => {});
+    }).catch(() => {});
+  }, [activeContextPackDir, feedback.draft.taskId, tasks, reloadOverview, reloadSessions, reloadTasks, submitFeedback]);
 
   const handleRunAnalysis = useCallback(
     (realignmentId: string) => {
@@ -135,8 +141,14 @@ function ReinforcementModal({
     [activeContextPackDir, dismissRealignment],
   );
 
+  const activeRunId =
+    analysisRun.status === 'running' || analysisRun.status === 'starting'
+      ? analysisRun.realignmentId
+      : null;
+
+  // Complete analysisRun only when event.realignmentId matches analysisRun.realignmentId
   useEffect(() => {
-    if (analysisRun.status !== 'running' && analysisRun.status !== 'starting') {
+    if (!activeRunId) {
       return;
     }
     const runStartIndex = runStartEventId.current
@@ -148,6 +160,7 @@ function ReinforcementModal({
     const terminalEvent = candidateEvents
       .find((event) => (
         event.source === 'runtime.realignment' &&
+        event.realignmentId === activeRunId &&
         event.id !== lastCompletionEventId.current &&
         (
           event.message.includes('archived') ||
@@ -164,12 +177,25 @@ function ReinforcementModal({
     reloadSessions().catch(() => {});
     reloadDocument().catch(() => {});
   }, [
-    analysisRun.status,
+    activeRunId,
     completeAnalysisRun,
     reloadDocument,
     reloadSessions,
     streamEvents,
   ]);
+
+  const visibleTasks = useMemo(
+    () => tasks.map((task) => (
+      optimisticReviewedTaskIds.has(task.taskId)
+        ? {
+          ...task,
+          reviewStatus: 'reviewed' as const,
+          feedbackCount: Math.max(task.feedbackCount ?? 0, 1),
+        }
+        : task
+    )),
+    [optimisticReviewedTaskIds, tasks],
+  );
 
   if (!isOpen) return null;
 

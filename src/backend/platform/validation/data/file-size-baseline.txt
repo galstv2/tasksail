@@ -15,7 +15,6 @@
 665 tests/domains/context_pack/test_switch_context_pack_workspace.py
 631 tests/domains/context_pack/test_activate_context_pack.py
 518 tests/domains/repo_context/test_repo_context_http_transport.py
-772 tests/domains/e2e/test_live_pipeline.py
 783 tests/domains/qmd/test_qmd_index_service.py
 
 # Python backend

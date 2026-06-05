@@ -265,30 +265,44 @@ export function checkContainerRuntimeAvailable(
   });
 }
 
+let inflightStart: Promise<ServicesReadStatusResponse> | null = null;
+
 export async function startBackendServices(
   repoRoot: string,
 ): Promise<ServicesReadStatusResponse> {
-  updateState({ status: 'starting', error: null });
+  // Coalesce concurrent callers onto a single bootstrap so they cannot race on
+  // the shared service state (each would otherwise spawn its own `bootstrap`).
+  if (inflightStart) {
+    return inflightStart;
+  }
+  inflightStart = (async () => {
+    updateState({ status: 'starting', error: null });
 
-  const runtimeAvailability = await checkContainerRuntimeAvailable(repoRoot);
-  if (!runtimeAvailability.ok) {
-    updateState({
-      status: 'unavailable',
-      error: runtimeAvailability.error,
-      lastCheckedAt: nowIso(),
-    });
+    const runtimeAvailability = await checkContainerRuntimeAvailable(repoRoot);
+    if (!runtimeAvailability.ok) {
+      updateState({
+        status: 'unavailable',
+        error: runtimeAvailability.error,
+        lastCheckedAt: nowIso(),
+      });
+      return readBackendServiceStatus();
+    }
+
+    const result = await spawnCli(repoRoot, 'bootstrap');
+
+    if (result.exitCode === 0) {
+      updateState({ status: 'healthy', error: null, lastCheckedAt: nowIso() });
+    } else {
+      const errorMsg = result.stderr || result.stdout || 'Bootstrap failed with no output.';
+      updateState({ status: 'unhealthy', error: errorMsg, lastCheckedAt: nowIso() });
+    }
     return readBackendServiceStatus();
+  })();
+  try {
+    return await inflightStart;
+  } finally {
+    inflightStart = null;
   }
-
-  const result = await spawnCli(repoRoot, 'bootstrap');
-
-  if (result.exitCode === 0) {
-    updateState({ status: 'healthy', error: null, lastCheckedAt: nowIso() });
-  } else {
-    const errorMsg = result.stderr || result.stdout || 'Bootstrap failed with no output.';
-    updateState({ status: 'unhealthy', error: errorMsg, lastCheckedAt: nowIso() });
-  }
-  return readBackendServiceStatus();
 }
 
 export async function stopBackendServices(

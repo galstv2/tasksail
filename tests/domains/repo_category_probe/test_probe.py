@@ -7,6 +7,7 @@ import pytest
 
 from src.backend.mcp.pack_constants import ALLOWED_REPO_CATEGORIES
 from src.backend.mcp.repo_category_probe import (
+    _rglob_any,
     classify_repo_category,
     repo_category_for_wizard_role,
 )
@@ -141,3 +142,42 @@ def test_wizard_role_maps_to_expected_category(role: str, expected: str) -> None
 def test_wizard_role_unknown_returns_none(bad_role: str) -> None:
     """Display labels and unknown strings must not match (values only)."""
     assert repo_category_for_wizard_role(bad_role) is None
+
+
+# ---------------------------------------------------------------------------
+# _rglob_any — bounded recursive scan (EH-4)
+# ---------------------------------------------------------------------------
+
+
+def test_rglob_any_finds_nested_match(tmp_path: Path) -> None:
+    nested = tmp_path / "src" / "main" / "resources" / "db" / "changelog"
+    nested.mkdir(parents=True)
+    (nested / "db.changelog-master.xml").write_text("<x/>", encoding="utf-8")
+    assert _rglob_any(tmp_path, "*changelog*.xml") is True
+
+
+def test_rglob_any_skips_heavy_dependency_dirs(tmp_path: Path) -> None:
+    # A changelog buried inside node_modules belongs to a dependency, not the
+    # project, and must neither match nor be scanned.
+    buried = tmp_path / "node_modules" / "somepkg" / "db"
+    buried.mkdir(parents=True)
+    (buried / "changelog.xml").write_text("<x/>", encoding="utf-8")
+    assert _rglob_any(tmp_path, "*changelog*.xml") is False
+
+
+def test_rglob_any_returns_false_when_absent(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "app.py").write_text("", encoding="utf-8")
+    assert _rglob_any(tmp_path, "*changelog*.xml") is False
+
+
+def test_rglob_any_is_bounded_by_scan_limit(tmp_path: Path) -> None:
+    # A deeply nested match is missed under a tiny scan budget (proving the
+    # walk is bounded) but found under the default budget.
+    deep = tmp_path
+    for i in range(20):
+        deep = deep / f"d{i}"
+    deep.mkdir(parents=True)
+    (deep / "changelog.xml").write_text("<x/>", encoding="utf-8")
+    assert _rglob_any(tmp_path, "*changelog*.xml", scan_limit=3) is False
+    assert _rglob_any(tmp_path, "*changelog*.xml") is True

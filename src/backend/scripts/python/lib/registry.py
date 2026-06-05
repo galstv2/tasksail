@@ -56,3 +56,12 @@ def contribution_section_names() -> tuple[str, ...]:
         f"{name}'s Contribution ({role})"
         for name, role in workflow_roles()
     )
+
+
+@lru_cache(maxsize=1)
+def agent_reward_multipliers() -> dict[str, float]:
+    """Return ``{agent_id: reward_multiplier}`` from the registry.
+
+    Defaults to 1.0 when the field is absent.
+    """
+    return {a["agent_id"]: float(a.get("reward_multiplier", 1.0)) for a in _load_agents()}

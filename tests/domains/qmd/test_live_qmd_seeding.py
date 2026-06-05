@@ -1095,5 +1095,56 @@ class LiveQmdSeedingTests(unittest.TestCase):
             self.assertEqual(repo_result["files_skipped"], 3)  # 5 - 2 = 3
 
 
+    def test_execute_seed_run_with_marker_does_not_call_pack_writer_update_manifest(
+        self,
+    ) -> None:
+        """Assert that _execute_seed_run_with_marker never calls PackWriter.update_manifest.
+
+        The live seed writes repo-sources.json directly via write_text_atomic under the
+        reseed-owner marker (seeding_service.py).  PackWriter.update_manifest holds a
+        separate per-pack .pack-writer.lock; calling it from inside _execute_seed_run_with_marker
+        would create a redundant lock that could invert ordering against the marker.
+
+        This test documents the intentional design so a future reader does not "fix" it
+        by routing the manifest write through PackWriter.update_manifest.
+        """
+        with tempfile.TemporaryDirectory() as temp_root:
+            temp_dir = Path(temp_root)
+            repo_dir = temp_dir / "billing-api"
+            (repo_dir / "src").mkdir(parents=True)
+            (repo_dir / "src" / "app.py").write_text("print('hello')\n", encoding="utf-8")
+
+            context_pack_dir = self.create_context_pack(
+                temp_dir,
+                [
+                    {
+                        "repo_id": "billing-api",
+                        "repo_name": "billing-api",
+                        "local_paths": [str(repo_dir)],
+                        "system_layer": "backend",
+                        "languages": ["python"],
+                        "artifact_roots": ["src"],
+                    }
+                ],
+            )
+
+            from src.backend.mcp import pack_writer as _pack_writer_mod
+
+            with mock.patch.object(
+                _pack_writer_mod.PackWriter,
+                "update_manifest",
+                wraps=None,  # not wrapping the real method — we want to detect any call
+                side_effect=AssertionError(
+                    "PackWriter.update_manifest must not be called during _execute_seed_run_with_marker"
+                ),
+            ):
+                report = self.run_seed(
+                    temp_dir,
+                    context_pack_dir=str(context_pack_dir),
+                )
+
+            self.assertEqual(report["overall_status"], "success")
+
+
 if __name__ == "__main__":
     unittest.main()

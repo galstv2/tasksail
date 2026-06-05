@@ -25,7 +25,7 @@
   border-left: 3px solid var(--terminal-border);
   border-radius: var(--ts-radius-md);
   padding: 0.75rem 0.8rem;
-  background: rgba(15, 23, 42, 0.42);
+  background: color-mix(in srgb, var(--terminal-chrome) 42%, transparent);
 }
 
 .stream-event__meta-row {
@@ -53,7 +53,7 @@
 }
 
 .stream-role--planner {
-  background: rgba(137, 184, 240, 0.16);
+  background: color-mix(in srgb, var(--ts-brand-cloudblue) 16%, transparent);
   color: var(--ts-brand-cloudblue);
 }
 
@@ -63,7 +63,7 @@
 }
 
 .stream-role--queue {
-  background: rgba(90, 173, 112, 0.16);
+  background: color-mix(in srgb, var(--ts-brand-green-light) 16%, transparent);
   color: var(--ts-brand-green-light);
 }
 
@@ -73,7 +73,7 @@
 }
 
 .stream-role--agent {
-  background: rgba(196, 90, 104, 0.16);
+  background: color-mix(in srgb, var(--ts-brand-burgundy-light) 16%, transparent);
   color: var(--ts-brand-burgundy-light);
 }
 
@@ -83,7 +83,7 @@
 }
 
 .stream-role--pipeline {
-  background: rgba(212, 166, 69, 0.16);
+  background: color-mix(in srgb, var(--ts-brand-gold-light) 16%, transparent);
   color: var(--ts-brand-gold-light);
 }
 
@@ -93,7 +93,7 @@
 }
 
 .stream-role--workflow {
-  background: rgba(212, 166, 69, 0.16);
+  background: color-mix(in srgb, var(--ts-brand-gold-light) 16%, transparent);
   color: var(--ts-brand-gold-light);
 }
 
@@ -103,7 +103,7 @@
 }
 
 .stream-role--operator {
-  background: rgba(196, 90, 104, 0.16);
+  background: color-mix(in srgb, var(--ts-brand-burgundy-light) 16%, transparent);
   color: var(--ts-brand-burgundy-light);
 }
 
@@ -113,28 +113,28 @@
 }
 
 .stream-role--system {
-  background: rgba(107, 122, 141, 0.16);
+  background: color-mix(in srgb, var(--ts-brand-gray) 16%, transparent);
   color: var(--ts-brand-gray-light);
 }
 
 .stream-severity--info {
-  background: rgba(137, 184, 240, 0.16);
-  color: var(--ts-brand-cloudblue);
+  background: color-mix(in srgb, var(--ts-info) 16%, transparent);
+  color: var(--ts-info);
 }
 
 .stream-severity--success {
-  background: rgba(90, 173, 112, 0.16);
-  color: var(--ts-brand-green-light);
+  background: color-mix(in srgb, var(--ts-success) 16%, transparent);
+  color: var(--ts-success);
 }
 
 .stream-severity--warning {
-  background: rgba(212, 166, 69, 0.16);
-  color: var(--ts-brand-gold-light);
+  background: color-mix(in srgb, var(--ts-warning) 16%, transparent);
+  color: var(--ts-warning);
 }
 
 .stream-severity--error {
-  background: rgba(196, 90, 104, 0.18);
-  color: var(--ts-brand-burgundy-light);
+  background: color-mix(in srgb, var(--ts-danger) 18%, transparent);
+  color: var(--ts-danger);
 }
 
 .stream-event__metadata {
@@ -178,7 +178,7 @@
   overflow-x: auto;
   padding: 0.75rem;
   border-radius: var(--ts-radius-md);
-  background: rgba(1, 4, 9, 0.48);
+  background: color-mix(in srgb, var(--terminal-bg) 48%, transparent);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -244,12 +244,12 @@
 }
 
 .terminal-tab:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--ts-text-inverse) 6%, transparent);
   color: var(--terminal-text);
 }
 
 .terminal-tab--active {
-  background: rgba(255, 255, 255, 0.1);
+  background: color-mix(in srgb, var(--ts-text-inverse) 10%, transparent);
   color: var(--terminal-text);
 }
 
@@ -323,7 +323,7 @@
 /* Runtime milestone lines get a subtle left accent to distinguish
    backend pipeline progress from operator-initiated IPC events. */
 .terminal-line--runtime {
-  border-left: 2px solid rgba(212, 166, 69, 0.25);
+  border-left: 2px solid color-mix(in srgb, var(--ts-brand-gold-light) 25%, transparent);
   padding-left: 0.5em;
   margin-left: -0.5em;
 }
@@ -384,5 +384,5 @@
 }
 
 .terminal-feed__scroll-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: color-mix(in srgb, var(--ts-text-inverse) 8%, transparent);
 }

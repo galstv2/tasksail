@@ -159,7 +159,8 @@ function resolveArchivedTasks(tasks: ArchivedTaskEntry[]): void {
 }
 
 // Mock a nested archive root containing archive.md, handoffs/final-summary.md,
-// ImplementationSteps/slice-1.md, plus entries that must be skipped.
+// ImplementationSteps/slice-1.md, ImplementationSteps/slice-2.xml, plus entries
+// that must be skipped.
 function mockNestedTree(): void {
   readdir.mockImplementation(async (dir: string) => {
     if (dir === NESTED_ROOT) {
@@ -177,7 +178,7 @@ function mockNestedTree(): void {
       return [dirent('final-summary.md', 'file'), dirent('.DS_Store', 'file')];
     }
     if (dir === `${NESTED_ROOT}/ImplementationSteps`) {
-      return [dirent('slice-1.md', 'file')];
+      return [dirent('slice-1.md', 'file'), dirent('slice-2.xml', 'file')];
     }
     return [];
   });
@@ -203,14 +204,18 @@ describe('readTaskContent completed artifact explorer', () => {
     const result = await readTaskContent({ column: 'completed', fileName: 'DONE-A.md' }, listContextPacks);
 
     expect(result.ok).toBe(true);
-    const response = (result as { response: { artifacts: { relativePath: string }[]; artifactRelativePath: string; content: string } }).response;
+    const response = (result as { response: { artifacts: { relativePath: string; contentType?: string }[]; artifactRelativePath: string; content: string } }).response;
     expect(response.artifactRelativePath).toBe('archive.md');
     expect(response.content).toBe('# Archive\n');
     expect(response.artifacts.map((a) => a.relativePath)).toEqual([
       'archive.md',
       'handoffs/final-summary.md',
       'ImplementationSteps/slice-1.md',
+      'ImplementationSteps/slice-2.xml',
     ]);
+    expect(response.artifacts.find((a) => a.relativePath === 'ImplementationSteps/slice-2.xml')).toMatchObject({
+      contentType: 'xml',
+    });
     expect(readFile).toHaveBeenCalledWith(`${NESTED_ROOT}/archive.md`, 'utf-8');
   });
 
@@ -225,16 +230,37 @@ describe('readTaskContent completed artifact explorer', () => {
       listContextPacks,
     );
 
-    const response = (result as { response: { artifacts: { relativePath: string }[]; artifactRelativePath: string; content: string } }).response;
+    const response = (result as { response: { artifacts: { relativePath: string; contentType?: string }[]; artifactRelativePath: string; content: string } }).response;
     expect(response.artifactRelativePath).toBe('handoffs/final-summary.md');
     expect(response.content).toBe('# Final Summary\n');
     expect(response.artifacts.map((a) => a.relativePath)).toEqual([
       'archive.md',
       'handoffs/final-summary.md',
       'ImplementationSteps/slice-1.md',
+      'ImplementationSteps/slice-2.xml',
     ]);
     expect(readFile).toHaveBeenCalledWith(`${NESTED_ROOT}/handoffs/final-summary.md`, 'utf-8');
     expect(readFile).not.toHaveBeenCalledWith(`${NESTED_ROOT}/archive.md`, 'utf-8');
+  });
+
+  it('reads a requested XML implementation-step artifact and marks the response as XML', async () => {
+    resolveArchivedTasks([nestedArchivedTask()]);
+    mockNestedTree();
+    readFile.mockImplementation(async (p: string) =>
+      p.endsWith('ImplementationSteps/slice-2.xml')
+        ? '<executionSlice><metadata><sliceId>slice-2</sliceId></metadata></executionSlice>\n'
+        : '# Archive\n');
+
+    const result = await readTaskContent(
+      { column: 'completed', fileName: 'DONE-A.md', artifactRelativePath: 'ImplementationSteps/slice-2.xml' },
+      listContextPacks,
+    );
+
+    const response = (result as { response: { artifactRelativePath: string; content: string; contentType: string } }).response;
+    expect(response.artifactRelativePath).toBe('ImplementationSteps/slice-2.xml');
+    expect(response.contentType).toBe('xml');
+    expect(response.content).toContain('<executionSlice>');
+    expect(readFile).toHaveBeenCalledWith(`${NESTED_ROOT}/ImplementationSteps/slice-2.xml`, 'utf-8');
   });
 
   it('rejects traversal, absolute, and unknown artifact paths without reading an outside file', async () => {

@@ -4,6 +4,9 @@ import { useCallback, useEffect, useState } from 'react';
 import type { PlannerBrokerStatus, PlannerStreamEvent } from '../../shared/desktopContract';
 
 const MAX_MESSAGES = 200;
+// Monotonic suffix so two messages created within the same millisecond cannot
+// collide on a React key (Date.now() alone can).
+let plannerMessageSeq = 0;
 
 export type ConversationMessage = {
   id: string;
@@ -85,7 +88,7 @@ export function usePlannerStream(options: PlannerStreamOptions = {}): {
       }
 
       const newMsg: ConversationMessage = {
-        id: `planner-${Date.now()}`,
+        id: `planner-${Date.now()}-${plannerMessageSeq++}`,
         role: 'planner',
         text: messageContent,
         isStreaming: plannerEvent.brokerStatus === 'running',
@@ -111,7 +114,7 @@ export function usePlannerStream(options: PlannerStreamOptions = {}): {
       const next = [
         ...prev,
         {
-          id: `operator-${Date.now()}`,
+          id: `operator-${Date.now()}-${plannerMessageSeq++}`,
           role: 'operator' as const,
           text,
           isStreaming: false,

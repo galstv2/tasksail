@@ -15,6 +15,8 @@ import {
   ACTIVATION_GATE_REASON,
   type ActivateNextPendingItemResult,
 } from '../../../backend/platform/queue/operations.js';
+import { withDirLock } from '../../../backend/platform/queue/dirLock.js';
+import { resolveQueuePaths } from '../../../backend/platform/queue/paths.js';
 import {
   readDeepFocusOverlay,
   resolveFocusedRepoRoot,
@@ -637,46 +639,58 @@ async function submitUploadedSpecFromSidecar(
   title: string,
 ): Promise<{ filePath: string; title: string }> {
   const baseOptions = buildSidecarDropboxOptions(sidecar, editableDraft, title);
-  if (sidecar.lineage.taskKind === 'child-task') {
-    const chainContext = await resolveChildTaskChainCreationContext({
-      repoRoot: REPO_ROOT,
-      listContextPacks: listAvailableContextPacks,
-      parentTaskId: sidecar.lineage.parentTaskId,
-      requestedRootTaskId: sidecar.lineage.rootTaskId,
-      childExecutionScope: sidecar.contextPackBinding,
-    });
-    return {
-      filePath: await createFollowupTask({
-        ...baseOptions,
-        parentTaskId: sidecar.lineage.parentTaskId,
-        parentQmdRecordId: sidecar.lineage.parentQmdRecordId,
-        parentQmdScope: sidecar.lineage.parentQmdScope,
-        rootTaskId: sidecar.lineage.rootTaskId,
-        followupReason: sidecar.lineage.followUpReason,
-        carryForwardSummary:
-          editableDraft.carryForwardSummary.trim()
-          || chainContext.parentSummary.trim()
-          || `Carry-forward from parent task ${sidecar.lineage.parentTaskId}.`,
-        deepFocusPrimaryRepoId: sidecar.contextPackBinding.deepFocusPrimaryRepoId,
-        deepFocusPrimaryFocusId: sidecar.contextPackBinding.deepFocusPrimaryFocusId,
-        branchChain: chainContext.branchChain,
-        parentContextSnapshot: chainContext.parentContextSnapshot,
-        childExecutionScope: chainContext.childExecutionScope,
-        parentArchivePath: chainContext.parentArchivePath,
-        parentArchiveArtifactDir: chainContext.parentArchiveArtifactDir,
-        previousTaskId: chainContext.previousTaskId,
-      }),
-      title,
-    };
-  }
+  // Resolve the child-task chain context (QMD / context-pack I/O) BEFORE
+  // acquiring the queue lock; the lock must wrap only the create call, not this
+  // unrelated resolution I/O.
+  const chainContext =
+    sidecar.lineage.taskKind === 'child-task'
+      ? await resolveChildTaskChainCreationContext({
+          repoRoot: REPO_ROOT,
+          listContextPacks: listAvailableContextPacks,
+          parentTaskId: sidecar.lineage.parentTaskId,
+          requestedRootTaskId: sidecar.lineage.rootTaskId,
+          childExecutionScope: sidecar.contextPackBinding,
+        })
+      : null;
+  return withDirLock(
+    resolveQueuePaths(REPO_ROOT).queueLockDir,
+    'submitUploadedSpecFromSidecar',
+    async () => {
+      if (sidecar.lineage.taskKind === 'child-task' && chainContext) {
+        return {
+          filePath: await createFollowupTask({
+            ...baseOptions,
+            parentTaskId: sidecar.lineage.parentTaskId,
+            parentQmdRecordId: sidecar.lineage.parentQmdRecordId,
+            parentQmdScope: sidecar.lineage.parentQmdScope,
+            rootTaskId: sidecar.lineage.rootTaskId,
+            followupReason: sidecar.lineage.followUpReason,
+            carryForwardSummary:
+              editableDraft.carryForwardSummary.trim()
+              || chainContext.parentSummary.trim()
+              || `Carry-forward from parent task ${sidecar.lineage.parentTaskId}.`,
+            deepFocusPrimaryRepoId: sidecar.contextPackBinding.deepFocusPrimaryRepoId,
+            deepFocusPrimaryFocusId: sidecar.contextPackBinding.deepFocusPrimaryFocusId,
+            branchChain: chainContext.branchChain,
+            parentContextSnapshot: chainContext.parentContextSnapshot,
+            childExecutionScope: chainContext.childExecutionScope,
+            parentArchivePath: chainContext.parentArchivePath,
+            parentArchiveArtifactDir: chainContext.parentArchiveArtifactDir,
+            previousTaskId: chainContext.previousTaskId,
+          }),
+          title,
+        };
+      }
 
-  return {
-    filePath: await createDropboxTask({
-      ...baseOptions,
-      kind: sidecar.lineage.taskKind,
-    }),
-    title,
-  };
+      return {
+        filePath: await createDropboxTask({
+          ...baseOptions,
+          kind: sidecar.lineage.taskKind,
+        }),
+        title,
+      };
+    },
+  );
 }
 
 export async function submitUploadedSpecHelper(
@@ -753,33 +767,37 @@ async function submitUploadedSpecFromActiveWorkspace(
   }
 
   const canonicalDraft = canonicalizeEditableDraftRequirements(editableDraft);
-  const filePath = await createDropboxTask({
-    title,
-    summary: canonicalDraft.summary,
-    desiredOutcome: canonicalDraft.desiredOutcome,
-    constraints: canonicalDraft.constraints,
-    criticalRequirements: canonicalDraft.criticalRequirements,
-    compatibilityRequirements: canonicalDraft.compatibilityRequirements,
-    requiredValidation: canonicalDraft.requiredValidation,
-    acceptanceSignals: canonicalDraft.acceptanceSignals,
-    suggestedPath: canonicalDraft.suggestedPath,
-    planningNotes: canonicalDraft.planningNotes,
-    kind: 'standard',
-    repoRoot: REPO_ROOT,
-    contextPackDir: context.contextPackDir,
-    contextPackId: context.contextPackId,
-    scopeMode: context.scopeMode,
-    primaryRepoId: context.primaryRepoId,
-    primaryFocusId: context.primaryFocusId,
-    selectedRepoIds: context.selectedRepoIds,
-    selectedFocusIds: context.selectedFocusIds,
-    deepFocusEnabled: context.deepFocusEnabled,
-    selectedFocusPath: context.selectedFocusPath,
-    selectedFocusTargetKind: context.selectedFocusTargetKind,
-    selectedFocusTargets: context.selectedFocusTargets,
-    selectedTestTarget: context.selectedTestTarget,
-    selectedSupportTargets: context.selectedSupportTargets,
-  });
+  const filePath = await withDirLock(
+    resolveQueuePaths(REPO_ROOT).queueLockDir,
+    'submitUploadedSpecFromActiveWorkspace',
+    () => createDropboxTask({
+      title,
+      summary: canonicalDraft.summary,
+      desiredOutcome: canonicalDraft.desiredOutcome,
+      constraints: canonicalDraft.constraints,
+      criticalRequirements: canonicalDraft.criticalRequirements,
+      compatibilityRequirements: canonicalDraft.compatibilityRequirements,
+      requiredValidation: canonicalDraft.requiredValidation,
+      acceptanceSignals: canonicalDraft.acceptanceSignals,
+      suggestedPath: canonicalDraft.suggestedPath,
+      planningNotes: canonicalDraft.planningNotes,
+      kind: 'standard',
+      repoRoot: REPO_ROOT,
+      contextPackDir: context.contextPackDir,
+      contextPackId: context.contextPackId,
+      scopeMode: context.scopeMode,
+      primaryRepoId: context.primaryRepoId,
+      primaryFocusId: context.primaryFocusId,
+      selectedRepoIds: context.selectedRepoIds,
+      selectedFocusIds: context.selectedFocusIds,
+      deepFocusEnabled: context.deepFocusEnabled,
+      selectedFocusPath: context.selectedFocusPath,
+      selectedFocusTargetKind: context.selectedFocusTargetKind,
+      selectedFocusTargets: context.selectedFocusTargets,
+      selectedTestTarget: context.selectedTestTarget,
+      selectedSupportTargets: context.selectedSupportTargets,
+    }),
+  );
   return { filePath, title };
 }
 

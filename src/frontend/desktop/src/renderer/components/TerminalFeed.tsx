@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { StreamEvent, StreamRole, TerminalTaskScopeOption } from '../activityStream';
 import { classNames } from '../utils/classNames';
@@ -21,6 +21,7 @@ import PlannerBrokerSection from './observability/PlannerBrokerSection';
 import AuthorityBoundarySection from './observability/AuthorityBoundarySection';
 import EnvironmentPackagingSection from './observability/EnvironmentPackagingSection';
 import OperatorQueueSection from './observability/OperatorQueueSection';
+import ActiveTasksSection from './observability/ActiveTasksSection';
 
 export type TerminalFeedProps = {
   activityStream: StreamEvent[];
@@ -52,7 +53,7 @@ function formatTime(timestamp: string): string {
   return timestamp.trim().slice(0, 8).trim();
 }
 
-function TerminalLine({
+const TerminalLine = memo(function TerminalLine({
   event,
   suppressAnimation,
 }: {
@@ -90,7 +91,7 @@ function TerminalLine({
       </span>
     </div>
   );
-}
+});
 
 function stripTaskPrefix(message: string, taskShortGuid: string | null): string {
   if (!taskShortGuid) {
@@ -132,7 +133,10 @@ function TerminalFeed({
   const scrollRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
 
-  const visibleEvents = filterActivityStream(activityStream, roleFilter);
+  const visibleEvents = useMemo(
+    () => filterActivityStream(activityStream, roleFilter),
+    [activityStream, roleFilter],
+  );
   const clearTerminalDisabled = activityStream.length === 0 || Boolean(clearTerminalDisabledReason);
   const clearTerminalTitle = clearTerminalDisabledReason ?? 'Clear terminal';
   const taskScopeOptions = useMemo<TerminalSelectMenuOption[]>(
@@ -260,6 +264,11 @@ function TerminalFeed({
         </div>
         {drawerOpen && observabilitySnapshot && (
           <div className="observability-drawer__content" aria-label="System details">
+            <ActiveTasksSection
+              activeTasks={observabilitySnapshot.activeTasks ?? []}
+              artifactReferences={observabilitySnapshot.artifactReferences}
+              agentTerminalSessions={observabilitySnapshot.agentTerminalSessions}
+            />
             <OperatorQueueSection
               operatorStatus={observabilitySnapshot.operatorStatus ?? { activeTasks: [], activeTaskId: null }}
               pendingQueueItems={observabilitySnapshot.pendingQueueItems ?? []}

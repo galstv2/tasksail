@@ -4,7 +4,7 @@
   z-index: 10;
   display: grid;
   place-items: center;
-  background: rgba(0, 0, 0, 0.45);
+  background: color-mix(in srgb, var(--ts-surface-terminal) 45%, transparent);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
   border-radius: inherit;

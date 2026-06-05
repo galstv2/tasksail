@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
+  claimRetrospectiveRun,
   getRetrospectiveRequiredForNextTask,
   isRetrospectiveRequiredForCompletedCount,
   stampRetrospectiveRequiredMetadata,
@@ -275,6 +276,138 @@ describe('retrospectiveFlag', () => {
     expect(state['last_archived_task_id']).toBe('');
     expect(state['last_archived_at']).toBe('');
     expect(state['cycle_task_ids']).toEqual([]);
+  });
+
+  it('claims the retrospective run by advancing the boundary before Ron launches', async () => {
+    const counterDir = path.join(repoRoot, '.platform-state', 'task-counters');
+    mkdirSync(counterDir, { recursive: true });
+    const priorTaskIds = Array.from({ length: 9 }, (_, index) => `task-${index + 1}`);
+    writeFileSync(
+      path.join(counterDir, 'pack-claim.json'),
+      JSON.stringify({
+        schema_version: 'task-counter/v1',
+        context_pack_id: 'pack-claim',
+        completed_count: 9,
+        cycle_count: 2,
+        last_archived_task_id: 'task-9',
+        last_archived_at: '2026-01-09T00:00:00.000Z',
+        last_retrospective_at: '',
+        cycle_task_ids: priorTaskIds,
+      }, null, 2),
+      'utf-8',
+    );
+
+    const claim = await claimRetrospectiveRun({
+      repoRoot,
+      contextPackDir: '/packs/pack-claim',
+      taskId: 'task-10',
+    });
+
+    if (!claim.claimed) {
+      throw new Error(`expected claim, got ${claim.reason}`);
+    }
+
+    const raw = await readFile(path.join(counterDir, 'pack-claim.json'), 'utf-8');
+    const state = JSON.parse(raw) as Record<string, unknown>;
+
+    expect(state['completed_count']).toBe(0);
+    expect(state['cycle_count']).toBe(3);
+    expect(state['last_archived_task_id']).toBe('task-10');
+    expect(state['last_retrospective_task_id']).toBe('task-10');
+    expect(state['cycle_task_ids']).toEqual([...priorTaskIds, 'task-10']);
+    expect(typeof state['last_retrospective_at']).toBe('string');
+    expect(existsSync(claim.claim.lockDir)).toBe(true);
+
+    await claim.claim.release();
+    expect(existsSync(claim.claim.lockDir)).toBe(false);
+  });
+
+  it('skips competing and stale retrospective run claims after the first Ron wins', async () => {
+    const counterDir = path.join(repoRoot, '.platform-state', 'task-counters');
+    mkdirSync(counterDir, { recursive: true });
+    writeFileSync(
+      path.join(counterDir, 'pack-race.json'),
+      JSON.stringify({ completed_count: 9, cycle_count: 0, cycle_task_ids: [] }, null, 2),
+      'utf-8',
+    );
+
+    const winner = await claimRetrospectiveRun({
+      repoRoot,
+      contextPackDir: '/packs/pack-race',
+      taskId: 'task-10',
+    });
+    if (!winner.claimed) {
+      throw new Error(`expected winner claim, got ${winner.reason}`);
+    }
+
+    const competing = await claimRetrospectiveRun({
+      repoRoot,
+      contextPackDir: '/packs/pack-race',
+      taskId: 'task-11',
+    });
+    expect(competing).toMatchObject({ claimed: false, reason: 'already-running' });
+
+    await winner.claim.release();
+
+    const staleLabelRetry = await claimRetrospectiveRun({
+      repoRoot,
+      contextPackDir: '/packs/pack-race',
+      taskId: 'task-11',
+    });
+    expect(staleLabelRetry).toMatchObject({ claimed: false, reason: 'counter-not-required' });
+  });
+
+  it('keeps the claimed winner from incrementing again when a stale-label loser closes out first', async () => {
+    const counterDir = path.join(repoRoot, '.platform-state', 'task-counters');
+    mkdirSync(counterDir, { recursive: true });
+    writeFileSync(
+      path.join(counterDir, 'pack-closeout-race.json'),
+      JSON.stringify({ completed_count: 9, cycle_count: 0, cycle_task_ids: [] }, null, 2),
+      'utf-8',
+    );
+
+    const winner = await claimRetrospectiveRun({
+      repoRoot,
+      contextPackDir: '/packs/pack-closeout-race',
+      taskId: 'task-10',
+    });
+    if (!winner.claimed) {
+      throw new Error(`expected winner claim, got ${winner.reason}`);
+    }
+    await winner.claim.release();
+
+    const winnerHandoffs = path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'task-10', 'handoffs');
+    const loserHandoffs = path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'task-11', 'handoffs');
+    mkdirSync(winnerHandoffs, { recursive: true });
+    mkdirSync(loserHandoffs, { recursive: true });
+    writeFileSync(path.join(winnerHandoffs, 'retrospective-input.md'), '- Retrospective Required: false\n', 'utf-8');
+    writeFileSync(path.join(loserHandoffs, 'retrospective-input.md'), '- Retrospective Required: true\n', 'utf-8');
+
+    await syncRetrospectiveRequiredMetadata({
+      repoRoot,
+      handoffsDir: loserHandoffs,
+      contextPackDir: '/packs/pack-closeout-race',
+      taskId: 'task-11',
+    });
+    await syncRetrospectiveRequiredMetadata({
+      repoRoot,
+      handoffsDir: winnerHandoffs,
+      contextPackDir: '/packs/pack-closeout-race',
+      taskId: 'task-10',
+    });
+
+    const raw = await readFile(path.join(counterDir, 'pack-closeout-race.json'), 'utf-8');
+    const state = JSON.parse(raw) as Record<string, unknown>;
+    const winnerContent = await readFile(path.join(winnerHandoffs, 'retrospective-input.md'), 'utf-8');
+    const loserContent = await readFile(path.join(loserHandoffs, 'retrospective-input.md'), 'utf-8');
+
+    expect(state['completed_count']).toBe(1);
+    expect(state['cycle_count']).toBe(1);
+    expect(state['last_archived_task_id']).toBe('task-11');
+    expect(state['last_retrospective_task_id']).toBe('task-10');
+    expect(state['cycle_task_ids']).toEqual(['task-10', 'task-11']);
+    expect(winnerContent).toContain('- Retrospective Required: true');
+    expect(loserContent).toContain('- Retrospective Required: false');
   });
 
   // ── §4.8 concurrency tests ────────────────────────────────────────────────

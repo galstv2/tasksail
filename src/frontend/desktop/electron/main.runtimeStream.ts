@@ -16,6 +16,7 @@ import { readObservabilitySnapshot as readObservabilitySnapshotImpl } from './re
 import {
   emitStreamEvent,
   refreshStreamTaskMetadataForScope,
+  type StreamEmitResult,
   type StreamEventOptions,
 } from './main.stream';
 import { getNodeErrorCode } from './main.textUtils';
@@ -447,6 +448,7 @@ function buildRealignmentEvent(
     severity: severities[job.status],
     taskId: 'N/A',
     actorName: 'Ron - Realignment',
+    realignmentId: job.realignmentId,
   };
 }
 
@@ -597,9 +599,10 @@ export function startRuntimeStreamWatcher(
     closeStaleRuntimeWatchers(new Set<string>());
   };
 
-  resetRuntimeStreamStateImpl = (): void => {
+  const resetRuntimeState = (): void => {
     clearRuntimeState();
   };
+  resetRuntimeStreamStateImpl = resetRuntimeState;
 
   const readActiveTaskIdsFromFs = async (): Promise<string[]> => {
     try {
@@ -845,9 +848,16 @@ export function startRuntimeStreamWatcher(
           });
         }
       } catch (err) {
-        if (getNodeErrorCode(err) !== 'ENOENT') {
-          throw err;
+        if (getNodeErrorCode(err) === 'ENOENT') {
+          // File not present yet — expected for newly active tasks.
+          continue;
         }
+        // Corrupt or unreadable terminal-events.json: log bounded metadata and continue
+        // reading peer task files so one bad file cannot suppress all other task events.
+        log.warn('runtime_terminal_events.read_failed', {
+          taskId,
+          reason: err instanceof Error ? err.message : String(err),
+        });
       }
     }
 
@@ -866,7 +876,7 @@ export function startRuntimeStreamWatcher(
         if (previousKeys.has(event.eventId)) {
           continue;
         }
-        emitStreamEvent({
+        const emitResult: StreamEmitResult = emitStreamEvent({
           message: event.message,
           source: event.source,
           role: event.role,
@@ -879,8 +889,14 @@ export function startRuntimeStreamWatcher(
         if (canonicalLaunchKey) {
           visibleCanonicalLaunchEvents.add(canonicalLaunchKey);
         }
-        previousKeys.add(event.eventId);
-        previousTerminalEventKeysByTask.set(event.taskId, previousKeys);
+        // Mark the event ID as seen unless emit was explicitly skipped because
+        // visible-task metadata was temporarily missing (emitAccepted === false);
+        // in that case leave it unseen so the next metadata refresh reattempts it.
+        // Any unknown/absent result defaults to seen (fail-safe — never re-emit).
+        if (emitResult?.emitAccepted !== false) {
+          previousKeys.add(event.eventId);
+          previousTerminalEventKeysByTask.set(event.taskId, previousKeys);
+        }
       }
     } catch {
       // Best effort — terminal events are observability only.
@@ -1088,7 +1104,7 @@ export function startRuntimeStreamWatcher(
     if (debounceTimer) {
       clearTimeout(debounceTimer);
     }
-    if (resetRuntimeStreamStateImpl) {
+    if (resetRuntimeStreamStateImpl === resetRuntimeState) {
       resetRuntimeStreamStateImpl = null;
     }
     if (refreshRuntimeStreamStateImpl === refreshFromArtifacts) {

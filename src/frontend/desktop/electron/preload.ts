@@ -35,6 +35,7 @@ import {
   type SystemSettingsReadResponse,
   type SystemSettingsSaveResponse,
   type SystemSettingsRestartResponse,
+  type LogExplorerReadFilePayload,
   type AgentConfigLoadModelCatalogResponse,
   type AgentConfigRemoveModelResponse,
   type AgentConfigSaveAgentModelsRequest,
@@ -99,7 +100,7 @@ import {
   type ContextPackFocusFilterSelection,
 } from '../src/shared/desktopContract';
 import { LOG_EMIT_CHANNEL, type LogEmitPayload } from '../src/shared/desktopContractLogging';
-import { isTaskNotificationEvent } from '../src/shared/desktopContractTypeGuards';
+import { isTaskBoardReadBoardResponse, isTaskNotificationEvent } from '../src/shared/desktopContractTypeGuards';
 import { isRecord } from '../src/shared/desktopContractValidators';
 
 const isDev = process.env.NODE_ENV === 'development' || Boolean(process.env.VITE_DEV_SERVER_URL);
@@ -570,6 +571,27 @@ export const desktopShellApi = {
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'systemSettings.restart',
     }),
+  listLogFiles: async (): Promise<DesktopInvokeResult> =>
+    ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'logExplorer.listFiles',
+    }),
+  readLogFile: async (
+    payload: LogExplorerReadFilePayload,
+  ): Promise<DesktopInvokeResult> => {
+    const sanitizedPayload: LogExplorerReadFilePayload = {
+      category: payload.category,
+      fileName: payload.fileName,
+      ...(payload.startLine !== undefined ? { startLine: payload.startLine } : {}),
+      ...(payload.beforeLine !== undefined ? { beforeLine: payload.beforeLine } : {}),
+      ...(payload.limit !== undefined ? { limit: payload.limit } : {}),
+      ...(payload.tail !== undefined ? { tail: payload.tail } : {}),
+      ...(payload.levelFilter !== undefined ? { levelFilter: payload.levelFilter } : {}),
+    };
+    return ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
+      action: 'logExplorer.readFile',
+      payload: sanitizedPayload,
+    });
+  },
   loadAgentConfig: async (): Promise<DesktopInvokeResult> =>
     ipcRenderer.invoke(DESKTOP_SHELL_INVOKE_CHANNEL, {
       action: 'agentConfig.loadAgents',
@@ -887,7 +909,14 @@ export const desktopShellApi = {
       if (
         isRecord(data) &&
         typeof data.id === 'string' &&
+        typeof data.timestamp === 'string' &&
         typeof data.role === 'string' &&
+        typeof data.source === 'string' &&
+        typeof data.taskId === 'string' &&
+        (data.taskGuid === null || typeof data.taskGuid === 'string') &&
+        (data.taskShortGuid === null || typeof data.taskShortGuid === 'string') &&
+        (data.taskTitle === null || typeof data.taskTitle === 'string') &&
+        typeof data.severity === 'string' &&
         typeof data.message === 'string'
       ) {
         callback(data as import('../src/renderer/activityStream').StreamEvent);
@@ -926,8 +955,8 @@ export const desktopShellApi = {
       _event: Electron.IpcRendererEvent,
       data: unknown,
     ) => {
-      if (isRecord(data) && data.action === 'taskBoard.readBoard') {
-        callback(data as import('../src/shared/desktopContract').TaskBoardReadBoardResponse);
+      if (isTaskBoardReadBoardResponse(data)) {
+        callback(data);
       } else {
         emitPreloadWarn('preload.task-board-update.malformed', {
           action: isRecord(data) ? String(data.action) : null,
@@ -1153,6 +1182,8 @@ export type DesktopShellApi = {
     payload: import('../src/shared/desktopContract').SystemSettingsSaveRequest['payload'],
   ) => Promise<DesktopInvokeResult>;
   restartTaskSail: () => Promise<DesktopInvokeResult>;
+  listLogFiles: () => Promise<DesktopInvokeResult>;
+  readLogFile: (payload: LogExplorerReadFilePayload) => Promise<DesktopInvokeResult>;
   loadAgentConfig: () => Promise<DesktopInvokeResult>;
   loadModelCatalog: () => Promise<DesktopInvokeResult>;
   loadCapabilities?: () => Promise<DesktopInvokeResult>;

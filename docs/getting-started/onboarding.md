@@ -103,14 +103,15 @@ It does not replace repo artifacts as the source of truth.
 
 1. Change into `src/frontend/desktop/`.
 2. Install dependencies with `npm install`.
-3. Validate the desktop package with `npm run validate:desktop`.
-4. For local packaging, run the host-appropriate command:
+3. Run the CSS token discipline gate with `npm run test:css-colors`.
+4. Validate the desktop package with `npm run validate:desktop`.
+5. For local packaging, run the host-appropriate command:
    - macOS: `npm run package:mac`
    - Windows: `npm run package:win`
    - Linux: `npm run package:linux`
-5. Launch the shell against the checked-out repo root instead of copying queue
+6. Launch the shell against the checked-out repo root instead of copying queue
   state into the packaged app.
-6. Keep these helper seams available from the repo root:
+7. Keep these helper seams available from the repo root:
   - `pnpm run plan-dropbox-task`
   - `pnpm run plan-followup-task`
   - `tsx src/backend/platform/context-pack/cli.ts`
@@ -218,6 +219,7 @@ Follow-up work after closeout becomes a new child task.
 
 ## Context-pack boundaries
 
+- New context-pack repositories created through the desktop wizard start with an editable starter `.gitignore` that you can freely modify — TaskSail will not overwrite it.
 - Load the core platform instructions first and any selected external context
   pack second.
 - Use `tsx src/backend/platform/context-pack/cli.ts` as the default operator path instead

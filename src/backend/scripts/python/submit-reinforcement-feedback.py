@@ -18,7 +18,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from src.backend.mcp.reinforcement.engine import ReinforcementEngine
-from src.backend.mcp.reinforcement.models import ROLE_MULTIPLIERS
+from src.backend.mcp.reinforcement.models import AGENT_REWARD_MULTIPLIERS
 from src.backend.mcp.reinforcement.persistence import ReinforcementStore
 from src.backend.mcp.reinforcement.qmd_writer import QmdRewardWriter
 from src.backend.mcp.reinforcement.realignment import RealignmentManager
@@ -67,7 +67,7 @@ def main(argv: list[str] | None = None) -> int:
         session = mgr.start_session(
             trigger_task_id=args.task_id,
             trigger_feedback_id=result["event"]["feedback_id"],
-            participating_agents=list(ROLE_MULTIPLIERS.keys()),
+            participating_agents=list(AGENT_REWARD_MULTIPLIERS.keys()),
         )
         result["realignment_session"] = session.as_dict()
 

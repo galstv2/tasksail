@@ -445,7 +445,8 @@ async function _recoverOnStartupImpl(repoRoot: string): Promise<void> {
           continue;
         }
         try {
-          await execFileAsync('git', ['branch', '-D', branch], { cwd: repoRoot });
+          // SEC-TS-05: '--' guards against a branch ref name starting with '-'.
+          await execFileAsync('git', ['branch', '-D', '--', branch], { cwd: repoRoot });
         } catch {
           // Skip — worktree dir may still exist (valid retained worktree).
         }
@@ -466,8 +467,11 @@ async function _recoverOnStartupImpl(repoRoot: string): Promise<void> {
         const sessionFiles = readdirSync(roleSessionsDir).filter((f) => f.endsWith('.json'));
         for (const sf of sessionFiles) {
           try {
-            const raw = JSON.parse(await readFile(path.join(roleSessionsDir, sf), 'utf-8')) as Record<string, unknown>;
-            const launch = raw.launch as Record<string, unknown> | undefined;
+            const raw = JSON.parse(await readFile(path.join(roleSessionsDir, sf), 'utf-8')) as unknown;
+            if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+              continue;
+            }
+            const launch = (raw as Record<string, unknown>).launch as Record<string, unknown> | undefined;
             const pid = typeof launch?.pid === 'number' ? launch.pid : null;
             if (pid) {
               try { process.kill(pid, 0); pidIsAlive = true; break; } catch { /* not alive */ }

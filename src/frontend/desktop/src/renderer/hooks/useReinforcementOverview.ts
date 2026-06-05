@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { ReinforcementOverviewData } from '../../shared/desktopContract';
 import type { DesktopShellClient } from '../services/desktopShellClient';
@@ -22,22 +22,26 @@ const EMPTY_OVERVIEW: ReinforcementOverviewData = {
 };
 
 export function useReinforcementOverview(
-  hasActiveContextPack: boolean,
+  activeContextPackDir: string | null,
   client: DesktopShellClient = desktopShellClient,
 ): UseReinforcementOverviewResult {
   const [overview, setOverview] = useState<ReinforcementOverviewData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const requestGenerationRef = useRef(0);
 
   const load = useCallback(async () => {
-    if (!hasActiveContextPack) {
+    if (!activeContextPackDir) {
       setOverview(EMPTY_OVERVIEW);
+      setError(null);
       return;
     }
+    const generation = ++requestGenerationRef.current;
     setLoading(true);
     setError(null);
     try {
       const result = await client.readReinforcementOverview();
+      if (generation !== requestGenerationRef.current) return;
       if (result.ok && result.response.action === 'reinforcement.readOverview') {
         setOverview(result.response.overview);
       } else if (!result.ok) {
@@ -45,16 +49,24 @@ export function useReinforcementOverview(
         setOverview(EMPTY_OVERVIEW);
       }
     } catch (err: unknown) {
+      if (generation !== requestGenerationRef.current) return;
       setError(err instanceof Error ? err.message : 'Failed to load overview.');
       setOverview(EMPTY_OVERVIEW);
     } finally {
-      setLoading(false);
+      if (generation === requestGenerationRef.current) {
+        setLoading(false);
+      }
     }
-  }, [hasActiveContextPack, client]);
+  }, [activeContextPackDir, client]);
 
+  // Reset and reload on pack change
   useEffect(() => {
+    setOverview(null);
+    setError(null);
+    requestGenerationRef.current += 1;
     load().catch(() => {});
-  }, [load]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeContextPackDir]);
 
   return { overview, loading, error, reload: load };
 }

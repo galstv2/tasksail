@@ -23,6 +23,9 @@ import path from 'node:path';
 import { promises as fsp } from 'node:fs';
 import type { FocusedRepoResult } from '../context-pack/focusedRepo.js';
 import { readTaskJsonSafe } from '../queue/taskJson.js';
+import { canonicalRoot, isPathWithinBoundary, createLogger } from '../core/index.js';
+
+const log = createLogger('agent-runner.worktreeInjection');
 
 export interface WorktreeBindingMap {
   /** Canonical originalRoot → canonical worktreeRoot. */
@@ -48,10 +51,29 @@ export async function buildWorktreeBindingMap(
   ];
   if (bindings.length === 0) return EMPTY_BINDING_MAP;
 
+  // SEC-TS-01: a binding's worktreeRoot is the destination that the confinement
+  // allowedDirs (and focused-repo CWD) get rewritten to. The platform only ever
+  // materializes worktrees under this per-task base (queue/operations.ts), so a
+  // canonical worktreeRoot that escapes it comes from a tampered .task.json —
+  // skip it (fail safe: no substitution keeps the agent confined to
+  // originalRoot) rather than redirect confinement off-base. The check is on the
+  // realpath'd value, so a symlink planted under the base cannot escape either.
+  const worktreeBase = path.join(
+    canonicalRoot(repoRoot), 'AgentWorkSpace', 'tasks', taskId, 'worktrees',
+  );
+
   const substitutions = new Map<string, string>();
   for (const binding of bindings) {
     const origCanonical = await safeRealpath(binding.originalRoot);
     const wtCanonical = await safeRealpath(binding.worktreeRoot);
+    if (!isPathWithinBoundary(worktreeBase, wtCanonical)) {
+      log.warn('worktree_injection.binding.rejected', {
+        taskId,
+        worktreeRoot: binding.worktreeRoot,
+        reason: 'worktreeRoot resolves outside the per-task worktree base',
+      });
+      continue;
+    }
     substitutions.set(origCanonical, wtCanonical);
   }
   return { substitutions, applied: substitutions.size > 0 };

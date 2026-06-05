@@ -267,7 +267,8 @@ describe('killTask cleanup ownership', () => {
       moveFailedItemToErrorItems,
     });
 
-    const result = await executeRequestedTaskKill({ repoRoot, taskId: 'task-a' });
+    // _crossProcessKillWindowMs=0: skip the bounded poll (no owning process to ack in this test).
+    const result = await executeRequestedTaskKill({ repoRoot, taskId: 'task-a', _crossProcessKillWindowMs: 0 });
 
     expect(stopPipeline).toHaveBeenCalledWith('task-a', undefined, { cleanupOwner: 'caller' });
     expect(moveFailedItemToErrorItems).toHaveBeenCalledWith({ repoRoot, taskId: 'task-a' });

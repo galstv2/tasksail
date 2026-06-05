@@ -15,7 +15,9 @@ export function ObservabilityProvider({
   client?: DesktopShellClient;
   children: ReactNode;
 }): JSX.Element {
-  const state = useObservedState(client, client);
+  // refreshObservedState already restarts polling when `client` changes, so the
+  // refreshKey only needs a stable sentinel here — passing `client` was a no-op.
+  const state = useObservedState(null, client);
   const value = useMemo(
     () => state,
     [

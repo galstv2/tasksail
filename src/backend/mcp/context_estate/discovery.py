@@ -188,12 +188,13 @@ def collect_root_high_signal_paths(
     return sorted(results, key=lambda item: item["relative_path"])
 
 
-def collect_repo_high_signal_paths(repo_root: Path) -> list[str]:
+def collect_repo_high_signal_paths(
+    repo_root: Path, warnings: list[str] | None = None
+) -> list[str]:
+    if warnings is None:
+        warnings = []
     results: list[str] = []
-    for child in sorted(
-        repo_root.iterdir(),
-        key=lambda item: item.name.lower(),
-    ):
+    for child in safe_iterdir(repo_root, warnings):
         if child.name in SKIP_DIR_NAMES or child.name.startswith("."):
             continue
         try:
@@ -207,9 +208,11 @@ def collect_repo_high_signal_paths(repo_root: Path) -> list[str]:
     return results
 
 
-def build_repo_candidate(root: Path, repo_root: Path) -> dict[str, Any]:
+def build_repo_candidate(
+    root: Path, repo_root: Path, warnings: list[str]
+) -> dict[str, Any]:
     relative_path = repo_root.relative_to(root).as_posix()
-    high_signal_paths = collect_repo_high_signal_paths(repo_root)
+    high_signal_paths = collect_repo_high_signal_paths(repo_root, warnings)
     repo_category, repo_category_confidence = classify_repo_category(repo_root)
     return {
         "repo_id": slugify(relative_path.replace("/", "-")),
@@ -250,7 +253,7 @@ def discover_candidate_repos(
 
             seen_dirs.add(normalized)
             if has_git_marker(normalized):
-                repos.append(build_repo_candidate(root, normalized))
+                repos.append(build_repo_candidate(root, normalized, warnings))
                 continue
 
             if depth + 1 < max_depth:

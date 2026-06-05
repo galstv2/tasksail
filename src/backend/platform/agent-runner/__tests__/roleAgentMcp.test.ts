@@ -101,6 +101,7 @@ vi.mock('../../core/index.js', async () => {
     normalizeTaskAgentLaunchOutcome: actual.normalizeTaskAgentLaunchOutcome,
     ensureDir: vi.fn(async () => undefined),
     newSpanId: vi.fn(() => 'test-span-id'),
+    writeTextFileAtomic: vi.fn(async () => undefined),
   };
 });
 
@@ -599,6 +600,16 @@ describe('runRoleAgent external MCP launch integration', () => {
     expect(argsArg).not.toContain('--additional-mcp-config');
     expect(envArg['COPILOT_HOME']).toBeUndefined();
     expect(envArg['EXTERNAL_MCP_CONTEXT_STATUS']).toBeUndefined();
+    expect(testLogger.debug).toHaveBeenCalledWith(
+      'external_mcp.launch_status',
+      {
+        status: 'not-applicable',
+        injectionEnabled: false,
+        selectedServerIds: [],
+        excludedServerIds: [],
+        reason: 'no external MCP servers apply to this agent',
+      },
+    );
   });
 
   it('warns and launches without external MCP env when helper preparation fails', async () => {
@@ -633,6 +644,16 @@ describe('runRoleAgent external MCP launch integration', () => {
     expect(testLogger.warn).toHaveBeenCalledWith(
       'external_mcp.launch_context.failed',
       { error: 'helper boom' },
+    );
+    expect(testLogger.warn).toHaveBeenCalledWith(
+      'external_mcp.launch_status',
+      {
+        status: 'unavailable',
+        injectionEnabled: false,
+        selectedServerIds: [],
+        excludedServerIds: [],
+        reason: 'launch context helper failed',
+      },
     );
   });
 
@@ -682,6 +703,16 @@ describe('runRoleAgent external MCP launch integration', () => {
         reason: 'External MCP registry validation failed: runtime registry missing',
       },
     );
+    expect(testLogger.warn).toHaveBeenCalledWith(
+      'external_mcp.launch_status',
+      {
+        status: 'malformed',
+        injectionEnabled: false,
+        selectedServerIds: [],
+        excludedServerIds: [],
+        reason: 'External MCP registry validation failed: runtime registry missing',
+      },
+    );
   });
 
   it('returns and logs per-agent MCP launch status', async () => {
@@ -726,7 +757,7 @@ describe('runRoleAgent external MCP launch integration', () => {
       selectedServerIds: ['github'],
       excludedServerIds: ['filesystem'],
     });
-    expect(testLogger.info).toHaveBeenCalledWith(
+    expect(testLogger.debug).toHaveBeenCalledWith(
       'external_mcp.launch_status',
       {
         status: 'available',
@@ -736,5 +767,235 @@ describe('runRoleAgent external MCP launch integration', () => {
         reason: '1 external MCP server(s) injected',
       },
     );
+  });
+
+  describe('follow-up sessions carry external MCP config args (R9)', () => {
+    const launchDir = path.join(process.cwd(), '.platform-state', 'runtime', 'copilot-home', 'r9-test');
+    const configPath = path.join(launchDir, 'mcp-config.json');
+    const mcpArgs = ['--additional-mcp-config', `@${configPath}`];
+
+    function setupMcpInjection(): void {
+      mockedPrepareExternalMcpLaunchContext.mockResolvedValue({
+        status: 'available',
+        reason: '1 external MCP server(s) injected',
+        injectionEnabled: true,
+        launchDir,
+        contextFile: path.join(launchDir, 'mcp-capability-summary.md'),
+        resolvedServers: [{ id: 'github', transport: 'http', url: 'https://example.test/mcp', headers: {} }],
+        envExports: { EXTERNAL_MCP_CONTEXT_STATUS: 'available' },
+        selectedServerIds: ['github'],
+        excludedServerIds: [],
+      });
+    }
+
+    it('denied-action continuation carries --additional-mcp-config on the second launch', async () => {
+      mockedLaunchAgent.mockReturnValue({ pid: 1234 } as never);
+      // Alice is artifact-author; use Alice so isDaltonFamilyAgent is false and the
+      // denied-action continuation branch is taken (artifact check returns false first).
+      mockedResolveAgentProfile.mockReturnValue({
+        id: 'alice',
+        registryId: 'product-manager',
+        displayName: 'Alice',
+        role: 'Product Manager',
+        requiredModel: 'gpt-5.4',
+        autonomyProfile: 'artifact-author',
+        workflowOrder: 1,
+        wallClockTimeoutS: 300,
+      } as never);
+      mockedResolveActiveModel.mockReturnValue('gpt-5.4');
+      mockedBuildAgentArgs.mockReturnValue({
+        args: ['--agent', 'product-manager'],
+        launchCwd: '/repo',
+        inlineAgentContext: false,
+        resolvedToolPolicy: { allowAllTools: false, noAskUser: true, allowTools: [], denyTools: [] },
+      });
+      // First call: exits with denied-action output; second call: success.
+      mockedWaitForAgentDetailed
+        .mockResolvedValueOnce({
+          exitCode: 1,
+          stdoutTail: 'Permission denied and could not request permission from user',
+          stderrTail: '',
+          terminationReason: 'exited',
+          signalCode: null,
+        })
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdoutTail: '',
+          stderrTail: '',
+          terminationReason: 'exited',
+          signalCode: null,
+        });
+      // Artifact check: incomplete on first check (triggers continuation), complete after.
+      mockedCheckAgentArtifactCompletionDetails
+        .mockResolvedValueOnce({ complete: false, reasons: [] })
+        .mockResolvedValueOnce({ complete: true, reasons: [] });
+      setupMcpInjection();
+
+      await expect(runRoleAgent({
+        agentId: 'alice',
+        taskId: 't1',
+        skipWorkflowValidation: true,
+      })).resolves.toMatchObject({ exitCode: 0, agentId: 'alice' });
+
+      // Two launches: initial + denied-action continuation.
+      expect(mockedLaunchAgent).toHaveBeenCalledTimes(2);
+      const secondCallArgs = mockedLaunchAgent.mock.calls[1]?.[0] as string[];
+      expect(secondCallArgs).toEqual(expect.arrayContaining(mcpArgs));
+    });
+
+    it('cleanup/remediation session (incomplete-artifact) carries --additional-mcp-config', async () => {
+      mockedLaunchAgent.mockReturnValue({ pid: 5678 } as never);
+      // Use Alice: artifact-author with cleanup path active.
+      mockedResolveAgentProfile.mockReturnValue({
+        id: 'alice',
+        registryId: 'product-manager',
+        displayName: 'Alice',
+        role: 'Product Manager',
+        requiredModel: 'gpt-5.4',
+        autonomyProfile: 'artifact-author',
+        workflowOrder: 1,
+        wallClockTimeoutS: 300,
+      } as never);
+      mockedResolveActiveModel.mockReturnValue('gpt-5.4');
+      mockedBuildAgentArgs.mockReturnValue({
+        args: ['--agent', 'product-manager'],
+        launchCwd: '/repo',
+        inlineAgentContext: false,
+        resolvedToolPolicy: { allowAllTools: false, noAskUser: true, allowTools: [], denyTools: [] },
+      });
+      // Both launches succeed at the process level.
+      mockedWaitForAgentDetailed.mockResolvedValue({
+        exitCode: 0,
+        stdoutTail: '',
+        stderrTail: '',
+        terminationReason: 'exited',
+        signalCode: null,
+      });
+      // Artifact check: incomplete on first call → enters cleanup; complete on second → cleanup accepted.
+      // The third call is the post-cleanup policy re-check's implicit artifact check (none needed here).
+      mockedCheckAgentArtifactCompletionDetails
+        .mockResolvedValueOnce({ complete: false, reasons: ['missing issues.md'] })
+        .mockResolvedValueOnce({ complete: true, reasons: [] })
+        .mockResolvedValue({ complete: true, reasons: [] });
+      // Policy check after cleanup succeeds (default from setupCommonMocks already set, but be explicit).
+      mockedRunRuntimePolicyCheck.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 });
+      // Remediation prompt must be non-empty so the cleanup branch runs.
+      mockedBuildAgentArtifactRemediationPrompt.mockResolvedValue(
+        'Fix the missing artifacts.',
+      );
+      setupMcpInjection();
+
+      await expect(runRoleAgent({
+        agentId: 'alice',
+        taskId: 't1',
+        skipWorkflowValidation: true,
+      })).resolves.toMatchObject({ exitCode: 0, agentId: 'alice' });
+
+      // Two launches: initial + cleanup session via runPromptOverrideSession.
+      expect(mockedLaunchAgent.mock.calls.length).toBeGreaterThanOrEqual(2);
+      const cleanupCallArgs = mockedLaunchAgent.mock.calls[1]?.[0] as string[];
+      expect(cleanupCallArgs).toEqual(expect.arrayContaining(mcpArgs));
+    });
+
+    it('confinement-retry session carries --additional-mcp-config', async () => {
+      mockedLaunchAgent.mockReturnValue({ pid: 9999 } as never);
+      // Dalton with a focused primary repo triggers confinement validation.
+      mockedResolveSelectedPrimaryRepoRoot.mockResolvedValue({
+        primaryRepoRoot: '/repo/worktree',
+        visibleRepoRoots: ['/repo/worktree'],
+        declaredRepoRoots: ['/repo/worktree'],
+        estateType: 'distributed-platform',
+        primaryRepoId: 'platform',
+        selectedRepoIds: ['platform'],
+        selectedFocusIds: [],
+        authoritySource: 'active-task-sidecar',
+        writableRoots: [{ repoLocalPath: '/repo/worktree', path: 'src', kind: 'directory', reason: 'selected-primary' }],
+      } as never);
+      mockedWaitForAgentDetailed.mockResolvedValue({
+        exitCode: 0,
+        stdoutTail: '',
+        stderrTail: '',
+        terminationReason: 'exited',
+        signalCode: null,
+      });
+      // First confinement check fails with a violation; second succeeds.
+      const { DaltonConfinementError } = await import('../confinement.js');
+      mockedValidateDaltonBoundaryChanges
+        .mockRejectedValueOnce(new DaltonConfinementError('outside boundary', ['/repo/worktree/leak.ts']))
+        .mockResolvedValueOnce(undefined);
+      setupMcpInjection();
+
+      await expect(runRoleAgent({
+        agentId: 'dalton',
+        taskId: 't1',
+        contextPackDir: '/repo/context-pack',
+        skipWorkflowValidation: true,
+      })).resolves.toMatchObject({ exitCode: 0, agentId: 'dalton' });
+
+      // Two launches: initial + confinement retry.
+      expect(mockedLaunchAgent).toHaveBeenCalledTimes(2);
+      const retryCallArgs = mockedLaunchAgent.mock.calls[1]?.[0] as string[];
+      expect(retryCallArgs).toEqual(expect.arrayContaining(mcpArgs));
+    });
+
+    it('negative: no --additional-mcp-config on follow-up launches when injection is disabled', async () => {
+      mockedLaunchAgent.mockReturnValue({ pid: 1111 } as never);
+      mockedResolveAgentProfile.mockReturnValue({
+        id: 'alice',
+        registryId: 'product-manager',
+        displayName: 'Alice',
+        role: 'Product Manager',
+        requiredModel: 'gpt-5.4',
+        autonomyProfile: 'artifact-author',
+        workflowOrder: 1,
+        wallClockTimeoutS: 300,
+      } as never);
+      mockedResolveActiveModel.mockReturnValue('gpt-5.4');
+      mockedBuildAgentArgs.mockReturnValue({
+        args: ['--agent', 'product-manager'],
+        launchCwd: '/repo',
+        inlineAgentContext: false,
+        resolvedToolPolicy: { allowAllTools: false, noAskUser: true, allowTools: [], denyTools: [] },
+      });
+      mockedWaitForAgentDetailed
+        .mockResolvedValueOnce({
+          exitCode: 1,
+          stdoutTail: 'Permission denied and could not request permission from user',
+          stderrTail: '',
+          terminationReason: 'exited',
+          signalCode: null,
+        })
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdoutTail: '',
+          stderrTail: '',
+          terminationReason: 'exited',
+          signalCode: null,
+        });
+      mockedCheckAgentArtifactCompletionDetails
+        .mockResolvedValueOnce({ complete: false, reasons: [] })
+        .mockResolvedValueOnce({ complete: true, reasons: [] });
+      // Injection disabled.
+      mockedPrepareExternalMcpLaunchContext.mockResolvedValue({
+        status: 'not-applicable',
+        reason: 'no external MCP servers apply to this agent',
+        injectionEnabled: false,
+        envExports: { EXTERNAL_MCP_CONTEXT_STATUS: 'not-applicable' },
+        resolvedServers: [],
+        selectedServerIds: [],
+        excludedServerIds: [],
+      });
+
+      await expect(runRoleAgent({
+        agentId: 'alice',
+        taskId: 't1',
+        skipWorkflowValidation: true,
+      })).resolves.toMatchObject({ exitCode: 0, agentId: 'alice' });
+
+      expect(mockedLaunchAgent).toHaveBeenCalledTimes(2);
+      for (const call of mockedLaunchAgent.mock.calls) {
+        expect((call[0] as string[])).not.toContain('--additional-mcp-config');
+      }
+    });
   });
 });

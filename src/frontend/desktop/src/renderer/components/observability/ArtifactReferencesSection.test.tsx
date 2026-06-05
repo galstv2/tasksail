@@ -10,7 +10,7 @@ afterEach(() => {
 
 const TEST_TASK_ID = 'task-test-001';
 
-function makeArtifact(overrides: Partial<ArtifactReference> = {}): ArtifactReference {
+function makeArtifact(overrides: Partial<ArtifactReference> & { taskId?: string | null } = {}): ArtifactReference & { taskId?: string | null } {
   return {
     label: 'professional-task.md',
     path: `AgentWorkSpace/tasks/${TEST_TASK_ID}/handoffs/professional-task.md`,
@@ -63,5 +63,45 @@ describe('ArtifactReferencesSection', () => {
   it('renders section title', () => {
     render(<ArtifactReferencesSection artifactReferences={[]} />);
     expect(screen.getByText('Task Files')).toBeInTheDocument();
+  });
+
+  it('groups task-tagged artifacts by taskId and shows task labels', () => {
+    const artifacts = [
+      makeArtifact({ taskId: 'TASK-A', label: 'handoff-a.md', path: 'a/handoff.md' }),
+      makeArtifact({ taskId: 'TASK-B', label: 'handoff-b.md', path: 'b/handoff.md' }),
+    ];
+    render(<ArtifactReferencesSection artifactReferences={artifacts} />);
+
+    // Both labels are visible
+    expect(screen.getByText('handoff-a.md')).toBeInTheDocument();
+    expect(screen.getByText('handoff-b.md')).toBeInTheDocument();
+
+    // Task group labels are shown
+    expect(screen.getByLabelText('Artifacts for task TASK-A')).toBeInTheDocument();
+    expect(screen.getByLabelText('Artifacts for task TASK-B')).toBeInTheDocument();
+  });
+
+  it('repeated handoff labels across tasks remain distinguishable via task group labels', () => {
+    const artifacts = [
+      makeArtifact({ taskId: 'TASK-A', label: 'professional-task.md', path: 'a/handoff.md' }),
+      makeArtifact({ taskId: 'TASK-B', label: 'professional-task.md', path: 'b/handoff.md' }),
+    ];
+    render(<ArtifactReferencesSection artifactReferences={artifacts} />);
+
+    // Both groups exist even though the labels are the same
+    expect(screen.getByLabelText('Artifacts for task TASK-A')).toBeInTheDocument();
+    expect(screen.getByLabelText('Artifacts for task TASK-B')).toBeInTheDocument();
+
+    // Two instances of the same label are present
+    const labels = screen.getAllByText('professional-task.md');
+    expect(labels).toHaveLength(2);
+  });
+
+  it('does not show task group label when only one unscoped (no taskId) artifact group', () => {
+    const artifacts = [makeArtifact({ taskId: undefined, label: 'handoff.md', path: 'handoff.md' })];
+    render(<ArtifactReferencesSection artifactReferences={artifacts} />);
+    expect(screen.getByText('handoff.md')).toBeInTheDocument();
+    // No group label for unscoped single-task scenario
+    expect(screen.queryByLabelText(/Artifacts for task/)).not.toBeInTheDocument();
   });
 });

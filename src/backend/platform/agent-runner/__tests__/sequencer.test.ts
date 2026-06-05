@@ -185,7 +185,7 @@ describe('detectParallelOk', () => {
     const dir = makeTmpDir();
     writeFileSync(
       path.join(dir, 'parallel-ok.md'),
-      '# Parallel Authorization\n\n## Decision\n\nComplex execution authorized by Alice.\n',
+      '# Parallel Authorization\n\n## Decision\n\nComplex\n',
     );
     const result = await detectParallelOk(dir);
     expect(result).toBe(true);

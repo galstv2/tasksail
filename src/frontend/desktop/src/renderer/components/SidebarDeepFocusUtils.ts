@@ -189,18 +189,6 @@ export type DeepFocusTargetAssignment = {
   supportIndex: number | null;
 };
 
-export function deepFocusTargetSelectionKey(
-  target: Pick<ContextPackDeepFocusTarget, 'path' | 'kind' | 'repoLocalPath' | 'repoId' | 'focusId'>,
-): string {
-  return JSON.stringify([
-    target.repoLocalPath ?? '',
-    target.repoId ?? '',
-    target.focusId ?? '',
-    normalizeRelativePath(target.path),
-    target.kind,
-  ]);
-}
-
 function collectDeepFocusAssignments(
   state: ContextPackDeepFocusState,
 ): DeepFocusTargetAssignment[] {
@@ -215,7 +203,7 @@ function collectDeepFocusAssignments(
     assignments.push({
       slot,
       target,
-      targetKey: deepFocusTargetSelectionKey(target),
+      targetKey: primaryIdentityKey(target),
       primaryIndex,
       supportIndex,
     });

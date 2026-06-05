@@ -479,7 +479,7 @@ describe('electron main bootstrap — sessions and guardrails', () => {
     const guardrailPayload = JSON.stringify({
       schema_version: 1,
       receipt_kind: 'guardrail',
-      status: 'failed',
+      status: 'unexpected-status',
       requested_agent_id: 'provider-builder',
       resolved_agent_id: 'provider-builder',
       expected_agent_id: 'provider-builder',
@@ -535,7 +535,7 @@ describe('electron main bootstrap — sessions and guardrails', () => {
         expect.objectContaining({
           status: 'malformed',
           severity: 'error',
-          summary: 'Produced a malformed guardrail receipt.',
+          summary: 'Guardrail receipt is malformed.',
         }),
       ]),
     );

@@ -25,8 +25,3 @@ declarations in `src/renderer/styles/variables.css`.
 - Upstream: https://github.com/adobe-fonts/source-code-pro
   (`release` branch, commit 803b7e23ec97, 2025-10-28)
 - License: SIL Open Font License 1.1 (see `OFL-SourceCodePro.txt`)
-
-## Provenance
-
-Exact retrieval commands and per-artifact provenance are recorded in
-`scratchspace/features/execution/self-host-fonts-validation-log.md`.

@@ -774,6 +774,7 @@ function mockSequencerDependencies(options: {
   }));
   vi.doMock('../pipeline/externalMcpRegistryCache.js', () => ({
     getCachedExternalMcpRegistry: vi.fn(() => undefined),
+    getCachedExternalMcpAssignments: vi.fn(() => undefined),
     getCachedExternalMcpRegistryHealth: vi.fn(() => ({ status: 'not-configured' })),
   }));
   vi.doMock('../pipeline/remediation.js', () => ({
@@ -815,7 +816,7 @@ function mockSequencerDependencies(options: {
   vi.doMock('../pipeline/runtimeControl.js', () => ({
     clearPipelineKill: vi.fn().mockResolvedValue(undefined),
     pipelineKillSwitchExists: vi.fn(() => false),
-    readPipelineKillRequest: vi.fn().mockResolvedValue(null),
+    readPipelineKillRequest: vi.fn().mockResolvedValue(undefined),
   }));
   vi.doMock('../pipeline/retrospectivePhase.js', () => ({
     buildCycleContextBundle: vi.fn().mockResolvedValue([]),

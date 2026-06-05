@@ -7,7 +7,7 @@
   display: grid;
   place-items: center;
   padding: 2rem;
-  background: rgba(8, 12, 20, 0);
+  background: color-mix(in srgb, var(--ts-surface-terminal) 0%, transparent);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
   animation: modalShellOverlayIn 250ms ease-out forwards;
@@ -22,12 +22,12 @@
 }
 
 @keyframes modalShellOverlayIn {
-  to { background: rgba(8, 12, 20, 0.4); }
+  to { background: color-mix(in srgb, var(--ts-surface-terminal) 40%, transparent); }
 }
 
 @keyframes modalShellOverlayOut {
-  from { background: rgba(8, 12, 20, 0.4); }
-  to   { background: rgba(8, 12, 20, 0); opacity: 0; }
+  from { background: color-mix(in srgb, var(--ts-surface-terminal) 40%, transparent); }
+  to   { background: color-mix(in srgb, var(--ts-surface-terminal) 0%, transparent); opacity: 0; }
 }
 
 /* ── Container ───────────────────────────────────────────────────────── */
@@ -60,8 +60,8 @@
   border-color: var(--terminal-border);
   box-shadow:
     var(--ts-shadow-xl),
-    0 0 0 1px rgba(255, 255, 255, 0.03) inset,
-    0 0 40px rgba(0, 0, 0, 0.3);
+    0 0 0 1px color-mix(in srgb, var(--ts-text-inverse) 3%, transparent) inset,
+    0 0 40px color-mix(in srgb, var(--ts-surface-terminal) 30%, transparent);
 }
 
 @keyframes modalShellIn {
@@ -144,7 +144,7 @@
 
 .modal-shell__close:hover {
   color: var(--ts-text);
-  background: rgba(30, 50, 100, 0.09);
+  background: color-mix(in srgb, var(--ts-brand-blue) 9%, transparent);
 }
 
 .modal-shell__close:active {
@@ -162,7 +162,7 @@
 
 .modal-shell--terminal .modal-shell__close:hover {
   color: var(--terminal-text);
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--ts-text-inverse) 6%, transparent);
   border-color: var(--terminal-border);
 }
 
@@ -180,11 +180,11 @@
 .modal-shell__body::-webkit-scrollbar { width: var(--ts-scrollbar-width, 5px); }
 .modal-shell__body::-webkit-scrollbar-track { background: var(--ts-scrollbar-track, transparent); }
 .modal-shell__body::-webkit-scrollbar-thumb {
-  background: var(--ts-scrollbar-thumb, rgba(0, 0, 0, 0.12));
+  background: var(--ts-scrollbar-thumb);
   border-radius: var(--ts-radius-pill);
 }
 .modal-shell__body::-webkit-scrollbar-thumb:hover {
-  background: var(--ts-scrollbar-thumb-hover, rgba(0, 0, 0, 0.2));
+  background: var(--ts-scrollbar-thumb-hover);
 }
 
 .modal-shell--terminal .modal-shell__body {

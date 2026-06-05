@@ -1,5 +1,5 @@
 import { mkdir, readFile, writeFile, rename, copyFile, unlink } from 'node:fs/promises';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, renameSync, unlinkSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -36,6 +36,19 @@ export async function writeTextFile(
 ): Promise<void> {
   await ensureDir(path.dirname(filePath));
   await writeFile(filePath, content, 'utf-8');
+}
+
+/**
+ * Write text content to a file exclusively: fails with EEXIST if the file
+ * already exists (O_CREAT|O_EXCL semantics via flag 'wx').
+ * Creates parent directories if needed.
+ */
+export async function writeTextFileExclusive(
+  filePath: string,
+  content: string,
+): Promise<void> {
+  await ensureDir(path.dirname(filePath));
+  await writeFile(filePath, content, { encoding: 'utf-8', flag: 'wx' });
 }
 
 /**
@@ -82,9 +95,52 @@ export async function writeTextFileAtomic(
   );
 }
 
+/**
+ * Synchronous crash-atomic counterpart of {@link writeTextFileAtomic} (temp +
+ * rename). For callers that are themselves synchronous and should not be forced
+ * to become async. Like the async version this is crash-atomic (the rename is
+ * all-or-nothing), not fsync-durable.
+ */
+export function writeTextFileAtomicSync(filePath: string, content: string): void {
+  mkdirSync(path.dirname(filePath), { recursive: true });
+  const maxAttempts = 5;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const tmpPath = `${filePath}.tmp-${process.pid}-${randomBytes(8).toString('hex')}`;
+    try {
+      writeFileSync(tmpPath, content, { encoding: 'utf-8', flag: 'wx' });
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
+        lastError = err;
+        continue;
+      }
+      throw err;
+    }
+    try {
+      renameSync(tmpPath, filePath);
+      return;
+    } catch (err) {
+      unlinkQuietSync(tmpPath);
+      throw err;
+    }
+  }
+  throw new Error(
+    `writeTextFileAtomicSync: could not allocate a unique temp file for ${filePath} after ${maxAttempts} attempts`,
+    { cause: lastError },
+  );
+}
+
 async function unlinkQuiet(targetPath: string): Promise<void> {
   try {
     await unlink(targetPath);
+  } catch {
+    /* best-effort cleanup */
+  }
+}
+
+function unlinkQuietSync(targetPath: string): void {
+  try {
+    unlinkSync(targetPath);
   } catch {
     /* best-effort cleanup */
   }

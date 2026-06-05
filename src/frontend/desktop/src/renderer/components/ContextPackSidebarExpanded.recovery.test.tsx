@@ -47,7 +47,6 @@ function renderSidebar(packs: ContextPackCatalogEntry[]) {
       onToggleCollapse={noop}
       onSelectContextPack={noop}
       onSelectWorkingFocus={noop}
-      onRefreshCatalog={noop}
       onOpenCreateModal={noop}
       onReseedContextPack={noop}
       onPreviewSwitch={noop}

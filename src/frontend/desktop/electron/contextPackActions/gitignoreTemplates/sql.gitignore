@@ -1,0 +1,16 @@
+
+# Generated database backup and export files
+*.bak
+*.dump
+*.sql.gz
+*.sql.bz2
+
+# Database data export directories
+data_exports/
+db_backups/
+backups/
+
+# SQLite runtime files
+*.db-journal
+*.db-wal
+*.db-shm

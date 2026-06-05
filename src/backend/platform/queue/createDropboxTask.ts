@@ -7,6 +7,7 @@ import {
   findRepoRoot,
   ValidationError,
 } from '../core/index.js';
+import { writeTextFileExclusive } from '../core/io.js';
 import { assertValidTaskId, resolveQueuePaths } from './paths.js';
 import {
   formatBranchChainSection,
@@ -150,23 +151,20 @@ export async function createDropboxTask(
   const queuePaths = resolveQueuePaths(effectiveRepoRoot);
   await ensureDir(queuePaths.dropboxDir);
 
-  let outputFile = options.outputPath ?? '';
+  const explicitOutputPath = options.outputPath ?? '';
+  // Whether the caller supplied an explicit destination path. Explicit paths
+  // use the legacy existsSync + force check; auto-generated paths use the
+  // exclusive-create retry loop below so two callers in the same second never
+  // silently clobber each other.
+  const isAutoPath = !explicitOutputPath;
 
-  if (!outputFile) {
-    const existingFileNames = new Set<string>();
-    const tasksDir = path.dirname(queuePaths.taskWorktree('placeholder'));
-    for (const dir of [queuePaths.dropboxDir, queuePaths.pendingDir, queuePaths.errorItemsDir, tasksDir]) {
-      if (!existsSync(dir)) continue;
-      for (const entry of readdirSync(dir)) {
-        existingFileNames.add(entry);
-      }
-    }
-    outputFile = path.join(queuePaths.dropboxDir, buildReadableTaskFileName({
-      rawTitle: title,
-      existingFileNames,
-    }));
-  } else if (!path.isAbsolute(outputFile)) {
-    outputFile = path.join(queuePaths.dropboxDir, outputFile);
+  let outputFile: string;
+  if (explicitOutputPath) {
+    outputFile = path.isAbsolute(explicitOutputPath)
+      ? explicitOutputPath
+      : path.join(queuePaths.dropboxDir, explicitOutputPath);
+  } else {
+    outputFile = buildAutoOutputFile(title, queuePaths);
   }
 
   ensurePathWithinDropbox(queuePaths.dropboxDir, outputFile);
@@ -176,7 +174,7 @@ export async function createDropboxTask(
   }
   assertValidTaskId(path.basename(outputFile, '.md'));
 
-  if (existsSync(outputFile) && !force) {
+  if (!isAutoPath && existsSync(outputFile) && !force) {
     throw new ValidationError(`${outputFile} already exists. Use --force to overwrite.`, { code: 'DROPBOX_OUTPUT_EXISTS', category: 'user' });
   }
 
@@ -271,7 +269,33 @@ ${carryForwardSummary}
 - Created At (UTC): ${createdAt}
 `;
 
-  await writeTextFile(outputFile, content);
+  if (isAutoPath) {
+    // Exclusive-create with rescan retry: if another caller concurrently wrote
+    // the same filename, EEXIST fires. We re-scan the dropbox dir and recompute
+    // a fresh candidate instead of clobbering the existing file.
+    const MAX_EXCLUSIVE_ATTEMPTS = 5;
+    let writeAttempt = 0;
+    while (true) {
+      try {
+        await writeTextFileExclusive(outputFile, content);
+        break;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+        writeAttempt += 1;
+        if (writeAttempt >= MAX_EXCLUSIVE_ATTEMPTS) {
+          throw new Error(
+            `createDropboxTask: could not create a unique dropbox file for "${title}" after ${MAX_EXCLUSIVE_ATTEMPTS} attempts (EEXIST on every candidate).`,
+          );
+        }
+        // Rescan to pick up the file that now occupies this name.
+        outputFile = buildAutoOutputFile(title, queuePaths);
+      }
+    }
+  } else {
+    // Explicit path: honor the caller's intent. The existsSync+force check above
+    // already guards against unintended overwrites.
+    await writeTextFile(outputFile, content);
+  }
 
   // Register the new dropbox task in the centralized registry so the task
   // board's registry-first read path surfaces it without waiting for a
@@ -306,4 +330,21 @@ ${carryForwardSummary}
   }
 
   return outputFile;
+}
+
+/**
+ * Scan all queue directories and return a fresh auto-generated output path
+ * for the given title. Called both at initial filename selection and on EEXIST
+ * retry so the re-scan picks up files written by concurrent callers.
+ */
+function buildAutoOutputFile(title: string, queuePaths: ReturnType<typeof resolveQueuePaths>): string {
+  const existingFileNames = new Set<string>();
+  const tasksDir = path.dirname(queuePaths.taskWorktree('placeholder'));
+  for (const dir of [queuePaths.dropboxDir, queuePaths.pendingDir, queuePaths.errorItemsDir, tasksDir]) {
+    if (!existsSync(dir)) continue;
+    for (const entry of readdirSync(dir)) {
+      existingFileNames.add(entry);
+    }
+  }
+  return path.join(queuePaths.dropboxDir, buildReadableTaskFileName({ rawTitle: title, existingFileNames }));
 }

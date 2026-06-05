@@ -11,7 +11,61 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { acquireDirLock } from '../dirLock.js';
+import { acquireDirLock, acquireDirLockOrThrow, withDirLock } from '../dirLock.js';
+
+describe('acquireDirLockOrThrow and withDirLock opts forwarding', () => {
+  let tmpDir: string;
+  let lockDir: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(path.join(tmpdir(), 'dir-lock-opts-'));
+    lockDir = path.join(tmpDir, 'queue.lock');
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('acquireDirLockOrThrow with maxRetries=1 and a pre-held lock throws after one attempt', async () => {
+    // Hold the lock with a real acquire.
+    const release = await acquireDirLock(lockDir, 1, 0);
+    expect(release).toBeTypeOf('function');
+
+    // Second acquire with maxRetries=1 must throw, not succeed.
+    await expect(
+      acquireDirLockOrThrow(lockDir, 'TestOpts', { maxRetries: 1, backoffMs: 0 }),
+    ).rejects.toThrow(/TestOpts blocked/);
+
+    await release!();
+  });
+
+  it('withDirLock with maxRetries=1 and a pre-held lock throws after one attempt', async () => {
+    const release = await acquireDirLock(lockDir, 1, 0);
+    expect(release).toBeTypeOf('function');
+
+    await expect(
+      withDirLock(lockDir, 'TestOptsWithDirLock', async () => {}, { maxRetries: 1, backoffMs: 0 }),
+    ).rejects.toThrow(/TestOptsWithDirLock blocked/);
+
+    await release!();
+  });
+
+  it('acquireDirLockOrThrow with omitted opts succeeds on a free lock (default behavior unchanged)', async () => {
+    const release = await acquireDirLockOrThrow(lockDir, 'TestDefault');
+    expect(release).toBeTypeOf('function');
+    await release();
+  });
+
+  it('withDirLock with omitted opts executes fn and releases lock (default behavior unchanged)', async () => {
+    let ran = false;
+    await withDirLock(lockDir, 'TestDefaultWithDirLock', async () => {
+      ran = true;
+    });
+    expect(ran).toBe(true);
+    // Lock dir should be removed after withDirLock resolves.
+    expect(existsSync(lockDir)).toBe(false);
+  });
+});
 
 describe('acquireDirLock', () => {
   let tmpDir: string;

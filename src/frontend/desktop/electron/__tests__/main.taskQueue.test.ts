@@ -2,7 +2,110 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../main.stream', () => ({
   emitStreamEvent: vi.fn(),
+  withStreamEvent: vi.fn(async (p: Promise<unknown>) => p),
 }));
+
+vi.mock('../plannerSession', () => ({
+  getObservability: vi.fn(() => ({ sessionId: null })),
+  getSessionState: vi.fn(() => null),
+}));
+
+vi.mock('../main.staging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../main.staging')>();
+  return { ...actual, readOwnedStagedDraft: vi.fn(), readPlannerStagingSidecar: vi.fn(async () => null), readStagedDraft: vi.fn() };
+});
+
+vi.mock('../main.desktopActionHandlers', () => ({
+  createDefaultDesktopActionHandlers: vi.fn(() => ({
+    getPlannerSessionState: vi.fn(() => null),
+    endPlannerSession: vi.fn(async () => ({ ended: true })),
+    listContextPacks: vi.fn(async () => ({ ok: true, response: { action: 'contextPack.list', contextPacks: [] } })),
+    submitDraft: vi.fn(), startPlannerSession: vi.fn(), updatePlannerSessionPersonality: vi.fn(),
+    validateChildTaskFocus: vi.fn(), sendPlannerMessage: vi.fn(), savePlannerDraft: vi.fn(),
+    readQueueStatus: vi.fn(), deletePendingItem: vi.fn(), readEnvironmentStatus: vi.fn(),
+    readObservability: vi.fn(), pickContextPackDirectory: vi.fn(), discoverContextPackPrefill: vi.fn(),
+    createContextPack: vi.fn(), listRepoTree: vi.fn(), reseedContextPack: vi.fn(),
+    submitFollowUp: vi.fn(), previewContextPackSwitch: vi.fn(), applyContextPackSwitch: vi.fn(),
+    clearActiveContextPack: vi.fn(), deleteContextPack: vi.fn(), pickMarkdownFile: vi.fn(),
+    listArchivedTasks: vi.fn(), readParentContextBundle: vi.fn(), readParentChainArchiveBundle: vi.fn(),
+    readParentArchiveMarkdown: vi.fn(), listConversationHistory: vi.fn(), hydrateConversation: vi.fn(),
+    submitReinforcementFeedback: vi.fn(), updateRealignmentDoc: vi.fn(), readReinforcementOverview: vi.fn(),
+    listReinforcementTasks: vi.fn(), readAgentRewards: vi.fn(), listRealignmentSessions: vi.fn(),
+    readRealignmentDoc: vi.fn(), checkActiveWorkGuard: vi.fn(), startRealignment: vi.fn(),
+    runRealignmentAnalysis: vi.fn(), dismissRealignment: vi.fn(), activateContextPack: vi.fn(),
+    setRepositoryType: vi.fn(), setRepoCategory: vi.fn(), listExternalMcpServers: vi.fn(),
+    addExternalMcpServer: vi.fn(), updateExternalMcpServer: vi.fn(), removeExternalMcpServer: vi.fn(),
+    toggleExternalMcpServer: vi.fn(), validateExternalMcpConnection: vi.fn(),
+    validateExternalMcpLocalCommand: vi.fn(), readSystemSettings: vi.fn(), saveSystemSettings: vi.fn(),
+    restartApp: vi.fn(), loadAgentConfigAgents: vi.fn(), loadAgentModelCatalog: vi.fn(),
+    loadAgentConfigCapabilities: vi.fn(), saveAgentModels: vi.fn(), addAgentModel: vi.fn(),
+    removeAgentModel: vi.fn(), listAgentExtensions: vi.fn(), addAgentExtension: vi.fn(),
+    reseedAgentExtension: vi.fn(), deleteAgentExtension: vi.fn(), loadAgentExtensionAssignments: vi.fn(),
+    saveAgentExtensionAssignments: vi.fn(), loadExternalMcpAssignments: vi.fn(),
+    saveExternalMcpAssignments: vi.fn(), listInstructionFiles: vi.fn(), readInstructionFile: vi.fn(),
+    writeInstructionFile: vi.fn(), readTaskBoard: vi.fn(), readTaskNotifications: vi.fn(),
+    markTaskNotificationsSeen: vi.fn(), dismissTaskNotification: vi.fn(),
+    dismissAllTaskNotifications: vi.fn(), readTaskContent: vi.fn(),
+    readChildChainBranchInventory: vi.fn(), reorderPending: vi.fn(), requeueErrorItem: vi.fn(),
+    deleteTask: vi.fn(), moveToPending: vi.fn(), moveToOpen: vi.fn(),
+    killTask: vi.fn(), retryKillCleanup: vi.fn(), saveDeepFocusSelections: vi.fn(),
+    loadDeepFocusSelections: vi.fn(), clearDeepFocusSelections: vi.fn(),
+    listFocusFilters: vi.fn(), createFocusFilter: vi.fn(), deleteFocusFilter: vi.fn(),
+    loadContextPackSidebarState: vi.fn(), saveContextPackSidebarState: vi.fn(),
+    setTerminalTaskScope: vi.fn(), uploadSpec: vi.fn(), cancelTask: vi.fn(),
+  })),
+}));
+
+vi.mock('../log/logger', () => ({
+  createLogger: vi.fn(() => ({
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  })),
+}));
+
+vi.mock('../main.contextPackTaskVisibility', () => ({
+  refreshCurrentActiveContextPackTaskScope: vi.fn(async () => undefined),
+}));
+
+vi.mock('../main.terminalScopeRefresh', () => ({
+  refreshTerminalScopeCaches: vi.fn(async () => undefined),
+}));
+
+vi.mock('../main.services', () => ({
+  startBackendServices: vi.fn(),
+  stopBackendServices: vi.fn(),
+  checkBackendHealth: vi.fn(),
+  readBackendServiceStatus: vi.fn(() => ({})),
+}));
+
+vi.mock('../plannerFocusValidation', () => ({
+  PLANNER_FOCUS_FALLBACK_MESSAGE: 'fallback',
+  PLANNER_FOCUS_VALID_MESSAGE: 'valid',
+  validateChildTaskFocusSnapshot: vi.fn(),
+}));
+
+vi.mock('../plannerHistory', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../plannerHistory')>();
+  return { ...actual, commitPendingRecordToHistory: vi.fn(async () => undefined) };
+});
+
+vi.mock('../main.plannerTitle', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../main.plannerTitle')>();
+  return { ...actual, resolvePlannerTaskTitleFromDraft: vi.fn(() => 'test_task_title') };
+});
+
+vi.mock('../main.markdown', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../main.markdown')>();
+  // Override only the two router-called validators (not parsePlannerEditableDraft or
+  // canonicalizeEditableDraftRequirements, which must remain real for existing taskQueue tests).
+  return {
+    ...actual,
+    validatePlannerProtectedMetadata: vi.fn(() => null),
+    validatePlanningIntakeDraft: vi.fn(() => null),
+  };
+});
 
 vi.mock('../main.contextPackCatalog', () => ({
   listAvailableContextPacks: vi.fn(),
@@ -43,6 +146,11 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   };
 });
 
+vi.mock('../../../../backend/platform/queue/dirLock.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../backend/platform/queue/dirLock.js')>();
+  return { ...actual, withDirLock: vi.fn(actual.withDirLock) };
+});
+
 const { readWorkspaceSyncStateSnapshot } = await import('../main.contextPackCatalog');
 const { resolveChildTaskChainCreationContext } = await import('../main.childTaskChain');
 const { resolveFocusedRepoRoot, resolveSelectedPrimaryRepoRoot } = await import('../../../../backend/platform/context-pack/focusedRepo.js');
@@ -50,6 +158,7 @@ const { createDropboxTask } = await import('../../../../backend/platform/queue/c
 const { createFollowupTask } = await import('../../../../backend/platform/queue/createFollowupTask.js');
 const { publishPendingItem } = await import('../../../../backend/platform/queue/publishPendingItem.js');
 const { readdir, readFile } = await import('node:fs/promises');
+const { withDirLock } = await import('../../../../backend/platform/queue/dirLock.js');
 const {
   runDropboxTaskScript,
   runFollowUpTaskScript,
@@ -60,6 +169,8 @@ const {
   validatePlannerDraftForSubmission,
   validateFollowUpDraftForSubmission,
 } = await import('../main.taskQueue');
+const { handleDesktopAction } = await import('../main.desktopActionRouter');
+const { readOwnedStagedDraft } = await import('../main.staging');
 
 function buildUploadedSpec(extraSections = ''): string {
   return `
@@ -865,5 +976,202 @@ ${buildUploadedSpec()}`, { plannerSidecar: sidecar })).resolves.toEqual(expect.o
       compatibilityRequirements: '- COMP-001: Keep parent archive behavior compatible.',
       requiredValidation: '- VAL-001: Verify the follow-up runner receives generated IDs.',
     }));
+  });
+});
+
+describe('submitUploadedSpec lock-acquisition gate', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(readWorkspaceSyncStateSnapshot).mockResolvedValue({
+      activeContextPackDir: '/context-packs/sample-pack',
+      activeContextPackId: 'sample-pack-id',
+      scopeMode: 'focused',
+      selectedRepoIds: ['backend'],
+      selectedFocusIds: ['api'],
+      deepFocusEnabled: false,
+      deepFocusPrimaryRepoId: null,
+      deepFocusPrimaryFocusId: null,
+      selectedFocusPath: null,
+      selectedFocusTargetKind: null,
+      selectedTestTarget: null,
+      selectedSupportTargets: [],
+      managedFolders: [],
+      status: 'active',
+      lastSyncedAt: '2026-03-07T18:30:00Z',
+      workspaceFolderCount: null,
+      workspaceFileCount: null,
+    });
+    vi.mocked(resolveSelectedPrimaryRepoRoot).mockResolvedValue({
+      primaryRepoRoot: '/repos/backend',
+      visibleRepoRoots: ['/repos/backend'],
+      declaredRepoRoots: ['/repos/backend'],
+      estateType: 'monolith',
+      primaryRepoId: 'backend',
+      primaryFocusId: 'api',
+      primaryFocusRelativePath: 'apps/api',
+      selectedRepoIds: ['backend'],
+      selectedFocusIds: ['api'],
+      authoritySource: 'workspace-sync-state',
+    });
+    vi.mocked(resolveFocusedRepoRoot).mockResolvedValue(undefined);
+    mockResolvedChildTaskChainContext();
+  });
+
+  it('submitUploadedSpecFromActiveWorkspace waits for withDirLock before creating the task', async () => {
+    // Use a Promise barrier to block the lock callback until we release it.
+    let resolveBarrier!: () => void;
+    const barrier = new Promise<void>((resolve) => { resolveBarrier = resolve; });
+
+    let createCalled = false;
+    vi.mocked(withDirLock).mockImplementationOnce(async (_lockDir, _op, fn) => {
+      // Simulate a held lock: the create callback only runs after the barrier resolves.
+      await barrier;
+      return fn();
+    });
+    vi.mocked(createDropboxTask).mockImplementation(async () => {
+      createCalled = true;
+      return '/repo/AgentWorkSpace/dropbox/locked-task.md';
+    });
+
+    const submissionPromise = submitUploadedSpecHelper(buildUploadedSpec());
+
+    // Lock is still held — create must not have been called yet.
+    expect(createCalled).toBe(false);
+
+    // Release the barrier (simulate lock release).
+    resolveBarrier();
+    const result = await submissionPromise;
+
+    expect(result).toEqual(expect.objectContaining({ ok: true }));
+    expect(createCalled).toBe(true);
+    expect(vi.mocked(withDirLock)).toHaveBeenCalledWith(
+      expect.stringContaining('queue-lock'),
+      'submitUploadedSpecFromActiveWorkspace',
+      expect.any(Function),
+    );
+  });
+
+  it('submitUploadedSpecFromSidecar waits for withDirLock before creating the child task', async () => {
+    let resolveBarrier!: () => void;
+    const barrier = new Promise<void>((resolve) => { resolveBarrier = resolve; });
+
+    let createCalled = false;
+    vi.mocked(withDirLock).mockImplementationOnce(async (_lockDir, _op, fn) => {
+      await barrier;
+      return fn();
+    });
+    vi.mocked(createDropboxTask).mockImplementation(async () => {
+      createCalled = true;
+      return '/repo/AgentWorkSpace/dropbox/sidecar-task.md';
+    });
+
+    const sidecar = buildPlannerSidecar();
+    const submissionPromise = submitUploadedSpecHelper(buildUploadedSpec(), { plannerSidecar: sidecar });
+
+    expect(createCalled).toBe(false);
+
+    resolveBarrier();
+    const result = await submissionPromise;
+
+    expect(result).toEqual(expect.objectContaining({ ok: true }));
+    expect(createCalled).toBe(true);
+    expect(vi.mocked(withDirLock)).toHaveBeenCalledWith(
+      expect.stringContaining('queue-lock'),
+      'submitUploadedSpecFromSidecar',
+      expect.any(Function),
+    );
+  });
+});
+
+describe('planner.finalizeSpec lock-acquisition gate', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    // Provide a valid standard staged draft so the router reaches the lock call.
+    vi.mocked(readOwnedStagedDraft).mockResolvedValue({
+      draft: {
+        filename: 'draft.md',
+        content: '## Request Summary\n\ntest',
+        modifiedAt: '2026-01-01T00:00:00Z',
+      },
+      metadata: {
+        version: 1 as const,
+        ownership: 'planner-session' as const,
+        sessionId: 'test-session',
+        draftFilename: 'draft.md',
+        draftPath: '/repo/AgentWorkSpace/dropbox/.staging/draft.md',
+        createdAt: '2026-01-01T00:00:00Z',
+        title: 'test-pack / test-focus',
+        primaryRepoId: 'test-repo',
+        primaryRepoRoot: '/test/repo',
+        primaryFocusRelativePath: 'src',
+        deepFocusEnabled: false,
+        primaryFocusTargetKind: 'directory' as const,
+        primaryFocusTargets: [],
+        selectedTestTarget: null,
+        supportTargets: [],
+        lineage: {
+          taskKind: 'standard' as const,
+          parentTaskId: '',
+          rootTaskId: '',
+          parentQmdRecordId: '',
+          parentQmdScope: '',
+          followUpReason: '',
+        },
+        contextPackBinding: {
+          contextPackDir: '/test/context-pack',
+          contextPackId: 'test-pack',
+          scopeMode: 'focus-selection',
+          primaryRepoId: 'test-repo',
+          primaryFocusId: 'test-focus',
+          selectedRepoIds: ['test-repo'],
+          selectedFocusIds: ['test-focus'],
+          deepFocusEnabled: false,
+          selectedFocusPath: 'src',
+          selectedFocusTargetKind: 'directory' as const,
+          selectedFocusTargets: [],
+          selectedTestTarget: null,
+          selectedSupportTargets: [],
+        },
+      },
+      error: null,
+    });
+  });
+
+  it('planner.finalizeSpec waits for withDirLock before creating the dropbox task', async () => {
+    // Promise barrier: the lock callback blocks until the barrier resolves.
+    let resolveBarrier!: () => void;
+    const barrier = new Promise<void>((resolve) => { resolveBarrier = resolve; });
+
+    let createCalled = false;
+    vi.mocked(withDirLock).mockImplementationOnce(async (_lockDir, _op, fn) => {
+      // Lock is held — fn() (which calls createDropboxTask) only runs after barrier.
+      await barrier;
+      return fn();
+    });
+    vi.mocked(createDropboxTask).mockImplementation(async () => {
+      createCalled = true;
+      return '/repo/AgentWorkSpace/dropbox/finalized-task.md';
+    });
+
+    const finalizationPromise = handleDesktopAction({
+      action: 'planner.finalizeSpec',
+      payload: {},
+    });
+
+    // Lock is still held — createDropboxTask must not have been called yet.
+    expect(createCalled).toBe(false);
+
+    // Release the barrier (simulate lock release).
+    resolveBarrier();
+    const result = await finalizationPromise;
+
+    expect(result).toEqual(expect.objectContaining({ ok: true }));
+    expect(createCalled).toBe(true);
+    expect(vi.mocked(withDirLock)).toHaveBeenCalledWith(
+      expect.stringContaining('queue-lock'),
+      'planner.finalizeSpec',
+      expect.any(Function),
+    );
   });
 });

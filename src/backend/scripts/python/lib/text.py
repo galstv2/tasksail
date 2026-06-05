@@ -6,11 +6,17 @@ import re
 HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 
 
-def slugify(value: str) -> str:
-    """Convert *value* to a kebab-case slug safe for file names."""
+def slugify(value: str, fallback: str = "task") -> str:
+    """Convert *value* to an ASCII kebab-case slug safe for file names.
+
+    Canonical slug implementation. ``fallback`` is returned when the input
+    has no slug-able characters. NOTE: this is ASCII-only (non-ASCII letters
+    are dropped); ``context_pack_bootstrap_answers.slugify`` is deliberately
+    Unicode-aware and is a separate function by design.
+    """
     lowered = value.strip().lower()
     lowered = re.sub(r"[^a-z0-9]+", "-", lowered)
-    return lowered.strip("-") or "task"
+    return lowered.strip("-") or fallback
 
 
 def strip_html_comments(value: str) -> str:
@@ -78,7 +84,12 @@ def extract_bullet_items(lines: list[str]) -> list[str]:
 
 
 def compact_text(value: str, max_length: int = 320) -> str:
-    """Collapse whitespace and truncate to *max_length* with ``...``."""
+    """Collapse whitespace and truncate to *max_length* with ``...``.
+
+    Write-time variant: strips HTML comments from raw markdown. Distinct by
+    design from repo_context_mcp.utils.compact_text, which runs read-time on
+    already-cleaned JSON record fields and does not strip HTML.
+    """
     normalized = " ".join(strip_html_comments(value).split())
     if len(normalized) <= max_length:
         return normalized
@@ -98,6 +109,10 @@ def normalize_string_list(value: object) -> list[str]:
 
     Accepts ``None`` (returns ``[]``), a ``str`` (comma-split), or a
     ``list``.  Raises ``SystemExit`` for other types.
+
+    Comma-splitting suits operator questionnaire input. Distinct by design
+    from repo_context_mcp.utils.normalize_string_list, which treats a bare
+    string as a single element (it receives already-structured JSON lists).
     """
     if value is None:
         return []

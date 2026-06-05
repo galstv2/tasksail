@@ -30,7 +30,7 @@ export async function recordTaskNotification(args: {
     const dedupeKey = canonicalDedupeKey(args.record.type, args.record.taskId);
     const dedupeKeys = new Set(store.notifications.map((record) => record.dedupeKey));
     if (dedupeKeys.has(dedupeKey)) {
-      log.info('task_notifications.record.duplicate_ignored', { taskId: args.record.taskId, notificationType: args.record.type });
+      log.debug('task_notifications.record.duplicate_ignored', { taskId: args.record.taskId, notificationType: args.record.type });
       return null;
     }
 

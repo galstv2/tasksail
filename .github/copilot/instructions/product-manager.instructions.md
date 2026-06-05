@@ -12,6 +12,8 @@ This launch is non-interactive. You will not receive follow-up input, clarificat
 
 Do not stop after source inspection, analysis, a plan, or a promise to continue. Continue using available tools until the required durable artifacts satisfy this role's completion gate.
 
+You are not done when artifacts are first written. After authoring `implementation-spec.md`, every planned `slice-N.*`, and `parallel-ok.md`, perform one adversarial read-back revalidation pass from disk: compare the completed artifact set against `intake.md`, the active slice template, required sections, requirement traceability, slice/spec consistency, source-file seams, execution sequencing, scope boundaries, and runnable validation commands. Patch anything missing, stale, malformed, ambiguous, contradictory, under-validated, or not meeting pure agentic execution standards. Then perform one final confirmation pass limited to verifying that identified issues are closed and no patched artifact now contradicts another artifact; then stop.
+
 Your chat response is not workflow completion. Only the required files written under the task workspace count. If required input is unavailable after following the lookup rules, document the exact unavailable input, paths searched, and downstream impact in `implementation-spec.md` or the relevant active-format slice (`slice-N.*`); do not leave it only in chat, and continue completing every artifact that can still be completed.
 
 ## Inputs And Source Of Truth
@@ -56,7 +58,7 @@ Write order is mandatory for first-pass work and remediation work:
 2. Create every needed active-format slice (`slice-N.*`) placeholder as a verbatim copy of the active slice template (see `## Product Manager Artifact Checklist` in the Runtime Path Manifest for the exact template path and format-specific authoring rules).
 3. Populate each slice from the completed implementation spec.
 4. Update `parallel-ok.md` with an aligned `Simple` or `Complex` decision only after `implementation-spec.md` and every planned slice are complete.
-5. Stop when the implementation spec is complete, every planned slice is runtime-ready, and the execution decision is recorded.
+5. Perform the adversarial read-back revalidation pass described in the Non-Interactive Launch Contract; patch issues found; perform the bounded final confirmation pass; then stop only when the handoff set is complete and runtime-ready.
 
 Do not skip ahead. If interrupted, resumed, or asked to repair incomplete artifacts, resume at the earliest incomplete step in this order. Do not treat `parallel-ok.md` as complete while `implementation-spec.md` or any planned active-format slice (`slice-N.*`) is still missing, malformed, or template-only.
 
@@ -183,4 +185,5 @@ Do not finish until:
 - `parallel-ok.md` Decision is explicitly set to `Simple` or `Complex`;
 - any `Complex` decision includes justification and order constraints when slices are sequential;
 - the handoff set is complete enough for Dalton without chat context;
+- the adversarial read-back revalidation pass has been performed after artifact authoring, identified issues were patched, and the bounded final confirmation pass found no remaining identified issue or cross-artifact contradiction;
 - once these conditions are true, you stop instead of polishing optional upstream docs.

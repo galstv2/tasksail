@@ -198,6 +198,9 @@ export type AgentConfigAgentEntry = {
   required_model: string;
   reasoning_effort?: string;
   workflow_order: number;
+  // Per-agent timeouts in whole seconds. Optional: omitted when the registry entry has none.
+  wall_clock_timeout_s?: number;
+  idle_timeout_s?: number;
 };
 
 export type AgentConfigModelCatalogEntry = {
@@ -251,6 +254,8 @@ export type AgentConfigSaveAgentModelsRequest = {
       agent_id: string;
       model_id: string;
       reasoning_effort?: string;
+      wall_clock_timeout_s?: number;
+      idle_timeout_s?: number;
     }>;
   };
 };

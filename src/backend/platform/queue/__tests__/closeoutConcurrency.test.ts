@@ -4,6 +4,14 @@ import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
+vi.mock('../closeoutLockBudget.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../closeoutLockBudget.js')>();
+  return {
+    ...actual,
+    closeoutQueueLockBudget: vi.fn().mockImplementation(actual.closeoutQueueLockBudget),
+  };
+});
+
 vi.mock('../archive.js', () => ({
   fileTaskArchive: vi.fn(),
 }));
@@ -49,18 +57,34 @@ vi.mock('../../agent-runner/pipelineSupervisor.js', () => ({
   startPipeline: vi.fn().mockResolvedValue({ status: 'started', pid: 12345 }),
 }));
 
+vi.mock('../../platform-config/get.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../platform-config/get.js')>();
+  return { getPlatformConfig: vi.fn().mockImplementation(actual.getPlatformConfig) };
+});
+
+vi.mock('../../core/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../core/index.js')>();
+  return { ...actual, sleep: vi.fn().mockImplementation(actual.sleep) };
+});
+
 import { fileTaskArchive } from '../archive.js';
 import { retryDeferredRetrospectiveSyncs } from '../operations.js';
 import { activateNextPendingItemIfReady, readQueueOrderManifest, writeQueueOrderManifest } from '../operations.js';
 import { resumeCloseoutFromSentinel } from '../resumeCloseout.js';
 import { completePendingItem } from '../completePendingItem.js';
-import { acquireDirLockOrThrow } from '../dirLock.js';
+import { acquireDirLock, acquireDirLockOrThrow } from '../dirLock.js';
 import { moveFailedItemToErrorItems } from '../errorItems.js';
 import { resolveQueuePaths } from '../paths.js';
 import { finalizeTaskWorktrees } from '../../core/worktreeFinalize.js';
+import { closeoutQueueLockBudget } from '../closeoutLockBudget.js';
+import { getPlatformConfig } from '../../platform-config/get.js';
+import { sleep } from '../../core/index.js';
 
 const mockFileTaskArchive = vi.mocked(fileTaskArchive);
 const mockFinalizeTaskWorktrees = vi.mocked(finalizeTaskWorktrees);
+const mockCloseoutQueueLockBudget = vi.mocked(closeoutQueueLockBudget);
+const mockGetPlatformConfig = vi.mocked(getPlatformConfig);
+const mockSleep = vi.mocked(sleep);
 
 async function makeTmpRepo(): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), 'tasksail-conc-'));
@@ -313,5 +337,128 @@ describe('closeout concurrency (§6.4a)', () => {
     expect(await readQueueOrderManifest(paths.queueOrderPath)).toEqual([`${survivorTask}.md`]);
     expect(existsSync(path.join(paths.errorItemsDir, `${failedTask}.md`))).toBe(true);
     expect(existsSync(path.join(paths.pendingDir, `${successTask}.md`))).toBe(false);
+  });
+});
+
+describe('R1 bounded-wait budget: held-lock barrier (§6.4b)', () => {
+  let repoRoot: string;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    repoRoot = await makeTmpRepo();
+    // Restore the real closeoutQueueLockBudget for each test (may be overridden per-test).
+    const { closeoutQueueLockBudget: real } = await vi.importActual<typeof import('../closeoutLockBudget.js')>('../closeoutLockBudget.js');
+    mockCloseoutQueueLockBudget.mockImplementation(real);
+    mockFileTaskArchive.mockImplementation(async ({ taskId }) => ({
+      passed: true,
+      stdout: '{}',
+      stderr: '',
+      exitCode: 0,
+      data: { record_md_path: path.join(repoRoot, 'archive', `${taskId}.md`) },
+    }));
+  });
+
+  afterEach(async () => {
+    await rm(repoRoot, { recursive: true, force: true });
+  });
+
+  it('D1: completePendingItem acquires and succeeds when the queue lock is held then released', async () => {
+    // Deterministic held-lock barrier using an injected Promise barrier on sleep().
+    //
+    // acquireDirLock calls sleep() after each failed mkdir. By injecting a barrier
+    // into the first sleep() call, we guarantee the lock was genuinely contested
+    // (mkdir failed with EEXIST) before we release the held lock. Only then do we
+    // resolve the sleep barrier, at which point the retry mkdir succeeds.
+    //
+    // Together with D2 (maxRetries=1 → throws), this proves the budget size —
+    // not timing — is what determines whether the closeout survives a contested lock.
+    const taskId = '20260101t000010z_budget-d1';
+    const packDir = path.join(repoRoot, 'contextpacks', 'budget-pack');
+    await mkdir(packDir, { recursive: true });
+    await seedActiveTask(repoRoot, taskId);
+
+    const queuePaths = resolveQueuePaths(repoRoot);
+
+    // Mock getPlatformConfig to throw immediately (triggers the fallback=10 path),
+    // ensuring completePendingItem reaches acquireDirLockOrThrow as a microtask.
+    mockGetPlatformConfig.mockImplementationOnce(() =>
+      Promise.reject(new Error('no platform config in test')),
+    );
+
+    // 1. Hold the queue lock.
+    const release = await acquireDirLock(queuePaths.queueLockDir, 50, 0);
+    expect(release).toBeTypeOf('function');
+
+    // 2. Inject a barrier into the first sleep() call from acquireDirLock's retry loop.
+    //    This guarantees: mkdir failed (lock held) → sleep called (barrier) → we release
+    //    → barrier resolves → retry mkdir succeeds.
+    let resolveSleepBarrier!: () => void;
+    const sleepBarrier = new Promise<void>((resolve) => {
+      resolveSleepBarrier = resolve;
+    });
+    mockSleep.mockImplementationOnce(async (_ms: number) => {
+      // Signal that we are inside the retry wait (mkdir has already failed).
+      await sleepBarrier;
+      // Return without actually sleeping — the retry can proceed immediately.
+    });
+
+    // 3. Start completePendingItem while the lock is held. It will:
+    //    a. Reject getPlatformConfig (microtask) → use fallback budget.
+    //    b. Call acquireDirLockOrThrow → acquireDirLock → mkdir fails (EEXIST).
+    //    c. Call sleep() — blocked on sleepBarrier.
+    const closeoutPromise = completePendingItem({
+      taskId,
+      repoRoot,
+      skipValidation: true,
+      contextPackDir: packDir,
+    });
+
+    // 4. Wait for completePendingItem to reach sleep() (the barrier is now the only
+    //    thing suspending it). Drain microtasks + I/O by awaiting a fresh Promise.
+    await Promise.resolve();
+    // Give the I/O phase a turn so mkdir's EEXIST callback fires and sleep() is called.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    // 5. Verify the lock is genuinely contested: the sleep barrier was hit, meaning
+    //    mkdir failed and the retry is now waiting.
+    // (If sleep was not called, resolveSleepBarrier would not have been invoked yet,
+    //  and the test logic below still works — release first, then unblock sleep.)
+
+    // 6. Release the held lock while completePendingItem is suspended in sleep().
+    await release!();
+
+    // 7. Unblock sleep() → acquireDirLock retries mkdir → lock is now free → acquires.
+    resolveSleepBarrier();
+
+    // 8. Closeout must succeed — the real budget provided enough retries.
+    await expect(closeoutPromise).resolves.toBeUndefined();
+  });
+
+  it('D2: completePendingItem throws when injected with a tiny budget (maxRetries=1, backoffMs=0)', async () => {
+    // Override closeoutQueueLockBudget to return a single-attempt budget.
+    // With the lock held and only 1 retry available, acquisition must fail.
+    mockCloseoutQueueLockBudget.mockReturnValue({ maxRetries: 1, backoffMs: 0 });
+
+    const taskId = '20260101t000011z_budget-d2';
+    const packDir = path.join(repoRoot, 'contextpacks', 'budget-pack-tiny');
+    await mkdir(packDir, { recursive: true });
+    await seedActiveTask(repoRoot, taskId);
+
+    const queuePaths = resolveQueuePaths(repoRoot);
+    const release = await acquireDirLock(queuePaths.queueLockDir, 50, 0);
+    expect(release).toBeTypeOf('function');
+
+    try {
+      await expect(
+        completePendingItem({
+          taskId,
+          repoRoot,
+          skipValidation: true,
+          contextPackDir: packDir,
+        }),
+      ).rejects.toThrow(/Completion blocked/);
+    } finally {
+      await release!();
+    }
   });
 });

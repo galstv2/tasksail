@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from src.backend.mcp.context_estate_discovery import discover_estate
 
@@ -271,6 +272,26 @@ class DiscoverContextEstateTests(unittest.TestCase):
                 for path in root.rglob("*")
             )
             self.assertEqual(before_paths, after_paths)
+
+
+class CollectRepoHighSignalPathsTests(unittest.TestCase):
+    def test_survives_permission_error_and_records_warning(self) -> None:
+        """EH-1: an unreadable repo directory is skipped with a warning rather
+        than aborting the whole estate scan with a PermissionError."""
+        from src.backend.mcp.context_estate.discovery import (
+            collect_repo_high_signal_paths,
+        )
+
+        warnings: list[str] = []
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(
+                Path, "iterdir", side_effect=PermissionError("denied")
+            ):
+                result = collect_repo_high_signal_paths(Path(tmp), warnings)
+        self.assertEqual(result, [])
+        self.assertTrue(
+            any("Skipped unreadable directory" in w for w in warnings)
+        )
 
 
 if __name__ == "__main__":

@@ -33,6 +33,7 @@ const EMPTY_BOARD: TaskBoardState = {
 export type TaskBoardContentResult = {
   content: string;
   artifactRelativePath?: string;
+  contentType?: TaskBoardMarkdownArtifact['contentType'];
   artifacts?: TaskBoardMarkdownArtifact[];
 };
 
@@ -63,6 +64,34 @@ export function useTaskBoard(client: DesktopShellClient): UseTaskBoardResult {
   const [board, setBoard] = useState<TaskBoardState>(EMPTY_BOARD);
   const { addToast } = useToastContext();
 
+  // Shared apply path: only apply snapshots whose sequence is >= the last applied.
+  // This prevents older reads from overwriting newer push/refresh snapshots.
+  const lastBoardJsonRef = useRef('');
+  const lastAppliedSequenceRef = useRef(-1);
+
+  const applyBoardSnapshot = useCallback((resp: TaskBoardReadBoardResponse) => {
+    if (resp.boardSnapshotSequence < lastAppliedSequenceRef.current) return;
+    const json = JSON.stringify([
+      resp.dropboxItems,
+      resp.pendingItems,
+      resp.errorItems,
+      resp.completedItems,
+    ]);
+    if (json === lastBoardJsonRef.current) {
+      // Still update sequence even if content is the same, to track freshness.
+      lastAppliedSequenceRef.current = resp.boardSnapshotSequence;
+      return;
+    }
+    lastBoardJsonRef.current = json;
+    lastAppliedSequenceRef.current = resp.boardSnapshotSequence;
+    setBoard({
+      dropboxItems: resp.dropboxItems,
+      pendingItems: resp.pendingItems,
+      errorItems: resp.errorItems,
+      completedItems: resp.completedItems,
+    });
+  }, []);
+
   const refresh = useCallback(async () => {
     let result: Awaited<ReturnType<DesktopShellClient['readTaskBoard']>>;
     try {
@@ -78,43 +107,22 @@ export function useTaskBoard(client: DesktopShellClient): UseTaskBoardResult {
       return;
     }
     if (isTaskBoardReadBoardResponse(result.response)) {
-      const resp = result.response as TaskBoardReadBoardResponse;
-      setBoard({
-        dropboxItems: resp.dropboxItems,
-        pendingItems: resp.pendingItems,
-        errorItems: resp.errorItems,
-        completedItems: resp.completedItems,
-      });
+      applyBoardSnapshot(result.response as TaskBoardReadBoardResponse);
     }
-  }, [client, addToast]);
+  }, [client, addToast, applyBoardSnapshot]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
   // Subscribe to push-based board updates from the filesystem watcher.
-  // Skip no-op updates to avoid unnecessary re-renders.
-  const lastBoardJsonRef = useRef('');
   useEffect(() => {
     if (!window.desktopShell?.onTaskBoardUpdate) return;
     const unsubscribe = window.desktopShell.onTaskBoardUpdate((response) => {
-      const json = JSON.stringify([
-        response.dropboxItems,
-        response.pendingItems,
-        response.errorItems,
-        response.completedItems,
-      ]);
-      if (json === lastBoardJsonRef.current) return;
-      lastBoardJsonRef.current = json;
-      setBoard({
-        dropboxItems: response.dropboxItems,
-        pendingItems: response.pendingItems,
-        errorItems: response.errorItems,
-        completedItems: response.completedItems,
-      });
+      applyBoardSnapshot(response);
     });
     return unsubscribe;
-  }, []);
+  }, [applyBoardSnapshot]);
 
   const reorderPending = useCallback(
     async (order: string[]) => {
@@ -179,6 +187,7 @@ export function useTaskBoard(client: DesktopShellClient): UseTaskBoardResult {
       return {
         content: resp.content,
         artifactRelativePath: resp.artifactRelativePath,
+        contentType: resp.contentType,
         artifacts: resp.artifacts,
       };
     },
@@ -222,9 +231,11 @@ export function useTaskBoard(client: DesktopShellClient): UseTaskBoardResult {
         return false;
       }
       addToast({ severity: 'success', message: `Deleted ${fileName}.`, duration: 3000 });
+      // Refresh as a backstop in case watcher delivery is absent.
+      await refresh();
       return true;
     },
-    [client, addToast],
+    [client, addToast, refresh],
   );
 
   const moveToPending = useCallback(
@@ -243,8 +254,10 @@ export function useTaskBoard(client: DesktopShellClient): UseTaskBoardResult {
         return;
       }
       addToast({ severity: 'success', message: `Moved ${fileName} to pending.`, duration: 3000 });
+      // Refresh as a backstop in case watcher delivery is absent.
+      await refresh();
     },
-    [client, addToast],
+    [client, addToast, refresh],
   );
 
   const moveToOpen = useCallback(
@@ -263,8 +276,10 @@ export function useTaskBoard(client: DesktopShellClient): UseTaskBoardResult {
         return;
       }
       addToast({ severity: 'success', message: `Moved ${fileName} to open.`, duration: 3000 });
+      // Refresh as a backstop in case watcher delivery is absent.
+      await refresh();
     },
-    [client, addToast],
+    [client, addToast, refresh],
   );
 
   const killTask = useCallback(
@@ -278,6 +293,9 @@ export function useTaskBoard(client: DesktopShellClient): UseTaskBoardResult {
             : item
         )),
       }));
+      // Invalidate the dedup cache so the subsequent rollback refresh is never
+      // skipped even if the board content matches the pre-optimistic snapshot.
+      lastBoardJsonRef.current = '';
       try {
         result = await client.killTask(fileName, taskId);
       } catch (error: unknown) {

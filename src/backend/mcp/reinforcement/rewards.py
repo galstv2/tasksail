@@ -6,9 +6,9 @@ import uuid
 from src.backend.scripts.python.lib.time import current_utc_timestamp
 
 from .models import (
+    AGENT_REWARD_MULTIPLIERS,
     CHILD_TASK_MULTIPLIER,
     DIFFICULTY_REWARDS,
-    ROLE_MULTIPLIERS,
     SETTLEMENT_STREAK_THRESHOLD,
     SettlementRecord,
     TaskLedgerEntry,
@@ -48,7 +48,7 @@ class RewardCalculator:
 
         Returns 0 for unknown agent IDs.
         """
-        multiplier = ROLE_MULTIPLIERS.get(agent_id, 0.0)
+        multiplier = AGENT_REWARD_MULTIPLIERS.get(agent_id, 0.0)
         return round(effective_sum * multiplier)
 
     @staticmethod

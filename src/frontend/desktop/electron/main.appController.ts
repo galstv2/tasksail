@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { CONTEXT_PACK_CATALOG_CHANGED_CHANNEL } from '../src/shared/desktopContract';
 import * as plannerSession from './plannerSession';
 import { repairTaskRegistry } from '../../../backend/platform/queue/taskRegistry.js';
+import { acquireDirLock, resolveQueuePaths } from '../../../backend/platform/queue/index.js';
 import { REPO_ROOT } from './paths';
 import {
   autoStartBackendServices,
@@ -44,6 +45,7 @@ import { startTaskNotificationRuntime } from './main.taskNotifications';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const log = createLogger('electron/main');
+const QUIT_CLEANUP_TIMEOUT_MS = 3000;
 
 export interface ElectronAppControllerDeps {
   hasSingleInstanceLock: boolean;
@@ -134,12 +136,31 @@ export class ElectronAppController {
         schedulePipelineAutoStart,
       });
 
-      void repairTaskRegistry(REPO_ROOT)
-        .catch((error: unknown) => {
+      // Non-blocking queue-lock guard: a single mkdir attempt (one try, no
+      // backoff). Acquires if the lock is free; returns null immediately if it
+      // is held by a live mutation, in which case we skip this cycle — live
+      // recovery will reconcile. This ensures the registry scan never overlaps a
+      // concurrent queue mutation. NOTE: maxRetries must be >= 1; maxRetries=0
+      // would skip the mkdir entirely and never acquire.
+      void (async () => {
+        const queueLockDir = resolveQueuePaths(REPO_ROOT).queueLockDir;
+        const release = await acquireDirLock(queueLockDir, /* maxRetries */ 1, /* backoffMs */ 0);
+        if (!release) {
+          log.info('task-registry.repair.deferred', {
+            reason: 'queue-lock-unavailable',
+          });
+          return;
+        }
+        try {
+          await repairTaskRegistry(REPO_ROOT);
+        } catch (error: unknown) {
           log.warn('task-registry.repair.failed', {
             reason: error instanceof Error ? error.message : String(error),
           });
-        });
+        } finally {
+          await release();
+        }
+      })();
 
       void autoStartBackendServices(REPO_ROOT);
 
@@ -150,7 +171,13 @@ export class ElectronAppController {
       });
     });
 
-    app.on('before-quit', () => {
+    let quitCleanupStarted = false;
+    app.on('before-quit', (event) => {
+      // Second pass (after our own deferred app.quit()): allow the quit to proceed.
+      if (quitCleanupStarted) {
+        return;
+      }
+
       if (!this.devGracefulRestartRequested) {
         cleanupWorkspaceOnQuit();
       }
@@ -162,11 +189,33 @@ export class ElectronAppController {
       this.recoveryController?.stop();
       this.recoveryController = null;
       uninstallProcessHandlers();
-      void plannerSession.endSession();
 
-      if (!this.devGracefulRestartRequested) {
-        stopBackendServicesDetached(REPO_ROOT);
+      if (this.devGracefulRestartRequested) {
+        // Dev graceful restart stays fast; staging cleanup is best-effort.
+        void plannerSession.endSession();
+        return;
       }
+
+      stopBackendServicesDetached(REPO_ROOT);
+
+      // Defer the quit until planner-session staging cleanup finishes, but never
+      // let a stalled cleanup block shutdown beyond QUIT_CLEANUP_TIMEOUT_MS.
+      quitCleanupStarted = true;
+      event.preventDefault();
+      let quitDispatched = false;
+      const dispatchQuit = (): void => {
+        if (quitDispatched) {
+          return;
+        }
+        quitDispatched = true;
+        app.quit();
+      };
+      void plannerSession.endSession()
+        .catch((error) => log.warn('planner.end-session.quit-cleanup.failed', {
+          error: error instanceof Error ? error.message : String(error),
+        }))
+        .finally(dispatchQuit);
+      setTimeout(dispatchQuit, QUIT_CLEANUP_TIMEOUT_MS).unref();
     });
 
     app.on('window-all-closed', () => {

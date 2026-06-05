@@ -47,7 +47,7 @@
   --df-success-soft:      var(--ts-success-tint);
   --df-error-soft:        var(--ts-danger-tint);
   --df-focus-ring:        var(--ts-accent-subtle);
-  --df-backdrop:          rgba(15, 25, 45, 0.18);
+  --df-backdrop:          color-mix(in srgb, var(--ts-surface-terminal) 18%, transparent);
 
   /* Typography — match the sidebar scale (scope-focus-row peer).
      We deliberately use unitless line-heights so vertical rhythm
@@ -86,7 +86,7 @@
 :root.theme-dark {
   /* Aliases re-resolve through the platform's dark overrides; only the
      scrim needs a slightly heavier value than the light default. */
-  --df-backdrop: rgba(8, 12, 20, 0.32);
+  --df-backdrop: color-mix(in srgb, var(--ts-surface-terminal) 32%, transparent);
 }
 
 @media (prefers-contrast: more) {

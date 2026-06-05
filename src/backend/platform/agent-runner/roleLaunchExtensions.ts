@@ -125,7 +125,7 @@ export async function resolveRoleAgentLaunchExtensions(
   const assignments = await loadAgentLaunchExtensionAssignments(repoRoot, { fs: READ_ONLY_ASSIGNMENT_FS });
   const hasAnyAssignment = assignments.assignments.some((entry) => entry.extension_ids.length > 0);
   if (!hasAnyAssignment) {
-    log.info('agent.launch_extensions.none', {
+    log.debug('agent.launch_extensions.none', {
       agentId: runtimeAgentId,
       assignmentAgentId,
       launchId: stageLaunchId,
@@ -140,7 +140,7 @@ export async function resolveRoleAgentLaunchExtensions(
   });
 
   if (stage.launchExtensions === undefined) {
-    log.info('agent.launch_extensions.none', {
+    log.debug('agent.launch_extensions.none', {
       agentId: runtimeAgentId,
       assignmentAgentId,
       launchId: stageLaunchId,

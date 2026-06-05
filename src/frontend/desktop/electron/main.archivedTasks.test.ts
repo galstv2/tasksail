@@ -461,6 +461,7 @@ describe('listArchivedTasksAction', () => {
     writeFileSync(join(handoffsDir, 'branch-handoffs.json'), '[]\n');
     writeFileSync(join(stepsDir, '02-second.md'), '# Second\n');
     writeFileSync(join(stepsDir, '01-first.md'), '# First\n');
+    writeFileSync(join(stepsDir, '03-third.xml'), '<executionSlice id="slice-3" />\n');
     writeFileSync(join(stepsDir, 'notes.txt'), 'ignore\n');
     symlinkSync(join(stepsDir, '01-first.md'), join(stepsDir, '00-linked.md'));
     mkdirSync(join(stepsDir, 'nested'));
@@ -488,7 +489,7 @@ describe('listArchivedTasksAction', () => {
     });
     const artifacts = task.parentContextArtifacts as {
       handoffs: Array<{ fileName: string; relativePath: string; sizeBytes: number }>;
-      implementationSteps: Array<{ fileName: string; relativePath: string }>;
+      implementationSteps: Array<{ fileName: string; relativePath: string; contentType?: string }>;
     };
     expect(artifacts.handoffs.map((file) => file.fileName)).toEqual([
       'intake.md',
@@ -506,6 +507,17 @@ describe('listArchivedTasksAction', () => {
     expect(artifacts.implementationSteps.map((file) => file.fileName)).toEqual([
       '01-first.md',
       '02-second.md',
+      '03-third.xml',
+    ]);
+    expect(artifacts.implementationSteps.map((file) => file.relativePath)).toEqual([
+      'ImplementationSteps/01-first.md',
+      'ImplementationSteps/02-second.md',
+      'ImplementationSteps/03-third.xml',
+    ]);
+    expect(artifacts.implementationSteps.map((file) => file.contentType)).toEqual([
+      'markdown',
+      'markdown',
+      'xml',
     ]);
   });
 

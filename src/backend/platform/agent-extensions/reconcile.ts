@@ -101,12 +101,7 @@ export async function reconcileAgentExtensions(
     now: options?.now,
   };
 
-  log.progress({
-    level: 'info',
-    event: 'agent_extensions.reconcile.started',
-    extra: {},
-    text: '[agent-extensions] reconcile.started',
-  });
+  log.debug('agent_extensions.reconcile.started', {});
 
   const result: AgentExtensionReconcileResult = {
     materialized: 0,
@@ -128,12 +123,7 @@ export async function reconcileAgentExtensions(
           extra: { reasonCode },
           text: '[agent-extensions] reconcile: source manifest could not be read',
         });
-        log.progress({
-          level: 'info',
-          event: 'agent_extensions.reconcile.completed',
-          extra: { materialized: 0, repaired: 0, unavailable: 0 },
-          text: '[agent-extensions] reconcile.completed (manifest unreadable)',
-        });
+        logReconcileCompleted({ materialized: 0, repaired: 0, unavailable: 0 }, 'manifest unreadable');
         return;
       }
       for (const entry of manifest.extensions) {
@@ -161,12 +151,24 @@ export async function reconcileAgentExtensions(
     return { materialized: 0, repaired: 0, unavailable: 0 };
   }
 
+  logReconcileCompleted(result);
+
+  return result;
+}
+
+function logReconcileCompleted(result: AgentExtensionReconcileResult, detail?: string): void {
+  const text = detail
+    ? `[agent-extensions] reconcile.completed (${detail})`
+    : `[agent-extensions] reconcile.completed (materialized=${result.materialized} repaired=${result.repaired} unavailable=${result.unavailable})`;
+  const extra = { ...result };
+  if (result.materialized === 0 && result.repaired === 0 && result.unavailable === 0) {
+    log.debug('agent_extensions.reconcile.completed', extra);
+    return;
+  }
   log.progress({
     level: 'info',
     event: 'agent_extensions.reconcile.completed',
-    extra: { ...result },
-    text: `[agent-extensions] reconcile.completed (materialized=${result.materialized} repaired=${result.repaired} unavailable=${result.unavailable})`,
+    extra,
+    text,
   });
-
-  return result;
 }

@@ -7,14 +7,14 @@
   display: grid;
   place-items: center;
   padding: 2rem;
-  background: rgba(8, 12, 20, 0);
+  background: color-mix(in srgb, var(--ts-surface-terminal) 0%, transparent);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
   animation: mcpOverlayIn 250ms ease-out forwards;
 }
 
 @keyframes mcpOverlayIn {
-  to { background: rgba(8, 12, 20, 0.4); }
+  to { background: color-mix(in srgb, var(--ts-surface-terminal) 40%, transparent); }
 }
 
 .mcp-modal {
@@ -75,7 +75,7 @@
 
 .mcp-modal__close:hover {
   color: var(--ts-text);
-  background: rgba(30, 50, 100, 0.09);
+  background: color-mix(in srgb, var(--ts-brand-blue) 9%, transparent);
 }
 
 .mcp-modal__close:active {
@@ -94,11 +94,11 @@
 .mcp-modal__body::-webkit-scrollbar { width: var(--ts-scrollbar-width, 5px); }
 .mcp-modal__body::-webkit-scrollbar-track { background: var(--ts-scrollbar-track, transparent); }
 .mcp-modal__body::-webkit-scrollbar-thumb {
-  background: var(--ts-scrollbar-thumb, rgba(0, 0, 0, 0.12));
+  background: var(--ts-scrollbar-thumb);
   border-radius: var(--ts-radius-pill);
 }
 .mcp-modal__body::-webkit-scrollbar-thumb:hover {
-  background: var(--ts-scrollbar-thumb-hover, rgba(0, 0, 0, 0.2));
+  background: var(--ts-scrollbar-thumb-hover);
 }
 
 .mcp-modal__error {

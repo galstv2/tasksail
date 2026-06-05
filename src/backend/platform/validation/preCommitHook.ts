@@ -2,10 +2,11 @@ import * as path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { splitCommandOutputLines } from '../core/commandOutput.js';
-import { findRepoRoot, readTextFile } from '../core/index.js';
+import { findRepoRoot, isWindowsPlatform, readTextFile } from '../core/index.js';
 import { FILE_SIZE_LIMITS, REFACTOR_THRESHOLD, loadBaseline } from './fileSizes.js';
 
 const execFileAsync = promisify(execFile);
+const DESKTOP_RENDERER_STYLES_PREFIX = 'src/frontend/desktop/src/renderer/styles/';
 
 export async function getGitStagedFiles(repoRoot?: string): Promise<string[]> {
   const root = repoRoot ?? await findRepoRoot();
@@ -20,6 +21,41 @@ export async function getGitStagedFiles(repoRoot?: string): Promise<string[]> {
 export interface PreCommitResult {
   passed: boolean;
   failures: string[];
+}
+
+export function stagedFilesRequireDesktopCssColorGate(stagedFiles: string[]): boolean {
+  return stagedFiles.some((file) => {
+    const normalized = file.replace(/\\/g, '/');
+    return normalized.startsWith(DESKTOP_RENDERER_STYLES_PREFIX)
+      && normalized.endsWith('.css')
+      && path.basename(normalized) !== 'variables.css';
+  });
+}
+
+async function runDesktopCssColorGate(root: string): Promise<void> {
+  const desktopDir = path.join(root, 'src', 'frontend', 'desktop');
+  if (isWindowsPlatform()) {
+    const command = process.env['ComSpec'] ?? process.env['COMSPEC'] ?? 'cmd.exe';
+    await execFileAsync(command, ['/d', '/s', '/c', 'npm', 'run', 'test:css-colors'], {
+      cwd: desktopDir,
+      timeout: 120_000,
+    });
+    return;
+  }
+
+  await execFileAsync('npm', ['run', 'test:css-colors'], {
+    cwd: desktopDir,
+    timeout: 120_000,
+  });
+}
+
+function formatCommandFailure(err: unknown): string {
+  if (!(err instanceof Error)) return String(err);
+  const commandOutput = [
+    'stderr' in err && typeof err.stderr === 'string' ? err.stderr.trim() : '',
+    'stdout' in err && typeof err.stdout === 'string' ? err.stdout.trim() : '',
+  ].filter(Boolean);
+  return [err.message, ...commandOutput].filter(Boolean).join('\n');
 }
 
 export async function preCommitHook(repoRoot?: string): Promise<PreCommitResult> {
@@ -59,6 +95,14 @@ export async function preCommitHook(repoRoot?: string): Promise<PreCommitResult>
       failures.push(
         `${file}: ${lines} lines (>= 50% over ${baselineMax !== undefined ? 'baseline' : 'limit'} ${effectiveMax}, threshold ${refactorLimit})`,
       );
+    }
+  }
+
+  if (stagedFilesRequireDesktopCssColorGate(stagedFiles)) {
+    try {
+      await runDesktopCssColorGate(root);
+    } catch (err) {
+      failures.push(`desktop CSS color token discipline failed:\n${formatCommandFailure(err)}`);
     }
   }
 

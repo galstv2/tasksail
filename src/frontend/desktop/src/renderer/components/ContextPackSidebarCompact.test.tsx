@@ -33,7 +33,6 @@ const defaultProps = {
   actionPending: null as null | 'refresh' | 'preview' | 'apply' | 'clear' | 'reseed',
   onToggleCollapse: vi.fn(),
   onSelectContextPack: vi.fn(),
-  onRefreshCatalog: vi.fn(),
   onOpenCreateModal: vi.fn(),
   onReseedContextPack: vi.fn(),
   onPreviewSwitch: vi.fn(),
@@ -48,7 +47,6 @@ describe('ContextPackSidebarCompact', () => {
     expect(screen.getByLabelText('Context pack sidebar')).toBeInTheDocument();
     expect(screen.getByLabelText('Expand sidebar')).toBeInTheDocument();
     expect(screen.getByLabelText('Context pack active')).toBeInTheDocument();
-    expect(screen.getByLabelText('Refresh packs')).toBeInTheDocument();
     expect(screen.getByLabelText('Create pack')).toBeInTheDocument();
     expect(screen.getByLabelText('Apply pack')).toBeInTheDocument();
     expect(screen.getByLabelText('Preview pack')).toBeInTheDocument();

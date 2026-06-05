@@ -14,7 +14,7 @@
   gap: 1rem;
   height: 42px;
   padding: 0 1rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--ts-header-border);
   background: var(--ts-header-bg);
   color: var(--ts-header-text);
   flex-shrink: 0;
@@ -29,15 +29,15 @@
 }
 
 .shell__header .status-chip {
-  background: rgba(255, 255, 255, 0.08);
+  background: color-mix(in srgb, var(--ts-text-inverse) 8%, transparent);
   color: var(--ts-header-text-soft);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--ts-header-border);
 }
 
 .shell__header .status-chip--active {
   background: var(--ts-accent-subtle);
   color: var(--ts-accent);
-  border-color: rgba(184, 134, 45, 0.20);
+  border-color: color-mix(in srgb, var(--ts-accent) 20%, transparent);
 }
 
 .shell__brand {
@@ -96,7 +96,7 @@
 
 .shell__refresh-btn:hover,
 .shell__notification-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: color-mix(in srgb, var(--ts-text-inverse) 8%, transparent);
   color: var(--ts-header-text);
 }
 

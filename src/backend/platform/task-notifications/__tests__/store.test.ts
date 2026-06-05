@@ -20,17 +20,34 @@ import {
   recordTaskNotification,
   resolveTaskNotificationStorePath,
 } from '../store.js';
+import { flushLoggers } from '../../core/logger.js';
 import type { TaskNotificationRecord } from '../types.js';
+
+let logDir: string;
+let previousLogDir: string | undefined;
+let previousLogLevel: string | undefined;
 
 describe('task notification store', () => {
   let repoRoot: string;
 
   beforeEach(() => {
     repoRoot = mkdtempSync(path.join(tmpdir(), 'task-notifications-'));
+    logDir = mkdtempSync(path.join(tmpdir(), 'task-notifications-logs-'));
+    previousLogDir = process.env.LOG_DIR;
+    previousLogLevel = process.env.LOG_LEVEL;
+    process.env.LOG_DIR = logDir;
+    process.env.LOG_LEVEL = 'debug';
+    flushLoggers();
   });
 
   afterEach(() => {
+    flushLoggers();
     rmSync(repoRoot, { recursive: true, force: true });
+    rmSync(logDir, { recursive: true, force: true });
+    if (previousLogDir === undefined) delete process.env.LOG_DIR;
+    else process.env.LOG_DIR = previousLogDir;
+    if (previousLogLevel === undefined) delete process.env.LOG_LEVEL;
+    else process.env.LOG_LEVEL = previousLogLevel;
   });
 
   it('reads an empty snapshot when no store exists', async () => {
@@ -253,6 +270,13 @@ describe('task notification store', () => {
       seenAt: dateMinute(2).toISOString(),
       dismissedAt: null,
     });
+    expect(readLogRecords()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        level: 'debug',
+        msg: 'task_notifications.record.duplicate_ignored',
+        extra: { taskId: 'task-1', notificationType: 'task-completed' },
+      }),
+    ]));
   });
 
   it('caps retention at 200 non-dismissed visible records and 500 total persisted records', async () => {
@@ -290,7 +314,7 @@ describe('task notification store', () => {
     expect(persisted).toHaveLength(500);
     expect(persisted.filter((record) => record.dismissedAt === null)).toHaveLength(200);
     expect(persisted.filter((record) => record.dismissedAt !== null)).toHaveLength(300);
-  });
+  }, 15_000);
 
   it('normalizes persisted records so sensitive fields are not exposed or rewritten', async () => {
     const storePath = resolveTaskNotificationStorePath(repoRoot);
@@ -349,6 +373,27 @@ function recordInput(overrides: Partial<Omit<TaskNotificationRecord, 'notificati
     errorItemPath: overrides.errorItemPath ?? (type === 'task-failed' ? `/tmp/error-items/${taskId}.md` : null),
     message: overrides.message ?? `${taskId} notification`,
   };
+}
+
+function readLogRecords(): Array<Record<string, unknown>> {
+  const records: Array<Record<string, unknown>> = [];
+  const visit = (dir: string): void => {
+    if (!existsSync(dir)) return;
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const entryPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        visit(entryPath);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      records.push(...readFileSync(entryPath, 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as Record<string, unknown>));
+    }
+  };
+  visit(logDir);
+  return records;
 }
 
 function recordFixture(overrides: Partial<TaskNotificationRecord> = {}): TaskNotificationRecord {

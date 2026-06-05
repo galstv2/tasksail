@@ -224,8 +224,10 @@ def _build_distributed_review_payload(
         candidate = candidate_by_path.get(repo_root)
         if not candidate:
             raise ValueError(
-                "Bootstrap distributed repository could not be matched to a discovered candidate: "
-                f"{repo_root}"
+                "Bootstrap distributed repository could not be matched to a "
+                f"discovered candidate: repo_id={repository.get('repo_id')!r}, "
+                f"repo_name={repository.get('repo_name')!r}, index={index}, "
+                f"resolved_path={repo_root}"
             )
 
         approved_repo_id = normalize_optional_string(candidate.get("repo_id")) or repository["repo_id"]
@@ -380,7 +382,7 @@ def _build_monolith_focusable_areas(
         for candidate in focusable_areas
         if normalize_optional_string(candidate.get("focus_id"))
     ]
-    for index, candidate in enumerate(focusable_areas):
+    for candidate in focusable_areas:
         focus_id = normalize_optional_string(candidate.get("focus_id"))
         if not focus_id:
             continue
@@ -404,8 +406,8 @@ def _build_monolith_focusable_areas(
                 "focus_name": normalize_optional_string(candidate.get("focus_name")) or focus_id,
                 "focus_type": normalize_optional_string(candidate.get("focus_type")) or "general",
                 "group": normalize_optional_string(candidate.get("group")),
-                "default_focusable": index == 0,
-                "activation_priority": max(0, 100 - (index * 10)),
+                "default_focusable": len(normalized) == 0,
+                "activation_priority": max(0, 100 - (len(normalized) * 10)),
                 "adjacent_focus_area_ids": same_group_focus_ids,
             }
         )

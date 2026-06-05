@@ -74,6 +74,17 @@ export function createPhase2ElectronFixture(): Phase2ElectronFixture {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'phase2-electron-'));
   fs.mkdirSync(path.join(repo, '.platform-state'), { recursive: true });
   fs.mkdirSync(path.join(repo, 'config'), { recursive: true });
+  fs.mkdirSync(path.join(repo, '.github', 'agents'), { recursive: true });
+  fs.writeFileSync(
+    path.join(repo, '.github', 'agents', 'registry.json'),
+    `${JSON.stringify({
+      schema_version: 1,
+      agents: ALL_AGENTS.map((agentId, index) => ({
+        agent_id: agentId,
+        workflow_order: index,
+      })),
+    }, null, 2)}\n`,
+  );
 
   const skillMarker = `ferret-${randomUUID()}`;
   const pluginMarker = `cobalt-${randomUUID()}`;

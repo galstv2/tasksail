@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { readTextFile, writeTextFile } from '../../core/io.js';
+import { readTextFile, writeTextFileAtomic } from '../../core/io.js';
 import { parseSections } from '../../workflow-policy/artifacts.js';
 import {
   parseRequirementVerificationStatus,
@@ -97,7 +97,7 @@ export async function prepopulateRequirementVerification(options: {
   let nextFinalSummary = ensureCloseoutOwnerAgentId(finalSummary);
   if (generatedIds === null) {
     if (nextFinalSummary !== finalSummary) {
-      await writeTextFile(finalSummaryPath, nextFinalSummary);
+      await writeTextFileAtomic(finalSummaryPath, nextFinalSummary);
     }
     return;
   }
@@ -109,20 +109,20 @@ export async function prepopulateRequirementVerification(options: {
       nextFinalSummary = replaceSectionBody(nextFinalSummary, REQUIREMENT_VERIFICATION_SECTION, 'None');
     }
     if (nextFinalSummary !== finalSummary) {
-      await writeTextFile(finalSummaryPath, nextFinalSummary);
+      await writeTextFileAtomic(finalSummaryPath, nextFinalSummary);
     }
     return;
   }
 
   if (existingBody !== null && shouldPreserveRequirementVerification(existingBody, generatedIds)) {
     if (nextFinalSummary !== finalSummary) {
-      await writeTextFile(finalSummaryPath, nextFinalSummary);
+      await writeTextFileAtomic(finalSummaryPath, nextFinalSummary);
     }
     return;
   }
 
   nextFinalSummary = replaceSectionBody(nextFinalSummary, REQUIREMENT_VERIFICATION_SECTION, renderChecklist(generatedIds));
   if (nextFinalSummary !== finalSummary) {
-    await writeTextFile(finalSummaryPath, nextFinalSummary);
+    await writeTextFileAtomic(finalSummaryPath, nextFinalSummary);
   }
 }

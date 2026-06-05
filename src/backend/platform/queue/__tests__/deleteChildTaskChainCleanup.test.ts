@@ -3,13 +3,21 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { FIXED_TMP_SUFFIX } = vi.hoisted(() => ({ FIXED_TMP_SUFFIX: '0011223344556677' }));
-
-// Pin writeTextFileAtomic's random temp suffix so the write-failure test can
-// occupy that temp path with a directory and force the write to fail.
-vi.mock('node:crypto', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:crypto')>();
-  return { ...actual, randomBytes: () => Buffer.from(FIXED_TMP_SUFFIX, 'hex') };
+// Toggle to force only the child-chains atomic write to fail mid-test (after
+// setup) so the post-queue-delete write-failure path is exercised without
+// coupling to the atomic writer's internal temp naming or the dir-lock.
+const { failStateWrite } = vi.hoisted(() => ({ failStateWrite: { value: false } }));
+vi.mock('../../core/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../core/index.js')>();
+  return {
+    ...actual,
+    writeTextFileAtomic: async (...args: Parameters<typeof actual.writeTextFileAtomic>) => {
+      if (failStateWrite.value && args[0].endsWith('child-task-chains.json')) {
+        throw new Error('simulated write failure');
+      }
+      return actual.writeTextFileAtomic(...args);
+    },
+  };
 });
 
 import { deleteDropboxItem } from '../deleteDropboxItem.js';
@@ -142,18 +150,18 @@ describe('delete helpers child-chain cleanup', () => {
     const before = chain('pending', true);
     await writeChildTaskChains(repoRoot, before);
     await saveTaskRegistry(repoRoot, { schema_version: 2, tasks: { pack: { open: [], pending: [registryEntry('pending')], active: [], failed: [], completed: [] } } });
-    const statePath = path.join(repoRoot, '.platform-state', 'child-task-chains.json');
-    const tempStatePath = `${statePath}.tmp-${process.pid}-${FIXED_TMP_SUFFIX}`;
-    mkdirSync(tempStatePath, { recursive: true });
+    failStateWrite.value = true;
+    try {
+      await expect(deletePendingItem({ repoRoot, queueName: 'child.md' })).rejects.toThrow();
 
-    await expect(deletePendingItem({ repoRoot, queueName: 'child.md' })).rejects.toThrow();
-
-    expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'pendingitems', 'child.md'))).toBe(false);
-    expect(await readChildTaskChains(repoRoot)).toEqual(before);
-    await expect(loadTaskRegistry(repoRoot)).resolves.toEqual(expect.objectContaining({
-      tasks: expect.objectContaining({ pack: expect.objectContaining({ pending: expect.arrayContaining([expect.objectContaining({ taskId: 'child' })]) }) }),
-    }));
-    rmSync(tempStatePath, { recursive: true, force: true });
+      expect(existsSync(path.join(repoRoot, 'AgentWorkSpace', 'pendingitems', 'child.md'))).toBe(false);
+      expect(await readChildTaskChains(repoRoot)).toEqual(before);
+      await expect(loadTaskRegistry(repoRoot)).resolves.toEqual(expect.objectContaining({
+        tasks: expect.objectContaining({ pack: expect.objectContaining({ pending: expect.arrayContaining([expect.objectContaining({ taskId: 'child' })]) }) }),
+      }));
+    } finally {
+      failStateWrite.value = false;
+    }
   });
 
   it('standard task deletes remain unchanged and do not write child-chain state', async () => {

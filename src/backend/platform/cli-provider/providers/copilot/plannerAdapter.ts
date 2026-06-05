@@ -9,6 +9,7 @@ import type {
   PlannerUsage,
 } from '../../types.js';
 import { createLogger } from '../../../core/logger.js';
+import { isRecord } from '../../../core/guards.js';
 import { normalizeReasoningEffort } from '../../reasoningEffort.js';
 import { REPO_EXECUTOR_DENY_FLOOR } from './denyRules.js';
 import { buildCopilotEnv } from './envMapper.js';
@@ -20,10 +21,6 @@ const PLANNER_ALLOW_TOOLS = ['write'];
 // floor plus a blanket shell deny — it should never spawn shells at all.
 const PLANNER_DENY_TOOLS = [...REPO_EXECUTOR_DENY_FLOOR, 'shell'];
 const log = createLogger('platform/copilot/plannerAdapter');
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 function readString(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null;

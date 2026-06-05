@@ -412,11 +412,7 @@ export async function recoverAgentExtensionStagesOnStartup(repoRoot: string): Pr
       entries = await readdir(stageRoot, { withFileTypes: true });
     } catch (err) {
       if (isMissingPathError(err)) {
-        log.info('[agent-extensions] stage.recovery.completed', {
-          event: 'agent_extensions.stage.recovery.completed',
-          removedStageCount: 0,
-          skippedEntryCount: 0,
-        });
+        logStageRecoveryCompleted(0, 0);
         return { removedStageCount: 0, skippedEntryCount: 0 };
       }
       throw err;
@@ -441,11 +437,17 @@ export async function recoverAgentExtensionStagesOnStartup(repoRoot: string): Pr
     }
 
     // One summary log per bootstrap, not one per stale directory.
-    log.info('[agent-extensions] stage.recovery.completed', {
-      event: 'agent_extensions.stage.recovery.completed',
-      removedStageCount,
-      skippedEntryCount,
-    });
+    logStageRecoveryCompleted(removedStageCount, skippedEntryCount);
     return { removedStageCount, skippedEntryCount };
   });
+}
+
+function logStageRecoveryCompleted(removedStageCount: number, skippedEntryCount: number): void {
+  const payload = {
+    event: 'agent_extensions.stage.recovery.completed',
+    removedStageCount,
+    skippedEntryCount,
+  };
+  const method = removedStageCount === 0 && skippedEntryCount === 0 ? log.debug : log.info;
+  method('[agent-extensions] stage.recovery.completed', payload);
 }

@@ -112,3 +112,26 @@ def test_bootstrap_manifest_preserves_explicit_estate_type(
 
     assert payload["estate_type"] == requested_mode
     assert manifest["estate_type"] == requested_mode
+
+
+class TestMonolithFocusableAreas:
+    def test_first_surviving_entry_keeps_default_focusable(self) -> None:
+        # LC-1: a leading candidate without a focus_id is skipped, and must not
+        # shift default_focusable / activation_priority off the first real one.
+        from src.backend.mcp.context_estate.bootstrap_builders import (
+            _build_monolith_focusable_areas,
+        )
+
+        answers = {"repositories": [{"repo_root": "/tmp/x", "repo_id": "r"}]}
+        discovery_payload = {
+            "candidate_focus_areas": [
+                {"focus_name": "no id"},
+                {"focus_id": "alpha", "relative_path": "a"},
+                {"focus_id": "beta", "relative_path": "b"},
+            ]
+        }
+        result = _build_monolith_focusable_areas(answers, discovery_payload)
+        assert [r["focus_id"] for r in result] == ["alpha", "beta"]
+        assert result[0]["default_focusable"] is True
+        assert result[0]["activation_priority"] == 100
+        assert result[1]["default_focusable"] is False

@@ -49,6 +49,7 @@ import { appendFocusBlock, type FocusScopePromptOptions } from './focusScopeProm
 import { moveFailedItemToErrorItems } from '../../queue/errorItems.js';
 import { completePendingItem } from '../../queue/completePendingItem.js';
 import { runPolicyValidation } from '../../queue/policyValidation.js';
+import { claimRetrospectiveRun } from '../../queue/retrospectiveFlag.js';
 import { implementationStepsTemplatePath } from '../../queue/paths.js';
 import {
   clearPipelineKill,
@@ -540,8 +541,9 @@ export async function buildSimpleDaltonPrompt(
 
 async function removeSliceTemplateIfPresent(
   implementationStepsDir: string,
+  format: SliceArtifactFormat,
 ): Promise<void> {
-  await rm(implementationStepsTemplatePath(implementationStepsDir), { force: true });
+  await rm(implementationStepsTemplatePath(implementationStepsDir, format), { force: true });
 }
 
 async function writePipelineReceipt(
@@ -756,42 +758,61 @@ async function runRetrospectivePhaseIfNeeded(options: {
     return;
   }
 
-  const bundle = await buildCycleContextBundle({
+  const runClaim = await claimRetrospectiveRun({
     repoRoot: options.repoRoot,
     contextPackDir: options.contextPackDir,
-    handoffsDir: options.handoffsDir,
-    currentTaskId: options.currentTaskId,
+    taskId: options.currentTaskId,
   });
-  if (!bundle.some((entry) => !entry.isCurrentTask)) {
-    log.warn('retrospective_phase.skipped', { reason: 'no-prior-cycle-context' });
+  if (!runClaim.claimed) {
+    log.info('retrospective_phase.skipped', {
+      reason: runClaim.reason,
+      contextPackId: runClaim.contextPackId,
+      lockDir: runClaim.lockDir,
+    });
     await emitTaskProgressEvent({ logger: log.child({ taskId: options.currentTaskId }), repoRoot: options.repoRoot, taskId: options.currentTaskId, event: { type: 'retrospective.skipped' } });
     return;
   }
 
-  const retrospectivePrompt = await buildRetrospectivePrompt({
-    repoRoot: options.repoRoot,
-    bundle,
-    externalMcpScope: options.externalMcpScope,
-  });
-  const retrospectiveStart = Date.now();
-  await emitTaskProgressEvent({ logger: log.child({ taskId: options.currentTaskId }), repoRoot: options.repoRoot, taskId: options.currentTaskId, event: { type: 'retrospective.started' } });
-  const retrospectiveResult = await runRoleAgent({
-    agentId: 'ron',
-    repoRoot: options.repoRoot,
-    taskId: options.currentTaskId ?? '',
-    spanId: newSpanId(),
-    skipWorkflowValidation: true,
-    contextPackDir: options.contextPackDir,
-    abortSignal: options.abortSignal,
-    promptOverride: retrospectivePrompt,
-    launchPhase: 'Retrospective',
-  }).catch(async (err) => {
-    await emitTaskProgressEvent({ logger: log.child({ taskId: options.currentTaskId }), repoRoot: options.repoRoot, taskId: options.currentTaskId, event: { type: 'retrospective.failed' } });
-    throw err;
-  });
-  await emitTaskProgressEvent({ logger: log.child({ taskId: options.currentTaskId }), repoRoot: options.repoRoot, taskId: options.currentTaskId, event: { type: 'retrospective.completed' } });
-  options.agentMcpStatuses['ron-retrospective'] = retrospectiveResult.mcpLaunch ?? MISSING_MCP_LAUNCH_STATUS;
-  options.agentTimings['ron-retrospective'] = Math.round((Date.now() - retrospectiveStart) / 1000);
+  try {
+    const bundle = await buildCycleContextBundle({
+      repoRoot: options.repoRoot,
+      contextPackDir: options.contextPackDir,
+      handoffsDir: options.handoffsDir,
+      currentTaskId: options.currentTaskId,
+    });
+    if (!bundle.some((entry) => !entry.isCurrentTask)) {
+      log.warn('retrospective_phase.skipped', { reason: 'no-prior-cycle-context' });
+      await emitTaskProgressEvent({ logger: log.child({ taskId: options.currentTaskId }), repoRoot: options.repoRoot, taskId: options.currentTaskId, event: { type: 'retrospective.skipped' } });
+      return;
+    }
+
+    const retrospectivePrompt = await buildRetrospectivePrompt({
+      repoRoot: options.repoRoot,
+      bundle,
+      externalMcpScope: options.externalMcpScope,
+    });
+    const retrospectiveStart = Date.now();
+    await emitTaskProgressEvent({ logger: log.child({ taskId: options.currentTaskId }), repoRoot: options.repoRoot, taskId: options.currentTaskId, event: { type: 'retrospective.started' } });
+    const retrospectiveResult = await runRoleAgent({
+      agentId: 'ron',
+      repoRoot: options.repoRoot,
+      taskId: options.currentTaskId ?? '',
+      spanId: newSpanId(),
+      skipWorkflowValidation: true,
+      contextPackDir: options.contextPackDir,
+      abortSignal: options.abortSignal,
+      promptOverride: retrospectivePrompt,
+      launchPhase: 'Retrospective',
+    }).catch(async (err) => {
+      await emitTaskProgressEvent({ logger: log.child({ taskId: options.currentTaskId }), repoRoot: options.repoRoot, taskId: options.currentTaskId, event: { type: 'retrospective.failed' } });
+      throw err;
+    });
+    await emitTaskProgressEvent({ logger: log.child({ taskId: options.currentTaskId }), repoRoot: options.repoRoot, taskId: options.currentTaskId, event: { type: 'retrospective.completed' } });
+    options.agentMcpStatuses['ron-retrospective'] = retrospectiveResult.mcpLaunch ?? MISSING_MCP_LAUNCH_STATUS;
+    options.agentTimings['ron-retrospective'] = Math.round((Date.now() - retrospectiveStart) / 1000);
+  } finally {
+    await runClaim.claim.release();
+  }
 }
 
 /**
@@ -972,7 +993,7 @@ export async function runPipelineSequence(
 
       if (agentId === 'dalton') {
         daltonRemediationActive = false;
-        await removeSliceTemplateIfPresent(paths.implementationSteps);
+        await removeSliceTemplateIfPresent(paths.implementationSteps, frozenSliceFormat);
         daltonRemediationActive = await remediationHasBlockingFindings(paths.handoffs);
         const isComplex = daltonRemediationActive
           ? false

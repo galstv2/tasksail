@@ -999,7 +999,7 @@ describe('electron main bootstrap — context pack operations', () => {
     const mockChild = {
       stdout: { on: vi.fn((event: string, cb: (d: Buffer) => void) => { if (event === 'data') cb(Buffer.from('{"status":"ok"}')); }) },
       stderr: { on: vi.fn() },
-      stdin: { write: stdinWrite, end: stdinEnd },
+      stdin: { write: stdinWrite, end: stdinEnd, on: vi.fn() },
       on: vi.fn((event: string, cb: () => void) => { if (event === 'close') cb(); }),
     };
     vi.doMock('node:child_process', () => ({

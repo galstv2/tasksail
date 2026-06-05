@@ -33,12 +33,12 @@ import path from 'node:path';
 import { existsSync } from 'node:fs';
 import {
   readdir,
-  readFile,
   mkdir,
   copyFile,
   utimes,
   stat,
 } from 'node:fs/promises';
+import { readTextFile, safeJsonParse } from '../core/index.js';
 import {
   assertSnapshotMatchesContextPack,
   loadTaskPackSnapshot,
@@ -78,6 +78,16 @@ export async function rebuildAgentMirror(
     : await resolveQmdScopeRoot(contextPackDir, contextPackName);
 
   const canonicalRoot = path.join(contextPackDir, qmdScopeRoot);
+  // Containment guard: a hand-edited/corrupt snapshot or manifest could set a
+  // qmd_scope_root like '../../elsewhere' and make the mirror copy from outside
+  // the pack. Refuse to traverse outside the context-pack directory.
+  const resolvedCanonical = path.resolve(canonicalRoot);
+  const resolvedPackDir = path.resolve(contextPackDir);
+  if (resolvedCanonical !== resolvedPackDir && !resolvedCanonical.startsWith(resolvedPackDir + path.sep)) {
+    throw new Error(
+      `qmd_scope_root escapes the context pack directory: ${JSON.stringify(qmdScopeRoot)}`,
+    );
+  }
   const mirrorRoot = path.join(
     repoRoot,
     'AgentWorkSpace',
@@ -89,6 +99,9 @@ export async function rebuildAgentMirror(
   let filesCopied = 0;
   let filesSkipped = 0;
   let subtreesMissing = 0;
+  // SEC-TS-07: one budget shared across all mirrored subtrees so the entry cap
+  // bounds the whole rebuild, not each subtree independently.
+  const mirrorBudget = { entries: 0 };
 
   for (const subtree of MIRRORED_SUBTREES) {
     const srcRoot = path.join(canonicalRoot, ...subtree);
@@ -99,7 +112,7 @@ export async function rebuildAgentMirror(
       continue;
     }
 
-    const result = await mirrorTree(srcRoot, dstRoot);
+    const result = await mirrorTree(srcRoot, dstRoot, 0, mirrorBudget);
     filesCopied += result.copied;
     filesSkipped += result.skipped;
   }
@@ -127,30 +140,50 @@ async function resolveQmdScopeRoot(
   packName: string,
 ): Promise<string> {
   const manifestPath = path.join(contextPackDir, 'qmd', 'repo-sources.json');
-  try {
-    const raw = await readFile(manifestPath, 'utf-8');
-    const parsed = JSON.parse(raw) as { qmd_scope_root?: unknown };
+  const raw = await readTextFile(manifestPath);
+  if (raw !== undefined) {
+    // A present-but-corrupt manifest surfaces a parse error (vs. the prior bare
+    // JSON.parse + swallow, which silently fell back to the default scope root
+    // and mirrored from the wrong canonical location).
+    const parsed = safeJsonParse<{ qmd_scope_root?: unknown }>(raw, manifestPath);
     if (typeof parsed.qmd_scope_root === 'string' && parsed.qmd_scope_root.length > 0) {
       return parsed.qmd_scope_root;
     }
-  } catch {
-    // Manifest missing or unreadable — use the conventional default.
   }
   return path.join('qmd', 'context-packs', packName);
 }
 
-async function mirrorTree(
+// SEC-TS-07: bound the recursive walk so an agent-authored, deeply nested or
+// huge subtree under the canonical QMD tree cannot overflow the stack / exhaust
+// memory and crash the Node process during context-pack activation. Mutable so
+// tests can exercise the caps with small values.
+export const MIRROR_WALK_LIMITS = { maxDepth: 200, maxEntries: 50_000 };
+
+export async function mirrorTree(
   srcDir: string,
   dstDir: string,
+  depth = 0,
+  budget: { entries: number } = { entries: 0 },
 ): Promise<{ copied: number; skipped: number }> {
+  if (depth > MIRROR_WALK_LIMITS.maxDepth) {
+    throw new Error(
+      `mirrorTree: directory nesting exceeds ${MIRROR_WALK_LIMITS.maxDepth} levels (runaway tree at ${srcDir})`,
+    );
+  }
   let copied = 0;
   let skipped = 0;
   const entries = await readdir(srcDir, { withFileTypes: true });
+  budget.entries += entries.length;
+  if (budget.entries > MIRROR_WALK_LIMITS.maxEntries) {
+    throw new Error(
+      `mirrorTree: entry count exceeds ${MIRROR_WALK_LIMITS.maxEntries} (runaway tree under ${srcDir})`,
+    );
+  }
   for (const entry of entries) {
     const srcPath = path.join(srcDir, entry.name);
     const dstPath = path.join(dstDir, entry.name);
     if (entry.isDirectory()) {
-      const sub = await mirrorTree(srcPath, dstPath);
+      const sub = await mirrorTree(srcPath, dstPath, depth + 1, budget);
       copied += sub.copied;
       skipped += sub.skipped;
       continue;

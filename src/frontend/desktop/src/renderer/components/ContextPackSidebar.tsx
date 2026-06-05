@@ -42,7 +42,6 @@ export type ContextPackSidebarProps = {
   onToggleCollapse: () => void;
   onSelectContextPack: (contextPackDir: string) => void;
   onSelectWorkingFocus: (repoId: string) => void;
-  onRefreshCatalog: () => void | Promise<void>;
   onOpenCreateModal: OpenContextPackCreationModal;
   onReseedContextPack: () => void | Promise<void>;
   onPreviewSwitch: () => void | Promise<void>;
@@ -92,7 +91,6 @@ function ContextPackSidebar({
         actionPending={rest.actionPending}
         onToggleCollapse={rest.onToggleCollapse}
         onSelectContextPack={rest.onSelectContextPack}
-        onRefreshCatalog={rest.onRefreshCatalog}
         onOpenCreateModal={rest.onOpenCreateModal}
         onReseedContextPack={rest.onReseedContextPack}
         onPreviewSwitch={rest.onPreviewSwitch}

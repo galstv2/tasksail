@@ -1,8 +1,8 @@
-import { ensureDir, writeTextFile, resolvePaths, isMissingPathError } from '../core/index.js';
+import { ensureDir, writeTextFileAtomic, resolvePaths, isMissingPathError } from '../core/index.js';
 import type { AgentId, PythonResult } from '../core/index.js';
 import path from 'node:path';
-import { createHash } from 'node:crypto';
-import { readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { createHash, randomBytes } from 'node:crypto';
+import { readFile, readdir, stat, writeFile, link, unlink } from 'node:fs/promises';
 import { computeRuntimeFactsSourceSignature, writeRuntimeWorkflowFacts } from './runtimeFacts.js';
 import { evaluateWorkflowPolicy } from '../workflow-policy/index.js';
 import type { PolicyValidationMode } from '../workflow-policy/index.js';
@@ -154,7 +154,7 @@ export async function writeGuardrailReceipt(
 ): Promise<void> {
   await ensureDir(path.dirname(receiptPath));
   const content = JSON.stringify(data, null, 2) + '\n';
-  await writeTextFile(receiptPath, content);
+  await writeTextFileAtomic(receiptPath, content);
 }
 
 /**
@@ -179,25 +179,35 @@ export async function writeUniqueGuardrailReceipt(options: {
     ...(options.launchPhase !== undefined ? { launch_phase: options.launchPhase } : {}),
   };
   const content = JSON.stringify(payload, null, 2) + '\n';
-  let lastCandidate = firstPath;
 
-  for (let attempt = 1; attempt <= 16; attempt += 1) {
-    const candidate = attempt === 1
-      ? firstPath
-      : path.join(path.dirname(firstPath), `${options.agentId}-${attempt}.json`);
-    lastCandidate = candidate;
-    try {
-      await writeFile(candidate, content, { flag: 'wx' });
-      return candidate;
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
-        continue;
+  // Write the full content to a private temp first, then claim a unique final
+  // name via link() (atomic, and fails EEXIST if the name is already taken).
+  // This preserves the race-safe non-overwrite semantics AND makes the receipt
+  // crash-atomic: a crash mid-write leaves only an orphan temp, never a torn
+  // final receipt that a reader would parse as corrupt.
+  const tmpPath = `${firstPath}.tmp-${process.pid}-${randomBytes(8).toString('hex')}`;
+  await writeFile(tmpPath, content);
+  try {
+    let lastCandidate = firstPath;
+    for (let attempt = 1; attempt <= 16; attempt += 1) {
+      const candidate = attempt === 1
+        ? firstPath
+        : path.join(path.dirname(firstPath), `${options.agentId}-${attempt}.json`);
+      lastCandidate = candidate;
+      try {
+        await link(tmpPath, candidate);
+        return candidate;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
+          continue;
+        }
+        throw err;
       }
-      throw err;
     }
+    throw new Error(`No available guardrail receipt path after 16 attempts. Last candidate: ${lastCandidate}`);
+  } finally {
+    await unlink(tmpPath).catch(() => { /* best-effort temp cleanup */ });
   }
-
-  throw new Error(`No available guardrail receipt path after 16 attempts. Last candidate: ${lastCandidate}`);
 }
 
 /**

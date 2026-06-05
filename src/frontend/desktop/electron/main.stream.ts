@@ -30,8 +30,13 @@ export type StreamEventOptions = {
   severity?: StreamSeverity;
   taskId?: string;
   actorName?: string;
+  /** Optional: realignment job ID, populated only for runtime.realignment events. */
+  realignmentId?: string;
   sessionContext?: StreamEvent['sessionContext'];
 };
+
+/** Whether emitStreamEvent accepted/appended a task-scoped event or skipped it due to missing metadata. */
+export type StreamEmitResult = { emitAccepted: boolean };
 
 type TaskStreamMetadata = {
   taskId: string;
@@ -43,6 +48,8 @@ type TaskStreamMetadata = {
 const STREAM_HISTORY_LIMIT = 500;
 const TASK_STREAM_METADATA_BY_TASK_ID = new Map<string, TaskStreamMetadata>();
 const STREAM_HISTORY: StreamEvent[] = [];
+/** Per-task GUID stream history for task-fair replay. Capped at STREAM_HISTORY_LIMIT per task GUID. */
+const STREAM_HISTORY_BY_TASK_GUID = new Map<string, StreamEvent[]>();
 const TERMINAL_TASK_SCOPE_BY_WEB_CONTENTS_ID = new Map<number, string | null>();
 const TASK_MESSAGE_PREFIX_PATTERN = /^(Task \[[0-9a-fA-F]{8}\])(?:\s-\s|\s)/u;
 
@@ -61,10 +68,12 @@ export async function refreshStreamTaskMetadataForScope(
 ): Promise<void> {
   TASK_STREAM_METADATA_BY_TASK_ID.clear();
   if (!scope) {
+    pruneTaskStreamHistory(new Set());
     return;
   }
 
   const registry = await loadTaskRegistry(REPO_ROOT);
+  const activeTaskGuids = new Set<string>();
   for (const entry of registryEntries(registry)) {
     if (!isRegistryEntryVisibleForScope(entry, scope)) {
       continue;
@@ -73,6 +82,7 @@ export async function refreshStreamTaskMetadataForScope(
     if (!taskGuid) {
       continue;
     }
+    activeTaskGuids.add(taskGuid);
     TASK_STREAM_METADATA_BY_TASK_ID.set(entry.taskId, {
       taskId: entry.taskId,
       taskGuid,
@@ -80,6 +90,7 @@ export async function refreshStreamTaskMetadataForScope(
       taskTitle: entry.title?.trim() || null,
     });
   }
+  pruneTaskStreamHistory(activeTaskGuids);
 }
 
 function getTaskStreamMetadata(taskId: string | undefined): TaskStreamMetadata | null {
@@ -119,11 +130,12 @@ function formatTaskScopedMessage(
     : `Task [${taskMetadata.taskShortGuid}] - ${message}`;
 }
 
-export function emitStreamEvent(options: StreamEventOptions): void {
+export function emitStreamEvent(options: StreamEventOptions): StreamEmitResult {
   const windows = BrowserWindow.getAllWindows();
   const taskMetadata = getTaskStreamMetadata(options.taskId);
   if (options.taskId?.trim() && options.taskId !== 'N/A' && !taskMetadata) {
-    return;
+    // Task-scoped event skipped because visible-task metadata is temporarily missing.
+    return { emitAccepted: false };
   }
   const event: StreamEvent = {
     id: `stream-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -137,6 +149,7 @@ export function emitStreamEvent(options: StreamEventOptions): void {
     severity: options.severity ?? 'info',
     message: formatTaskScopedMessage(options.message, options.taskId, options.actorName),
     actorName: options.actorName,
+    ...(options.realignmentId ? { realignmentId: options.realignmentId } : {}),
     sessionContext: options.sessionContext,
   };
   appendStreamHistory(event);
@@ -145,11 +158,13 @@ export function emitStreamEvent(options: StreamEventOptions): void {
       win.webContents.send(DESKTOP_SHELL_STREAM_CHANNEL, event);
     }
   }
+  return { emitAccepted: true };
 }
 
 export function resetStreamState(): void {
   TASK_STREAM_METADATA_BY_TASK_ID.clear();
   STREAM_HISTORY.splice(0, STREAM_HISTORY.length);
+  STREAM_HISTORY_BY_TASK_GUID.clear();
   TERMINAL_TASK_SCOPE_BY_WEB_CONTENTS_ID.clear();
 }
 
@@ -157,19 +172,24 @@ export function setTerminalTaskScopeForWebContents(
   webContentsId: number,
   taskGuid: string | null,
 ): TerminalSetTaskScopeResponse {
-  const history = [...STREAM_HISTORY];
-  const taskScopes = buildTaskScopes(history);
+  const globalHistory = [...STREAM_HISTORY];
+  // Use per-task histories for scope discovery so a noisy task cannot evict quiet tasks.
+  const taskScopes = buildTaskScopesFromPerTaskHistory(STREAM_HISTORY_BY_TASK_GUID, globalHistory);
   const requestedGuid = typeof taskGuid === 'string' ? taskGuid.trim() : null;
   const knownGuid = requestedGuid
     ? taskScopes.some((scope) => scope.taskGuid === requestedGuid)
     : true;
   const selectedTaskGuid = requestedGuid && knownGuid ? requestedGuid : null;
   TERMINAL_TASK_SCOPE_BY_WEB_CONTENTS_ID.set(webContentsId, selectedTaskGuid);
+  // For scoped replay, prefer per-task history so quiet tasks are fully replayable.
+  const replayEvents = selectedTaskGuid
+    ? (STREAM_HISTORY_BY_TASK_GUID.get(selectedTaskGuid) ?? filterHistoryByTaskGuid(globalHistory, selectedTaskGuid))
+    : globalHistory;
   return {
     action: 'terminal.setTaskScope',
     mode: 'scoped',
     selectedTaskGuid,
-    events: filterHistoryByTaskGuid(history, selectedTaskGuid),
+    events: [...replayEvents],
     taskScopes,
     message: requestedGuid && !knownGuid
       ? 'Unknown terminal task scope; reset to all tasks.'
@@ -188,6 +208,27 @@ function appendStreamHistory(event: StreamEvent): void {
   if (STREAM_HISTORY.length > STREAM_HISTORY_LIMIT) {
     STREAM_HISTORY.splice(0, STREAM_HISTORY.length - STREAM_HISTORY_LIMIT);
   }
+  appendTaskStreamHistory(event);
+}
+
+function appendTaskStreamHistory(event: StreamEvent): void {
+  if (!event.taskGuid) {
+    return;
+  }
+  const taskHistory = STREAM_HISTORY_BY_TASK_GUID.get(event.taskGuid) ?? [];
+  taskHistory.push(event);
+  if (taskHistory.length > STREAM_HISTORY_LIMIT) {
+    taskHistory.splice(0, taskHistory.length - STREAM_HISTORY_LIMIT);
+  }
+  STREAM_HISTORY_BY_TASK_GUID.set(event.taskGuid, taskHistory);
+}
+
+function pruneTaskStreamHistory(activeTaskGuids: ReadonlySet<string>): void {
+  for (const guid of STREAM_HISTORY_BY_TASK_GUID.keys()) {
+    if (!activeTaskGuids.has(guid)) {
+      STREAM_HISTORY_BY_TASK_GUID.delete(guid);
+    }
+  }
 }
 
 function eventMatchesWindowScope(webContentsId: number, event: StreamEvent): boolean {
@@ -199,11 +240,20 @@ function filterHistoryByTaskGuid(events: StreamEvent[], taskGuid: string | null)
   return taskGuid === null ? events : events.filter((event) => event.taskGuid === taskGuid);
 }
 
-function buildTaskScopes(events: StreamEvent[]): TerminalTaskScopeOption[] {
+/**
+ * Build task scope options from per-task histories (primary) plus the global history (fallback).
+ * Per-task histories survive noisy-task eviction from the global cap, so quiet tasks remain
+ * selectable even if the 500-event global cap has rolled past them.
+ */
+function buildTaskScopesFromPerTaskHistory(
+  perTaskHistory: ReadonlyMap<string, StreamEvent[]>,
+  globalHistory: StreamEvent[],
+): TerminalTaskScopeOption[] {
   const byGuid = new Map<string, TerminalTaskScopeOption>();
-  for (const event of events) {
+
+  const processEvent = (event: StreamEvent): void => {
     if (!event.taskGuid || !event.taskShortGuid) {
-      continue;
+      return;
     }
     const existing = byGuid.get(event.taskGuid);
     if (!existing) {
@@ -216,7 +266,19 @@ function buildTaskScopes(events: StreamEvent[]): TerminalTaskScopeOption[] {
     } else if (!existing.title && event.taskTitle) {
       existing.title = event.taskTitle;
     }
+  };
+
+  // Per-task history is the primary source — quiet tasks survive noisy-task eviction.
+  for (const taskEvents of perTaskHistory.values()) {
+    for (const event of taskEvents) {
+      processEvent(event);
+    }
   }
+  // Global history fills in any non-task-scoped scopes.
+  for (const event of globalHistory) {
+    processEvent(event);
+  }
+
   return [...byGuid.values()].sort((a, b) => (
     taskScopeLabel(a).localeCompare(taskScopeLabel(b)) ||
     a.taskShortGuid.localeCompare(b.taskShortGuid)

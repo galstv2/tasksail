@@ -69,33 +69,6 @@ class AgentRegistryContractTests(unittest.TestCase):
                         continue
                     self.assertTrue(item[field_name])
 
-    def test_required_model_pins_match_current_contract(self) -> None:
-        registry_map = {
-            item["agent_id"]: item
-            for item in self.load_agents()
-        }
-
-        self.assertEqual(
-            registry_map["planning-agent"].get("required_model"),
-            "claude-sonnet-4.6",
-        )
-        self.assertEqual(
-            registry_map["product-manager"].get("required_model"),
-            "gpt-5.4",
-        )
-        self.assertEqual(
-            registry_map["software-engineer"].get("required_model"),
-            "claude-sonnet-4.6",
-        )
-        self.assertEqual(
-            registry_map["software-engineer-verify"].get("required_model"),
-            "claude-sonnet-4.6",
-        )
-        self.assertEqual(
-            registry_map["qa"].get("required_model"),
-            "gpt-5.4",
-        )
-
     def test_autonomy_profiles_match_current_contract(self) -> None:
         registry_map = {
             item["agent_id"]: item

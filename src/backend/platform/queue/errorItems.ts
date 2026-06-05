@@ -1,6 +1,7 @@
 import { spawn, execFile as execFileCb } from 'node:child_process';
 import { promisify } from 'node:util';
 import { rename, unlink, rm, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { resolveQueuePaths } from './paths.js';
 import { createLogger, emitTaskProgressEvent, findRepoRoot, getErrorMessage } from '../core/index.js';
@@ -16,6 +17,7 @@ import {
   removeFromQueueOrderManifest,
 } from './operations.js';
 import { withDirLock } from './dirLock.js';
+import { closeoutQueueLockBudget } from './closeoutLockBudget.js';
 import { removeTask, transitionTask } from './taskRegistry.js';
 import { readTaskJson, readTaskJsonSafe } from './taskJson.js';
 import { normalizeSelectedRepoPathsInText, type SelectedRepoRootAlias } from './taskVisiblePathNormalization.js';
@@ -409,25 +411,53 @@ export async function moveFailedItemToErrorItems(options: {
       ? await buildRecoveredErrorItemBody(root, taskId)
       : null;
 
-  // F7: unconditional pipeline.lock removal BEFORE finalizeTaskWorktrees.
-  // Stale locks would block re-activation if the same taskId is requeued with
-  // retain_failed_task_worktrees=true.
-  const taskRuntimePath = path.join(root, '.platform-state', 'runtime', 'tasks', taskId);
-  await rm(path.join(taskRuntimePath, 'pipeline.lock'), { recursive: true, force: true }).catch(() => {});
+  // Assigned inside the withDirLock callback; the callback always executes before withDirLock resolves.
+  let finalizeResult!: Awaited<ReturnType<typeof finalizeTaskWorktreesWithReport>>;
 
-  await commitTaskSnapshot(root, taskId, 'failed');
+  // R1 fix: size the lock-acquisition wait budget to survive max_parallel_tasks simultaneous closeouts.
+  let maxParallelTasks = 10; // safe fallback if platform config is unavailable
+  try {
+    const cfg = await getPlatformConfig(root);
+    maxParallelTasks = cfg.max_parallel_tasks;
+  } catch {
+    // Isolated test contexts may lack .platform-state/platform.json — use fallback.
+  }
 
-  // §4.15: finalize all worktrees for this task only. This also stamps
-  // .task.json.state = "failed" and finalizedAt.
-  await emitTaskProgressEvent({
-    logger: log.child({ taskId }),
-    repoRoot: root,
-    taskId,
-    event: { type: 'failure.finalizing_worktrees' },
-  });
-  const finalizeResult = await finalizeTaskWorktreesWithReport(taskId, 'failed', root);
-
+  let alreadyTerminal = false;
   await withDirLock(queuePaths.queueLockDir, 'Move failed item', async () => {
+    // B1 terminal-ownership gate: under the queue lock, if this task has NEITHER
+    // an active marker NOR a pending source file, a prior complete/fail (which
+    // holds this same lock) already disposed it — terminal disposal removes both.
+    // Re-failing would only write a stale error-items artifact and emit a false
+    // failure event, so treat the loser as a clean no-op. Requiring BOTH to be
+    // absent keeps every legitimate fail intact: an actively-running task being
+    // failed still has its pending file (and marker), and the recovered-missing-
+    // pending case (pending markdown removed at activation) still has its marker.
+    if (
+      !existsSync(path.join(queuePaths.activeItemsDir, taskId)) &&
+      !existsSync(sourcePath)
+    ) {
+      alreadyTerminal = true;
+      return;
+    }
+    // F7: unconditional pipeline.lock removal BEFORE finalizeTaskWorktrees.
+    // Stale locks would block re-activation if the same taskId is requeued with
+    // retain_failed_task_worktrees=true.
+    const taskRuntimePath = path.join(root, '.platform-state', 'runtime', 'tasks', taskId);
+    await rm(path.join(taskRuntimePath, 'pipeline.lock'), { recursive: true, force: true }).catch(() => {});
+
+    await commitTaskSnapshot(root, taskId, 'failed');
+
+    // §4.15: finalize all worktrees for this task only. This also stamps
+    // .task.json.state = "failed" and finalizedAt.
+    await emitTaskProgressEvent({
+      logger: log.child({ taskId }),
+      repoRoot: root,
+      taskId,
+      event: { type: 'failure.finalizing_worktrees' },
+    });
+    finalizeResult = await finalizeTaskWorktreesWithReport(taskId, 'failed', root);
+
     try {
       await rename(sourcePath, destPath);
     } catch (err: unknown) {
@@ -467,7 +497,12 @@ export async function moveFailedItemToErrorItems(options: {
     }
 
     await removeFromQueueOrderManifest(queuePaths.queueOrderPath, activeItem);
-  });
+  }, closeoutQueueLockBudget(maxParallelTasks));
+
+  if (alreadyTerminal) {
+    log.info('queue.error_items.skipped_already_terminal', { taskId });
+    return { movedItem: activeItem, errorItemPath: destPath, nextActiveItem: null };
+  }
 
   const moveReason = 'task-failed';
   const taskLog = log.child({ taskId });

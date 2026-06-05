@@ -73,8 +73,8 @@
   background: var(--ts-surface);
   font-weight: 600;
   box-shadow:
-    0 1px 3px rgba(0, 0, 0, 0.06),
-    0 0 0 0.5px rgba(0, 0, 0, 0.03);
+    0 1px 3px color-mix(in srgb, var(--ts-surface-terminal) 6%, transparent),
+    0 0 0 0.5px color-mix(in srgb, var(--ts-surface-terminal) 3%, transparent);
 }
 
 .instructions-browser__tab-icon {
@@ -317,8 +317,8 @@
   scrollbar-width: thin;
   scrollbar-color: var(--ts-scrollbar-thumb) var(--ts-scrollbar-track);
   box-shadow:
-    inset 0 2px 6px rgba(0, 0, 0, 0.25),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+    inset 0 2px 6px color-mix(in srgb, var(--ts-surface-terminal) 25%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--ts-text-inverse) 2%, transparent);
   transition:
     border-color 200ms var(--ts-ease),
     box-shadow 200ms var(--ts-ease);
@@ -328,8 +328,8 @@
   outline: none;
   border-color: var(--ts-accent);
   box-shadow:
-    inset 0 2px 6px rgba(0, 0, 0, 0.25),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.02),
+    inset 0 2px 6px color-mix(in srgb, var(--ts-surface-terminal) 25%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--ts-text-inverse) 2%, transparent),
     0 0 0 2px color-mix(in srgb, var(--ts-accent) 18%, transparent),
     0 0 12px color-mix(in srgb, var(--ts-accent) 8%, transparent);
 }
@@ -457,8 +457,8 @@
   font-family: var(--ts-font-mono);
   font-size: 0.66rem;
   color: var(--terminal-text-muted);
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--ts-text-inverse) 4%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ts-text-inverse) 6%, transparent);
   border-radius: 3px;
   line-height: 1.4;
 }

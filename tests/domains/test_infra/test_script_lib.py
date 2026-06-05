@@ -9,6 +9,7 @@ import textwrap
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest import mock
 
 # Ensure src/backend/scripts/python is on the path so ``from lib.…`` imports resolve.
 _SCRIPTS_PYTHON = Path(__file__).resolve().parents[3] / "src" / "backend" / "scripts" / "python"
@@ -16,10 +17,17 @@ if str(_SCRIPTS_PYTHON) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_PYTHON))
 
 from lib.cli import fail
-from lib.io import atomic_write_json, load_json, load_json_safe, load_text
+from lib.io import (
+    atomic_write_json,
+    atomic_write_text,
+    load_json,
+    load_json_safe,
+    load_text,
+)
 from lib.locking import acquire_file_lock, release_file_lock
 from lib.markdown import parse_metadata, parse_sections
 from lib.paths import (
+    assert_safe_path_segment,
     ensure_within_root,
     ensure_write_path,
     normalize_boundary_path,
@@ -129,6 +137,38 @@ class AtomicWriteJsonTests(_TmpDirMixin, unittest.TestCase):
         atomic_write_json(p, {"x": 1})
         self.assertTrue(p.exists())
 
+    def test_routes_through_fsync(self) -> None:
+        # atomic_write_json must inherit the durable fsync from atomic_write_text.
+        import lib.io as _io
+        with mock.patch.object(_io.os, "fsync") as fsync_mock:
+            atomic_write_json(self._tmp / "out.json", {"a": 1})
+        self.assertTrue(fsync_mock.called)
+
+
+class AtomicWriteTextTests(_TmpDirMixin, unittest.TestCase):
+    def test_writes_complete_content(self) -> None:
+        p = self._tmp / "sub" / "note.md"
+        atomic_write_text(p, "hello\nworld")
+        self.assertEqual(p.read_text(encoding="utf-8"), "hello\nworld")
+
+    def test_fsyncs_before_replace(self) -> None:
+        # Durability: data must be fsync'd before the rename so a crash cannot
+        # leave the rename durable but the file contents lost or truncated.
+        import lib.io as _io
+        with mock.patch.object(_io.os, "fsync") as fsync_mock:
+            atomic_write_text(self._tmp / "d.txt", "x")
+        self.assertTrue(fsync_mock.called)
+
+    def test_original_intact_and_temp_cleaned_on_replace_failure(self) -> None:
+        import lib.io as _io
+        dest = self._tmp / "keep.txt"
+        dest.write_text("original", encoding="utf-8")
+        with mock.patch.object(_io.os, "replace", side_effect=OSError("boom")):
+            with self.assertRaises(OSError):
+                atomic_write_text(dest, "new")
+        self.assertEqual(dest.read_text(encoding="utf-8"), "original")
+        self.assertEqual(list(self._tmp.glob(".keep.txt.*")), [])
+
 
 # ---------------------------------------------------------------------------
 # lib.markdown
@@ -227,6 +267,22 @@ class EnsureWithinRootTests(_TmpDirMixin, unittest.TestCase):
         outside = (self._tmp / "..").resolve() / "outside"
         with self.assertRaises(SystemExit):
             ensure_within_root(self._tmp, outside, "fail msg")
+
+
+class AssertSafePathSegmentTests(unittest.TestCase):
+    """SEC-PY-02: untrusted task IDs used as a single index-path segment."""
+
+    def test_accepts_flat_identifiers(self) -> None:
+        # Real task IDs (incl. uppercase) must pass through unchanged.
+        for value in ("CAP-1000", "CAP-2001", "task_42", "abc"):
+            with self.subTest(value=value):
+                self.assertEqual(assert_safe_path_segment(value, "task_id"), value)
+
+    def test_rejects_traversal_and_separators(self) -> None:
+        for value in ("../../evil", "a/b", "a\\b", "..", ".", ""):
+            with self.subTest(value=value):
+                with self.assertRaises(SystemExit):
+                    assert_safe_path_segment(value, "task_id")
 
 
 class NormalizeBoundaryPathTests(_TmpDirMixin, unittest.TestCase):

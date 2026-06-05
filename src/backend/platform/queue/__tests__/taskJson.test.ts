@@ -208,6 +208,74 @@ describe('§3.2 taskJson reader and env-reads policy layer', () => {
     expect(caughtPayload!['code']).toBe('task-sidecar-corrupt');
   });
 
+  it('SEC-TS-01: throws task-sidecar-corrupt when a repoBinding has a non-string path field', () => {
+    const taskId = 'malformed-repobinding-task';
+    const taskDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
+    mkdirSync(taskDir, { recursive: true });
+    writeFileSync(
+      path.join(taskDir, '.task.json'),
+      JSON.stringify({
+        schema_version: 1,
+        taskId,
+        state: 'active',
+        contextPackBinding: {
+          contextPackPath: null,
+          dataHostDir: null,
+          dataContainerDir: null,
+          // worktreeRoot is an object, not a string — must be rejected as
+          // corrupt rather than flowed unchecked into realpath()/allowedDirs.
+          repoBindings: [
+            { originalRoot: '/repo', worktreeRoot: { evil: true }, worktreeBranch: 'task/x', baseCommitSha: 'd' },
+          ],
+        },
+      }),
+    );
+
+    let caughtPayload: Record<string, unknown> | undefined;
+    try {
+      readTaskJson(taskId, repoRoot);
+    } catch (err) {
+      if (isTaskSidecarError(err)) {
+        caughtPayload = err.payload as unknown as Record<string, unknown>;
+      }
+    }
+    expect(caughtPayload).toBeDefined();
+    expect(caughtPayload!['code']).toBe('task-sidecar-corrupt');
+  });
+
+  it('SEC-TS-01: throws task-sidecar-corrupt when a repoBinding has a non-string baseCommitSha', () => {
+    const taskId = 'malformed-repobinding-base-task';
+    const taskDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
+    mkdirSync(taskDir, { recursive: true });
+    writeFileSync(
+      path.join(taskDir, '.task.json'),
+      JSON.stringify({
+        schema_version: 1,
+        taskId,
+        state: 'active',
+        contextPackBinding: {
+          contextPackPath: null,
+          dataHostDir: null,
+          dataContainerDir: null,
+          repoBindings: [
+            { originalRoot: '/repo', worktreeRoot: '/repo/wt', worktreeBranch: 'task/x' },
+          ],
+        },
+      }),
+    );
+
+    let caughtPayload: Record<string, unknown> | undefined;
+    try {
+      readTaskJson(taskId, repoRoot);
+    } catch (err) {
+      if (isTaskSidecarError(err)) {
+        caughtPayload = err.payload as unknown as Record<string, unknown>;
+      }
+    }
+    expect(caughtPayload).toBeDefined();
+    expect(caughtPayload!['code']).toBe('task-sidecar-corrupt');
+  });
+
   it('throws task-sidecar-stale-schema when schema_version is 0', () => {
     const taskId = 'stale-schema-task';
     const taskDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);

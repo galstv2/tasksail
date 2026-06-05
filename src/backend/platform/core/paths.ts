@@ -118,6 +118,18 @@ export interface PathIdentityOptions extends PathBoundaryOptions {
 }
 
 /**
+ * True when `value` is a RELATIVE path that escapes its base via `..`
+ * (e.g. '../../outside'). Absolute paths and contained relative paths return
+ * false. Use to reject an untrusted relative path before it reaches resolvePath.
+ */
+export function relativePathEscapes(value: string, options: PathBoundaryOptions = {}): boolean {
+  const impl = options.impl ?? path;
+  if (impl.isAbsolute(value)) return false;
+  const normalized = impl.normalize(value);
+  return normalized === '..' || normalized.startsWith('..' + impl.sep);
+}
+
+/**
  * Return true when `candidate` is equal to or nested under `boundary`.
  *
  * Uses `path.relative` so prefix-adjacent siblings (`/root` vs `/rootother`),

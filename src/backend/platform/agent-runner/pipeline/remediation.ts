@@ -1,4 +1,4 @@
-import { createLogger, emitTaskProgressEvent, newSpanId, readTextFile, resolvePaths, writeTextFile, extractMarkdownSection, nowIsoCompact } from '../../core/index.js';
+import { createLogger, emitTaskProgressEvent, newSpanId, readTextFile, resolvePaths, writeTextFileAtomic, extractMarkdownSection, nowIsoCompact } from '../../core/index.js';
 import path from 'node:path';
 import { runRoleAgent } from '../roleAgent.js';
 import { requireAuthorizedActiveContextPack } from '../../context-pack/active.js';
@@ -120,9 +120,9 @@ async function resetHandoffFiles(
     if (!templateContent) continue;
     const existing = await readTextFile(filePath);
     if (existing) {
-      await writeTextFile(filePath, resetHandoffToTemplate(existing, templateContent));
+      await writeTextFileAtomic(filePath, resetHandoffToTemplate(existing, templateContent));
     } else {
-      await writeTextFile(filePath, templateContent);
+      await writeTextFileAtomic(filePath, templateContent);
     }
   }
 }
@@ -246,7 +246,8 @@ export async function remediationRunQaLoop(options: {
       taskId: options.taskId,
       repoRoot: options.repoRoot,
     });
-  } catch {
+  } catch (err) {
+    log.warn('remediation.context_pack.authorization_failed', { error: err instanceof Error ? err.message : String(err) });
     effectiveContextPackDir = options.contextPackDir;
   }
   const paths = resolvePaths({ repoRoot: options.repoRoot, taskId: options.taskId });
@@ -330,7 +331,7 @@ export async function remediationRunQaLoop(options: {
       });
     } catch (cause) {
       if (priorFindings) {
-        await writeTextFile(issuesFile, priorFindings);
+        await writeTextFileAtomic(issuesFile, priorFindings);
       }
       throw new Error(
         `QA remediation cycle ${cycle + 1} failed during QA revalidation.`,

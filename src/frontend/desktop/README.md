@@ -17,7 +17,8 @@ From this directory:
 1. Install dependencies with `npm install`
 2. Start the local shell with `npm run dev`
 3. Run unit tests with `npm test`
-4. Validate the desktop package with `npm run validate:desktop`
+4. Run the CSS token discipline gate with `npm run test:css-colors`
+5. Validate the desktop package with `npm run validate:desktop`
 
 ## Packaging
 

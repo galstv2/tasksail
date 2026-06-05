@@ -1,14 +1,12 @@
 """Path resolution and data integrity helpers for task archives."""
 from __future__ import annotations
 
-import logging
 import subprocess
 from pathlib import Path
 
+from ..io import read_existing_created_at as _lib_read_existing_created_at
 from ..text import slugify
 from ._backend import get_global_retrospective_root, get_resolve_path_within
-
-logger = logging.getLogger(__name__)
 
 
 def sidecar_record_path(markdown_path: Path) -> Path:
@@ -225,16 +223,8 @@ def previous_correction_memo_path(
 
 def read_existing_created_at(path: Path, fallback: str) -> str:
     """Read ``created_at`` from an existing JSON file, or return *fallback*."""
-    try:
-        import json
-        existing = json.loads(path.read_text(encoding="utf-8"))
-    except (ValueError, FileNotFoundError):
-        logger.debug("Could not read created_at from %s, using fallback", path)
-        return fallback
-    created_at = existing.get("created_at")
-    if isinstance(created_at, str) and created_at.strip():
-        return created_at.strip()
-    return fallback
+    # Single source: logic lives in lib.io.read_existing_created_at.
+    return _lib_read_existing_created_at(path, fallback)
 
 
 def detect_source_ref(repo_root: Path) -> str:

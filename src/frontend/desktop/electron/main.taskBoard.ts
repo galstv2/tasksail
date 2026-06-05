@@ -72,6 +72,10 @@ const ACTIVE_ITEMS_DIR = join(PENDING_DIR, '.active-items');
 const COMPLETED_TASK_BOARD_LIMIT = 50;
 const log = createLogger('desktop/main.taskBoard');
 const scheduledKillCleanups = new Set<string>();
+type TaskBoardArtifactContentType = NonNullable<TaskBoardMarkdownArtifact['contentType']>;
+
+/** Monotonically increasing counter. Incremented before each board read begins. */
+let nextBoardSnapshotSequence = 1;
 
 function registryEntryToItem(entry: TaskRegistryEntry): TaskBoardItem {
   return {
@@ -292,13 +296,46 @@ function sendBoardResponseToWindows(response: TaskBoardReadBoardResponse): void 
   }
 }
 
-async function broadcastTaskBoardUpdate(listContextPacks?: ContextPackLister): Promise<void> {
+// Coalescing state for broadcastTaskBoardUpdate.
+let broadcastInFlight = false;
+let broadcastHasPending = false;
+let broadcastPendingLister: ContextPackLister | undefined = undefined;
+
+/** Reset coalescing state — for testing only. */
+export function resetBroadcastState(): void {
+  broadcastInFlight = false;
+  broadcastHasPending = false;
+  broadcastPendingLister = undefined;
+}
+
+export async function broadcastTaskBoardUpdate(listContextPacks?: ContextPackLister): Promise<void> {
+  if (broadcastInFlight) {
+    // A newer trigger arrived while a read is in flight. Record it so we
+    // emit a follow-up read when the current one finishes.
+    broadcastHasPending = true;
+    broadcastPendingLister = listContextPacks;
+    return;
+  }
+  broadcastInFlight = true;
+  broadcastHasPending = false;
+  broadcastPendingLister = undefined;
   try {
-    const result = await readTaskBoard(listContextPacks);
+    // Assign sequence before the read begins so that a concurrent explicit
+    // refresh cannot resolve after this broadcast and appear newer.
+    const seq = nextBoardSnapshotSequence++;
+    const result = await readTaskBoard(listContextPacks, undefined, seq);
     if (!result.ok) return;
     sendBoardResponseToWindows(result.response as TaskBoardReadBoardResponse);
   } catch {
     // Filesystem may be in a transient state — next event will retry.
+  } finally {
+    broadcastInFlight = false;
+    if (broadcastHasPending) {
+      const pending = broadcastPendingLister;
+      broadcastHasPending = false;
+      broadcastPendingLister = undefined;
+      void broadcastTaskBoardUpdate(pending);
+    }
   }
 }
 
@@ -337,7 +374,10 @@ function newestArchivedTasks(tasks: ArchivedTaskEntry[], limit: number): Archive
 export async function readTaskBoard(
   listContextPacks?: ContextPackLister,
   fsAdapter: ReadOnlyRepoFs = repoFs,
+  boardSnapshotSequence?: number,
 ): Promise<DesktopInvokeResult> {
+  // Assign sequence here if not provided (direct IPC handler path).
+  const seq = boardSnapshotSequence ?? nextBoardSnapshotSequence++;
   try {
     const registry = await loadTaskRegistry(REPO_ROOT);
     const hasRegistryData = Object.keys(registry.tasks).length > 0;
@@ -380,6 +420,7 @@ export async function readTaskBoard(
         action: 'taskBoard.readBoard',
         mode: 'read-only',
         message: '0 open, 0 pending, 0 failed, 0 completed.',
+        boardSnapshotSequence: seq,
         dropboxItems: [],
         pendingItems: [],
         errorItems: [],
@@ -403,6 +444,7 @@ export async function readTaskBoard(
         action: 'taskBoard.readBoard',
         mode: 'read-only',
         message: `${dropboxItems.length} open, ${displayPendingItems.length} pending, ${errorItems.length} failed, ${completedItems.length} completed.`,
+        boardSnapshotSequence: seq,
         dropboxItems,
         pendingItems: displayPendingItems,
         errorItems,
@@ -462,6 +504,7 @@ export async function readTaskBoard(
       action: 'taskBoard.readBoard',
       mode: 'read-only',
       message: `${dropboxItems.length} open, ${displayPendingItems.length} pending, ${errorItems.length} failed, ${completedItems.length} completed.`,
+      boardSnapshotSequence: seq,
       dropboxItems,
       pendingItems: displayPendingItems,
       errorItems,
@@ -522,20 +565,22 @@ export function formatCompletedBranchHandoffText(task: ArchivedTaskEntry): strin
 
 // Internal artifact shape — carries the resolved absolute path that the public
 // TaskBoardMarkdownArtifact deliberately omits from the renderer contract.
-type CompletedMarkdownArtifact = {
+type CompletedArtifact = {
   relativePath: string;
   label: string;
   sizeBytes: number;
   absolutePath: string;
+  contentType: TaskBoardArtifactContentType;
 };
 
 const ARCHIVE_MD = 'archive.md';
 
-function toPublicArtifact(artifact: CompletedMarkdownArtifact): TaskBoardMarkdownArtifact {
+function toPublicArtifact(artifact: CompletedArtifact): TaskBoardMarkdownArtifact {
   return {
     relativePath: artifact.relativePath,
     label: artifact.label,
     sizeBytes: artifact.sizeBytes,
+    contentType: artifact.contentType,
   };
 }
 
@@ -551,11 +596,11 @@ function resolveCompletedArtifactRoot(task: ArchivedTaskEntry): string | null {
   return null;
 }
 
-// Recursively enumerate regular, non-symlink markdown files under the archive
-// root. Skips dot-files/dot-directories, symlinks, and non-markdown files.
+// Recursively enumerate regular, non-symlink markdown/XML files under the archive
+// root. Skips dot-files/dot-directories, symlinks, and unsupported files.
 // Returns artifacts sorted archive.md-first, then case-insensitively by path.
-async function listCompletedMarkdownArtifacts(root: string): Promise<CompletedMarkdownArtifact[]> {
-  const collected: CompletedMarkdownArtifact[] = [];
+async function listCompletedArtifacts(root: string): Promise<CompletedArtifact[]> {
+  const collected: CompletedArtifact[] = [];
 
   async function walk(dir: string): Promise<void> {
     const entries = await readdir(dir, { withFileTypes: true });
@@ -568,7 +613,8 @@ async function listCompletedMarkdownArtifacts(root: string): Promise<CompletedMa
         await walk(absolutePath);
         continue;
       }
-      if (!entry.isFile() || !entry.name.endsWith('.md')) {
+      const contentType = artifactContentTypeForFileName(entry.name);
+      if (!entry.isFile() || !contentType) {
         continue;
       }
       let stat;
@@ -581,7 +627,7 @@ async function listCompletedMarkdownArtifacts(root: string): Promise<CompletedMa
         continue;
       }
       const relativePath = relative(root, absolutePath).replace(/\\/g, '/');
-      collected.push({ relativePath, label: relativePath, sizeBytes: stat.size, absolutePath });
+      collected.push({ relativePath, label: relativePath, sizeBytes: stat.size, absolutePath, contentType });
     }
   }
 
@@ -591,6 +637,12 @@ async function listCompletedMarkdownArtifacts(root: string): Promise<CompletedMa
     if (b.relativePath === ARCHIVE_MD) return 1;
     return a.relativePath.toLowerCase().localeCompare(b.relativePath.toLowerCase());
   });
+}
+
+function artifactContentTypeForFileName(fileName: string): TaskBoardArtifactContentType | null {
+  if (fileName.endsWith('.xml')) return 'xml';
+  if (fileName.endsWith('.md')) return 'markdown';
+  return null;
 }
 
 // Normalize a renderer-supplied artifact path to a safe POSIX relative path, or
@@ -612,9 +664,9 @@ function normalizeRequestedArtifactPath(value: string): string | null {
 // otherwise returns the enumerated artifact whose path matches the normalized
 // request, or null when the request is invalid or unknown.
 function selectArtifact(
-  artifacts: CompletedMarkdownArtifact[],
+  artifacts: CompletedArtifact[],
   requested: string | undefined,
-): CompletedMarkdownArtifact | null {
+): CompletedArtifact | null {
   if (requested === undefined) {
     return artifacts.find((artifact) => artifact.relativePath === ARCHIVE_MD) ?? null;
   }
@@ -631,7 +683,7 @@ function requestedNestedArtifact(requested: string | undefined): boolean {
   return requested !== undefined && normalizeRequestedArtifactPath(requested) !== ARCHIVE_MD;
 }
 
-async function makeFlatArchiveArtifact(archivePath: string): Promise<CompletedMarkdownArtifact> {
+async function makeFlatArchiveArtifact(archivePath: string): Promise<CompletedArtifact> {
   let sizeBytes = 0;
   try {
     const stat = await lstat(archivePath);
@@ -641,7 +693,13 @@ async function makeFlatArchiveArtifact(archivePath: string): Promise<CompletedMa
   } catch {
     // Size is best-effort metadata; the actual read enforces existence.
   }
-  return { relativePath: ARCHIVE_MD, label: ARCHIVE_MD, sizeBytes, absolutePath: archivePath };
+  return {
+    relativePath: ARCHIVE_MD,
+    label: ARCHIVE_MD,
+    sizeBytes,
+    absolutePath: archivePath,
+    contentType: 'markdown',
+  };
 }
 
 async function readCompletedTaskContent(
@@ -657,16 +715,16 @@ async function readCompletedTaskContent(
   const tasks = (archivedResult.response as { tasks: ArchivedTaskEntry[] }).tasks;
   const match = tasks.find((t) => t.taskId === taskId);
 
-  let artifacts: CompletedMarkdownArtifact[];
+  let artifacts: CompletedArtifact[];
   let archivedTask: ArchivedTaskEntry | null = null;
 
   if (match?.archivePath) {
     archivedTask = match;
     const root = resolveCompletedArtifactRoot(match);
-    let listed: CompletedMarkdownArtifact[] | null = null;
+    let listed: CompletedArtifact[] | null = null;
     if (root) {
       try {
-        listed = await listCompletedMarkdownArtifacts(root);
+        listed = await listCompletedArtifacts(root);
       } catch {
         // Archive root unreadable — fall back to the flat archive.md below.
         listed = null;
@@ -738,6 +796,7 @@ async function readCompletedTaskContent(
       content,
       fileName: base,
       artifactRelativePath: selectedRelativePath,
+      contentType: selected.contentType,
       artifacts: artifacts.map(toPublicArtifact),
     },
   };
@@ -1185,30 +1244,47 @@ export async function retryKillCleanup(
   }
 }
 
+const WATCH_DEBOUNCE_MS = 150;
+const WATCH_RETRY_MS = 1000;
+
 /**
  * Watch the three task directories and broadcast board updates to all
  * renderer windows when files change. Uses a 150ms debounce to coalesce
  * rapid filesystem events into a single board read.
+ *
+ * Missing targets are retried every WATCH_RETRY_MS (mirroring the
+ * notification watcher retry pattern) so that targets that appear after
+ * startup (repaired or cold workspace dirs) resume board broadcasts.
  *
  * Returns a cleanup function that stops all watchers.
  */
 export function startTaskBoardWatcher(
   listContextPacks: () => Promise<import('../src/shared/desktopContract').ContextPackListResponse>,
 ): () => void {
+  let stopped = false;
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
-  const watchers: FSWatcher[] = [];
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  let retryScheduled = false;
+  const watchersByTarget = new Map<string, FSWatcher>();
 
-  const onFsChange = (): void => {
+  const triggerBoardBroadcast = (): void => {
     if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => void broadcastTaskBoardUpdate(listContextPacks), 150);
+    debounceTimer = setTimeout(() => void broadcastTaskBoardUpdate(listContextPacks), WATCH_DEBOUNCE_MS);
   };
 
-  // Watch the registry file and the three queue directories.
-  // The registry is the primary source; directories are watched as a safety net
-  // for manual file placement and legacy flows.
+  const scheduleRetry = (): void => {
+    if (stopped || retryScheduled) return;
+    retryScheduled = true;
+    retryTimer = setTimeout(() => {
+      retryTimer = undefined;
+      retryScheduled = false;
+      attachWatchers();
+    }, WATCH_RETRY_MS);
+  };
+
   const queuePaths = resolveQueuePaths(REPO_ROOT);
   const registryFile = getRegistryPath(REPO_ROOT);
-  for (const target of [
+  const allTargets = [
     registryFile,
     DROPBOX_DIR,
     PENDING_DIR,
@@ -1216,16 +1292,39 @@ export function startTaskBoardWatcher(
     queuePaths.killRequestsDir,
     queuePaths.activeItemsDir,
     queuePaths.activatingItemsDir,
-  ]) {
-    try {
-      watchers.push(watch(target, { persistent: false }, onFsChange));
-    } catch {
-      // File or directory may not exist yet — acceptable
+  ];
+
+  const attachWatchers = (): void => {
+    if (stopped) return;
+    let anyMissing = false;
+    for (const target of allTargets) {
+      if (watchersByTarget.has(target)) continue;
+      try {
+        const w = watch(target, { persistent: false }, triggerBoardBroadcast);
+        w.on('error', () => {
+          watchersByTarget.delete(target);
+          scheduleRetry();
+        });
+        watchersByTarget.set(target, w);
+        // A newly attached target may mean the workspace just appeared — broadcast.
+        void broadcastTaskBoardUpdate(listContextPacks);
+      } catch {
+        // Target does not exist yet — will retry.
+        anyMissing = true;
+      }
     }
-  }
+    if (anyMissing) scheduleRetry();
+  };
+
+  attachWatchers();
 
   return () => {
+    stopped = true;
     if (debounceTimer) clearTimeout(debounceTimer);
-    for (const w of watchers) w.close();
+    if (retryTimer) clearTimeout(retryTimer);
+    debounceTimer = undefined;
+    retryTimer = undefined;
+    for (const w of watchersByTarget.values()) w.close();
+    watchersByTarget.clear();
   };
 }

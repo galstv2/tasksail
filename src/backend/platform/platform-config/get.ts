@@ -4,8 +4,7 @@ import path from 'node:path';
 import type { PlatformConfig } from './types.js';
 import { loadPlatformConfig } from './load.js';
 import { resolveContainerRuntime } from './resolve.js';
-
-const RUNTIME_PLATFORM_CONFIG_PATH = '.platform-state/platform.json';
+import { RUNTIME_PLATFORM_CONFIG_PATH } from './paths.js';
 
 /**
  * The two env vars that are tracked in the cache key's env snapshot.

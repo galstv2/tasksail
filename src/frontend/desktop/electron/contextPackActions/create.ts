@@ -3,10 +3,11 @@ import { constants as fsConstants } from 'node:fs';
 import {
   access as fsAccess,
   mkdir as fsMkdir,
+  readdir as fsReaddir,
   readFile as fsReadFile,
   stat as fsStat,
 } from 'node:fs/promises';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 
 import type {
@@ -35,6 +36,7 @@ import {
   type ContextPackReseedRunner,
 } from './shared';
 import { createLogger } from '../log/logger';
+import { writeGitignoreIfMissing, resolveGitignoreTemplateKeys } from './gitignoreTemplates';
 
 const execFileAsync = promisify(execFile);
 const log = createLogger('electron/contextPackActions/create');
@@ -53,13 +55,60 @@ function isPathInside(child: string, parent: string): boolean {
   return rel === '' || (!rel.startsWith('..') && !rel.startsWith('/') && rel !== '.');
 }
 
+type RepoEntry = ContextPackCreateRequest['payload']['bootstrapAnswers']['repositories'][number];
+
+/**
+ * Resolve the monolith repository languages by finding the repository whose
+ * resolved repoRoot matches the resolved discoveryRoot. Returns undefined when
+ * no match exists (caller must fail the create action).
+ */
+export function resolveMonolithLanguages(
+  repos: RepoEntry[],
+  discoveryRoot: string,
+): string[] | undefined {
+  const resolvedDiscovery = resolve(discoveryRoot);
+  const match = repos.find((r) => r.repoRoot && resolve(r.repoRoot) === resolvedDiscovery);
+  if (!match) return undefined;
+  return match.languages ?? [];
+}
+
+async function writeGitignoreForRepo(repoDir: string, languages: string[]): Promise<void> {
+  const templateKeys = resolveGitignoreTemplateKeys(languages);
+  try {
+    const outcome = await writeGitignoreIfMissing(repoDir, languages);
+    if (outcome === 'created') {
+      log.info('context-pack.create.gitignore.created', {
+        repoDir,
+        templateKeys,
+        languageCount: languages.length,
+      });
+    } else {
+      log.info('context-pack.create.gitignore.exists', { repoDir });
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.warn('context-pack.create.gitignore.failed', { repoDir, error: msg });
+    throw err;
+  }
+}
+
 async function initGitReposForNewProject(
   payload: ContextPackCreateRequest['payload'],
 ): Promise<void> {
   const repos = payload.bootstrapAnswers.repositories;
   const monolithRoot = resolve(payload.discoveryRoot);
   if (isMonolithEstateMode(payload.mode)) {
+    // Resolve monolith languages BEFORE any git init. Fail fast if no match.
+    const monolithLanguages = resolveMonolithLanguages(repos, payload.discoveryRoot);
+    if (monolithLanguages === undefined) {
+      throw new Error(
+        `context-pack.create: no repository with repoRoot matching discoveryRoot "${payload.discoveryRoot}" — cannot determine monolith languages`,
+      );
+    }
+
     await execFileAsync('git', ['init'], { cwd: monolithRoot });
+    await writeGitignoreForRepo(monolithRoot, monolithLanguages);
+
     const sideRepos = repos.filter((repo) => {
       if (!repo.repoRoot) return false;
       const repoDir = resolve(repo.repoRoot);
@@ -75,6 +124,7 @@ async function initGitReposForNewProject(
         const repoDir = resolve(repo.repoRoot);
         await fsMkdir(repoDir, { recursive: true });
         await execFileAsync('git', ['init'], { cwd: repoDir });
+        await writeGitignoreForRepo(repoDir, repo.languages ?? []);
       }),
     );
   } else {
@@ -85,6 +135,7 @@ async function initGitReposForNewProject(
           const repoDir = resolve(repo.repoRoot);
           await fsMkdir(repoDir, { recursive: true });
           await execFileAsync('git', ['init'], { cwd: repoDir });
+          await writeGitignoreForRepo(repoDir, repo.languages ?? []);
         }),
     );
   }
@@ -430,6 +481,32 @@ async function runContextPackPreflight(
   return { ok: false, preflightErrors: parsed.errors ?? [] };
 }
 
+/**
+ * Resolve a collision-free context-pack directory. The renderer proposes a clean
+ * slug-based name; if a sibling directory with that basename already exists, append
+ * a numeric counter (-2, -3, …) until free. Returns the desired path unchanged when
+ * the parent directory does not yet exist (preflight rejects a missing parent
+ * separately). Best-effort: final directory creation in the Python bootstrap uses
+ * mkdir(exist_ok=True), so a concurrent create from a second window could still
+ * race — acceptable for a single-operator desktop app.
+ */
+export async function resolveUniqueContextPackDir(desiredDir: string): Promise<string> {
+  const parent = dirname(desiredDir);
+  const base = basename(desiredDir);
+  let existing: Set<string>;
+  try {
+    existing = new Set(await fsReaddir(parent));
+  } catch {
+    return desiredDir;
+  }
+  if (!existing.has(base)) return desiredDir;
+  // Among base-2 … base-(size+2) — size+1 distinct candidates — at least one is free.
+  for (let n = 2; n <= existing.size + 2; n += 1) {
+    if (!existing.has(`${base}-${n}`)) return join(parent, `${base}-${n}`);
+  }
+  return join(parent, `${base}-${existing.size + 2}`);
+}
+
 export async function executeContextPackCreateAction(
   payload: ContextPackCreateRequest['payload'],
   bootstrapRunner: PythonScriptRunner = runPythonScriptCommand,
@@ -438,7 +515,16 @@ export async function executeContextPackCreateAction(
   preflightRunner: PythonScriptRunner = runPythonScriptCommand,
 ): Promise<DesktopInvokeResult> {
   try {
-    const np = { ...payload, contextPackDir: resolve(payload.contextPackDir), discoveryRoot: resolve(payload.discoveryRoot) };
+    const contextPackDir = await resolveUniqueContextPackDir(resolve(payload.contextPackDir));
+    const np = {
+      ...payload,
+      contextPackDir,
+      discoveryRoot: resolve(payload.discoveryRoot),
+      // Keep contextPackId aligned with the final directory basename. qmd_scope_root
+      // keys on contextPackId while the AgentWorkSpace mirror keys on the directory
+      // basename, so a collision counter must apply to both or the two diverge.
+      bootstrapAnswers: { ...payload.bootstrapAnswers, contextPackId: basename(contextPackDir) },
+    };
 
     const preflight = await runContextPackPreflight(np, preflightRunner);
     if (!preflight.ok) {
@@ -484,6 +570,27 @@ export async function executeContextPackCreateAction(
     }
 
     await fsMkdir(np.discoveryRoot, { recursive: true });
+
+    // Monolith-mode creation records operator working folders as focus areas
+    // (not repositories), so initGitReposForNewProject never materializes them.
+    // Create the declared focus-area subdirectories here — alongside the discovery
+    // root and before bootstrap/seed — so the operator's working folders exist on
+    // disk. Scoped to new-project creation (initGitRepos) so existing-source packs
+    // are never mutated, and to paths strictly inside the discovery root.
+    if (np.initGitRepos === true) {
+      const discoveryRootResolved = resolve(np.discoveryRoot);
+      const focusAreaDirs = [
+        ...new Set(
+          (np.bootstrapAnswers.focusableAreas ?? [])
+            .map((fa) => fa.path)
+            .filter((p): p is string => typeof p === 'string' && p.length > 0)
+            .map((p) => resolve(p))
+            .filter((p) => p !== discoveryRootResolved && isPathInside(p, discoveryRootResolved)),
+        ),
+      ];
+      await Promise.all(focusAreaDirs.map((p) => fsMkdir(p, { recursive: true })));
+    }
+
     const answersJson = JSON.stringify(buildContextPackBootstrapAnswersPayload(effectivePayload));
     const bootstrapResult = await bootstrapRunner(buildContextPackBootstrapArgs(np), { stdin: answersJson });
     let bp: Record<string, unknown>;

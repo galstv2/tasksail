@@ -151,7 +151,7 @@ export async function resolveSelectedMaterializationRoots(options: {
     throw new Error(`Unable to resolve selected materialization roots for task "${options.taskId}": no selected repo roots were resolved.`);
   }
 
-  log.info('context_pack.selected_materialization_roots.resolved', {
+  log.debug('context_pack.selected_materialization_roots.resolved', {
     taskId: options.taskId,
     contextPackId: options.binding.contextPackId,
     selectedRepoIds: roots.map((root) => root.repoId),
@@ -188,7 +188,7 @@ export function assertTaskWorktreeBindingsCoverSnapshot(options: {
     }
   }
 
-  log.info('context_pack.task_worktree_binding_coverage.passed', {
+  log.debug('context_pack.task_worktree_binding_coverage.passed', {
     taskId: options.taskId,
     phase: options.phase,
     bindingCount: options.repoBindings.length,

@@ -1,6 +1,5 @@
 import path from 'node:path';
-import { readFile } from 'node:fs/promises';
-import { findRepoRoot, readEnvAssignment, resolvePath } from '../core/index.js';
+import { findRepoRoot, readEnvAssignment, resolvePath, readTextFile, safeJsonParse } from '../core/index.js';
 import { ACTIVE_CONTEXT_PACK_DIR_KEY, validatePackStructure } from './activate.js';
 import { readTaskJson, type TaskContextPackBinding } from '../queue/taskJson.js';
 
@@ -24,16 +23,17 @@ export type TaskContextPackBindingFromSidecar = TaskContextPackBinding;
 
 async function readWorkspaceSyncActiveContextPackDir(repoRoot: string): Promise<string | undefined> {
   const statePath = path.join(repoRoot, '.platform-state', 'workspace-context-sync.json');
-  try {
-    const raw = await readFile(statePath, 'utf-8');
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    const rawDir = typeof parsed.active_context_pack_dir === 'string'
-      ? parsed.active_context_pack_dir.trim()
-      : '';
-    return rawDir || undefined;
-  } catch {
+  const raw = await readTextFile(statePath);
+  if (raw === undefined) {
     return undefined;
   }
+  // safeJsonParse surfaces corruption (vs. the prior bare JSON.parse + swallow,
+  // which masked a corrupt workspace-context-sync.json as "no active pack").
+  const parsed = safeJsonParse<Record<string, unknown>>(raw, statePath);
+  const rawDir = typeof parsed.active_context_pack_dir === 'string'
+    ? parsed.active_context_pack_dir.trim()
+    : '';
+  return rawDir || undefined;
 }
 
 async function resolveConfiguredActiveContextPackDir(

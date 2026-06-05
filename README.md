@@ -169,7 +169,7 @@ Run `npx tsx src/backend/platform/container/cli.ts bootstrap`, then `npx tsx src
 
 Use `pnpm run test:smoke`, `pnpm run test:domain -- --domain <name>`, `pnpm run test:contracts`, and `pnpm run local-checks`. CI mirrors this with a changed-path domain lane for pull requests, the full Python suite, and Docs Check.
 
-On Unix/macOS/Linux, `make` shim aliases are also available (e.g. `make test-smoke`, `make local-checks`). These `make` targets are not available by default on native Windows — use the `pnpm run ...` forms instead.
+On Unix/macOS/Linux, `make` shim aliases are also available (e.g. `make test-smoke`, `make test-domain DOMAIN=...`, `make test-contracts`, `make local-checks`). These `make` targets are not available by default on native Windows — use the `pnpm run ...` forms instead.
 
 ## How to start the queue and seed a starter task
 

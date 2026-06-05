@@ -223,6 +223,26 @@ describe('desktopShellClient', () => {
     expect(shell.readParentChainArchiveBundle).toHaveBeenCalledWith(payload);
   });
 
+  it('forwards log explorer calls through the shell seam', async () => {
+    const shell = {
+      listLogFiles: vi.fn().mockResolvedValue({ ok: true, response: { action: 'logExplorer.listFiles' } }),
+      readLogFile: vi.fn().mockResolvedValue({ ok: true, response: { action: 'logExplorer.readFile' } }),
+    } as unknown as Window['desktopShell'];
+    const client = createDesktopShellClient(() => shell);
+    const payload = {
+      category: 'info' as const,
+      fileName: 'tasksail.jsonl',
+      limit: 100,
+      levelFilter: 'debug' as const,
+    };
+
+    await client.listLogFiles();
+    await client.readLogFile(payload);
+
+    expect(shell.listLogFiles).toHaveBeenCalledTimes(1);
+    expect(shell.readLogFile).toHaveBeenCalledWith(payload);
+  });
+
   it('forwards parent archive markdown payload unchanged through the shell seam', async () => {
     const shell = {
       readParentArchiveMarkdown: vi.fn().mockResolvedValue({ ok: true, response: { action: 'planner.readParentArchiveMarkdown' } }),

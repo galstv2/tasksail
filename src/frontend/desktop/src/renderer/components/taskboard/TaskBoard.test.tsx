@@ -377,6 +377,49 @@ describe('TaskBoard artifact explorer', () => {
     expect(readTaskContent).toHaveBeenCalledWith('DONE-A.md', 'completed', 'ImplementationSteps/slice-1.md');
   });
 
+  it('changes the selection and renders XML implementation slices as formatted XML', async () => {
+    const xmlContent = '<executionSlice id="slice-1"><metadata><sliceId>slice-1</sliceId></metadata><executionScope><scope required="true">Move the item, user, and order route logic out of Routes.cs into named handler modules while keeping the existing HTTP contract and test behavior intact for archived artifact review.</scope></executionScope></executionSlice>';
+    const artifacts = [
+      { relativePath: 'archive.md', label: 'archive.md', sizeBytes: 12, contentType: 'markdown' as const },
+      { relativePath: 'ImplementationSteps/slice-1.xml', label: 'ImplementationSteps/slice-1.xml', sizeBytes: xmlContent.length, contentType: 'xml' as const },
+    ];
+    const readTaskContent = vi.fn(async (_fileName: string, _column: string, rel?: string) =>
+      rel === 'ImplementationSteps/slice-1.xml'
+        ? {
+            content: xmlContent,
+            artifactRelativePath: 'ImplementationSteps/slice-1.xml',
+            contentType: 'xml' as const,
+            artifacts,
+          }
+        : {
+            content: 'ARCHIVE_BODY_TEXT',
+            artifactRelativePath: 'archive.md',
+            contentType: 'markdown' as const,
+            artifacts,
+          });
+    const { container } = renderCompleted(readTaskContent);
+
+    fireEvent.click(container.querySelector<HTMLElement>('[data-filename="DONE-A.md"]')!);
+    fireEvent.click(await screen.findByRole('button', { name: 'Artifact Explorer' }));
+    fireEvent.click(screen.getByRole('option', { name: 'ImplementationSteps/slice-1.xml' }));
+
+    const xmlCode = await screen.findByText((_content, node) => (
+      node?.tagName.toLowerCase() === 'code'
+      && Boolean(node.textContent?.includes('<executionSlice id="slice-1">'))
+    ));
+    expect(xmlCode).toBeInTheDocument();
+    expect(xmlCode.textContent).toContain('\n  <metadata>');
+    expect(xmlCode.textContent).toContain('\n    <sliceId>slice-1</sliceId>');
+    expect(xmlCode.textContent).toContain('\n    <scope required="true">');
+    expect(xmlCode.textContent).toContain('\n      Move the item, user, and order route logic');
+    expect(xmlCode.textContent).toContain('\n    </scope>');
+    expect(document.querySelector('.task-xml-view')).toBeTruthy();
+    expect(document.querySelector('.task-xml-view__tagName')?.textContent).toBe('executionSlice');
+    expect(Array.from(document.querySelectorAll('.task-xml-view__attributeName')).some((node) => node.textContent === 'required')).toBe(true);
+    expect(Array.from(document.querySelectorAll('.task-xml-view__attributeValue')).some((node) => node.textContent === '"true"')).toBe(true);
+    expect(readTaskContent).toHaveBeenCalledWith('DONE-A.md', 'completed', 'ImplementationSteps/slice-1.xml');
+  });
+
   it('Artifact Explorer is hidden for open, pending, failed, and single-artifact completed content', async () => {
     // Single-artifact completed content: the modal opens but exposes no explorer.
     const singleArtifact = vi.fn(async () => ({

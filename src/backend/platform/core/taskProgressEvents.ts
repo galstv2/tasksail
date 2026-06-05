@@ -1,5 +1,6 @@
 import type { Logger, ProgressLevel } from './logger.js';
 import { RuntimeTerminalEvents } from './runtimeTerminalEvents.js';
+import { progressLogDecisionFor } from './taskProgressEvents.logPolicy.js';
 import {
   formatTaskAgentDisplayName,
   normalizeTaskAgentLaunchOutcome,
@@ -331,7 +332,12 @@ export async function emitTaskProgressEvent(args: {
 }): Promise<void> {
   const terminal = RuntimeTerminalEvents.forTask(args.repoRoot, args.taskId);
   const progress = progressFor(args.event, args.taskId);
-  args.logger.progress(progress as Parameters<Logger['progress']>[0]);
+  const logDecision = progressLogDecisionFor(args.event, progress);
+  if (logDecision.kind === 'debug') {
+    args.logger.debug(progress.event, progress.extra);
+  } else {
+    args.logger.progress(progress as Parameters<Logger['progress']>[0]);
+  }
   await appendTerminalEvent(terminal, args.event);
 }
 

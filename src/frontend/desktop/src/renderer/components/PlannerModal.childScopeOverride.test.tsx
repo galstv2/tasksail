@@ -281,7 +281,7 @@ describe('PlannerModal child scope override affordance', () => {
     expect(within(adjustedCard!).getByText('Primary')).toBeInTheDocument();
     expect(within(adjustedCard!).getByText('Orders API')).toBeInTheDocument();
     expect(within(adjustedCard!).getByText('Support')).toBeInTheDocument();
-    expect(within(adjustedCard!).getByText('Orders API: Billing API')).toBeInTheDocument();
+    expect(within(adjustedCard!).getByText('Orders API: billing-api')).toBeInTheDocument();
     expect(within(adjustedCard!).queryByText('Global: None')).not.toBeInTheDocument();
   });
 

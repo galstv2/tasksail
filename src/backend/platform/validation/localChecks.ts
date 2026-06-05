@@ -119,6 +119,11 @@ async function runDesktopTests(repoRoot: string): Promise<void> {
   await runDesktopNpmCommand(['test'], desktopDir);
 }
 
+async function runDesktopCssColorTokenDiscipline(repoRoot: string): Promise<void> {
+  const desktopDir = path.join(repoRoot, 'src', 'frontend', 'desktop');
+  await runDesktopNpmCommand(['run', 'test:css-colors'], desktopDir);
+}
+
 async function runDesktopBuild(repoRoot: string): Promise<void> {
   const desktopDir = path.join(repoRoot, 'src', 'frontend', 'desktop');
   await runDesktopNpmCommand(['run', 'build'], desktopDir);
@@ -189,6 +194,10 @@ export async function runLocalChecks(
 
   // Desktop tests — full and contracts, scoped by changedPath
   if ((profile === 'full' || profile === 'contracts') && scope.desktop) {
+    results.push(await timedCheck(
+      'desktop-css-color-token-discipline',
+      () => runDesktopCssColorTokenDiscipline(root),
+    ));
     results.push(await timedCheck('desktop-tests', () => runDesktopTests(root)));
     results.push(await timedCheck('desktop-build', () => runDesktopBuild(root)));
   }

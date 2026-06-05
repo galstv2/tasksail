@@ -69,7 +69,7 @@ export function useAppShell(
   } = useObservabilityContext();
   const { addToast } = useToastContext();
 
-  const { contextPackSidebarProps, contextPackCreationModalProps } = useContextPackSelection(
+  const { contextPackSidebarProps, contextPackCreationModalProps, refreshCatalog } = useContextPackSelection(
     client,
     environmentStatus?.repoRoot,
   );
@@ -249,8 +249,8 @@ export function useAppShell(
   );
 
   const onRefreshRepoState = useCallback(async () => {
-    await Promise.all([refreshObservedState(), taskBoard.refresh()]);
-  }, [refreshObservedState, taskBoard.refresh]);
+    await Promise.allSettled([refreshObservedState(), taskBoard.refresh(), refreshCatalog()]);
+  }, [refreshObservedState, taskBoard.refresh, refreshCatalog]);
 
   // Auto-refresh the task board and observability state when the active
   // context pack changes (e.g. user clicks Apply on a different pack).

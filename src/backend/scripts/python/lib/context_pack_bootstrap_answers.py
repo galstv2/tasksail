@@ -15,6 +15,9 @@ logger = logging.getLogger(__name__)
 
 
 def slugify(value: str) -> str:
+    # Intentionally Unicode-aware (str.isalnum keeps non-ASCII letters/digits),
+    # unlike the ASCII-only lib.text.slugify. Kept separate by design; the
+    # "context-pack" fallback is specific to bootstrap ids.
     slug = "".join(ch.lower() if ch.isalnum() else "-" for ch in value)
     while "--" in slug:
         slug = slug.replace("--", "-")

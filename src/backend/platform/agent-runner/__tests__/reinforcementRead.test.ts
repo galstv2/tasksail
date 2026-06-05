@@ -239,6 +239,16 @@ describe('reinforcementRead canonical paths', () => {
           unrewarded_task_count: 0,
           unrewarded_reward_total: 0,
         }],
+        // The authoritative current multipliers now come from the registry
+        // (single source of truth), resolved via the active provider's
+        // agentConfigPaths().registry — provide it so stale sidecar values normalize.
+        [path.join(repoRoot, '.github', 'agents', 'registry.json'), {
+          schema_version: 1,
+          agents: [
+            { agent_id: 'planning-agent', reward_multiplier: 1.0 },
+            { agent_id: 'product-manager', reward_multiplier: 1.5 },
+          ],
+        }],
       ]),
       new Map([[canonicalSidecars, ['planning-agent.json', 'product-manager.json']]]),
     );

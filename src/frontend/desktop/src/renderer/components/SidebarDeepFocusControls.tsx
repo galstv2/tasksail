@@ -21,6 +21,7 @@ import {
   deepFocusTargetForRow,
   formatRelativeTime,
   getAnchorTarget,
+  isSameTarget,
   normalizeRelativePath,
   parentPath,
   pathContains,
@@ -89,8 +90,10 @@ function areTargetsEqual(
   right: ContextPackDeepFocusTarget | null | undefined,
 ): boolean {
   if (!left && !right) return true;
-  if (!left || !right) return false;
-  return left.path === right.path && left.kind === right.kind;
+  // Reuse the canonical identity check (path + kind + top-level repo/focus
+  // identity). The previous local comparison dropped repoId/focusId/repoLocalPath,
+  // so distributed-pack repo changes were treated as "no change".
+  return isSameTarget(left, right);
 }
 
 function areTargetListsEqual(

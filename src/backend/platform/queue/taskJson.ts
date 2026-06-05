@@ -5,9 +5,9 @@
  * against the .task.json path. All other modules MUST import readTaskJson or
  * readTaskJsonSafe from here.
  */
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { findRepoRoot } from '../core/index.js';
+import { findRepoRoot, writeTextFileAtomicSync } from '../core/index.js';
 import type { PrimaryFocusTarget } from '../context-pack/deepFocusNormalization.js';
 import type {
   TaskContextPackBinding as MarkdownContextPackBinding,
@@ -212,7 +212,7 @@ function isValidContextPackBinding(value: unknown): value is TaskContextPackBind
   if (!('contextPackPath' in v)) return false;
   if (!('dataHostDir' in v)) return false;
   if (!('dataContainerDir' in v)) return false;
-  if (!Array.isArray(v['repoBindings'])) return false;
+  if (!isValidRepoBindings(v['repoBindings'])) return false;
   if (
     v['readonlyContextBindings'] !== undefined
     && !isValidReadonlyContextBindings(v['readonlyContextBindings'])
@@ -233,6 +233,27 @@ const READONLY_CONTEXT_BINDING_KEYS = new Set([
 function isValidReadonlyContextBindings(value: unknown): value is TaskReadonlyContextBinding[] {
   if (!Array.isArray(value)) return false;
   return value.every(isValidReadonlyContextBinding);
+}
+
+function isValidRepoBindings(value: unknown): value is TaskRepoBinding[] {
+  if (!Array.isArray(value)) return false;
+  return value.every(isValidRepoBinding);
+}
+
+// SEC-TS-01: repoBinding string fields are interpolated into filesystem paths
+// (worktreeInjection realpath + confinement allowedDirs) and a git argv
+// (worktreeBranch). Validate the path-bearing fields per element so a malformed
+// sidecar is rejected as corrupt rather than flowing unchecked to those sinks —
+// mirroring the rigor already applied to readonlyContextBindings. Containment of
+// a well-typed but out-of-base worktreeRoot is enforced separately in
+// worktreeInjection.buildWorktreeBindingMap.
+function isValidRepoBinding(value: unknown): value is TaskRepoBinding {
+  if (typeof value !== 'object' || value === null) return false;
+  const binding = value as Record<string, unknown>;
+  return typeof binding['originalRoot'] === 'string'
+    && typeof binding['worktreeRoot'] === 'string'
+    && typeof binding['worktreeBranch'] === 'string'
+    && typeof binding['baseCommitSha'] === 'string';
 }
 
 function isValidReadonlyContextBinding(value: unknown): value is TaskReadonlyContextBinding {
@@ -382,7 +403,7 @@ export function writeTaskJson(taskId: string, repoRoot: string, sidecar: TaskJso
     schema_version: CURRENT_TASK_JSON_SCHEMA_VERSION,
     materialization,
   };
-  writeFileSync(sidecarPath, JSON.stringify(out, null, 2) + '\n', 'utf-8');
+  writeTextFileAtomicSync(sidecarPath, JSON.stringify(out, null, 2) + '\n');
 }
 
 /**

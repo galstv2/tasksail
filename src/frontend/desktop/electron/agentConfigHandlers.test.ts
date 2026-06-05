@@ -38,6 +38,9 @@ vi.mock('../../../backend/platform/cli-provider/index.js', async (importOriginal
         default: '.provider/model-catalog.default.json',
         runtime: '.provider/state/model-catalog.json',
       }),
+      // Provider-neutral planner id for the planner-only idle_timeout_s gate. Without this
+      // override the spread real provider returns its hardcoded planner id ('planning-agent').
+      plannerAgentId: () => 'provider-planner',
     }),
     // The save handlers validate assignment agent IDs against the descriptor roster.
     // The real descriptor reads a registry from disk; stub a fixed roster instead.
@@ -132,6 +135,32 @@ const registryDocument = {
   ],
 };
 
+// Separate fixture so timeout assertions don't perturb the slim-shape equality checks above.
+const timeoutRegistryDocument = {
+  schema_version: 1,
+  agents: [
+    {
+      agent_id: 'provider-planner',
+      human_name: 'Lily',
+      role_name: 'Planning Specialist',
+      required_model: 'gpt-4.1',
+      workflow_order: 0,
+      interactive: true,
+      wall_clock_timeout_s: 1800,
+      idle_timeout_s: 600,
+    },
+    {
+      agent_id: 'provider-builder',
+      human_name: 'Dalton',
+      role_name: 'Software Engineer',
+      required_model: 'claude-sonnet-4.6',
+      workflow_order: 2,
+      deny_rules: ['shell(git add)'],
+      wall_clock_timeout_s: 900,
+    },
+  ],
+};
+
 const defaultCatalogDocument = {
   schema_version: 1,
   models: [
@@ -189,6 +218,116 @@ describe('agentConfigHandlers', () => {
         ],
       },
     });
+  });
+
+  it('surfaces per-agent wall_clock_timeout_s and planner idle_timeout_s through loadAgents', async () => {
+    const memoryFs = new MemoryFs({ [registryPath]: asJson(timeoutRegistryDocument) });
+    const handlers = createAgentConfigHandlers({ repoRoot, fsAdapter: memoryFs });
+
+    const result = await handlers.loadAgents();
+
+    expect(result).toMatchObject({ ok: true });
+    const agents = (result as { response: { agents: Array<Record<string, unknown>> } }).response.agents;
+    expect(agents.find((a) => a.agent_id === 'provider-planner')).toMatchObject({
+      wall_clock_timeout_s: 1800,
+      idle_timeout_s: 600,
+    });
+    expect(agents.find((a) => a.agent_id === 'provider-builder')).toMatchObject({ wall_clock_timeout_s: 900 });
+    expect(agents.find((a) => a.agent_id === 'provider-builder')).not.toHaveProperty('idle_timeout_s');
+  });
+
+  it('rejects loading a registry whose timeout is out of range', async () => {
+    const badRegistry = {
+      schema_version: 1,
+      agents: [{ ...timeoutRegistryDocument.agents[0], wall_clock_timeout_s: 0 }],
+    };
+    const memoryFs = new MemoryFs({ [registryPath]: asJson(badRegistry) });
+    const handlers = createAgentConfigHandlers({ repoRoot, fsAdapter: memoryFs });
+
+    const result = await handlers.loadAgents();
+
+    expect(result).toMatchObject({ ok: false });
+  });
+
+  it('persists a changed wall_clock_timeout_s and returns it in the slim response', async () => {
+    const memoryFs = new MemoryFs({
+      [registryPath]: asJson(timeoutRegistryDocument),
+      [defaultCatalogPath]: asJson(defaultCatalogDocument),
+      [catalogPath]: asJson(defaultCatalogDocument),
+    });
+    const handlers = createAgentConfigHandlers({ repoRoot, fsAdapter: memoryFs, now: () => 1 });
+
+    const result = await handlers.saveAgentModels({
+      assignments: [{ agent_id: 'provider-builder', model_id: 'claude-sonnet-4.6', wall_clock_timeout_s: 1200 }],
+    });
+
+    expect(result).toMatchObject({ ok: true });
+    const agents = (result as { response: { agents: Array<Record<string, unknown>> } }).response.agents;
+    expect(agents.find((a) => a.agent_id === 'provider-builder')).toMatchObject({ wall_clock_timeout_s: 1200 });
+    const saved = JSON.parse(memoryFs.files.get(registryPath) ?? '{}') as { agents: Array<Record<string, unknown>> };
+    expect(saved.agents.find((a) => a.agent_id === 'provider-builder')?.wall_clock_timeout_s).toBe(1200);
+  });
+
+  it('persists idle_timeout_s for the descriptor planner agent', async () => {
+    const memoryFs = new MemoryFs({
+      [registryPath]: asJson(timeoutRegistryDocument),
+      [defaultCatalogPath]: asJson(defaultCatalogDocument),
+      [catalogPath]: asJson(defaultCatalogDocument),
+    });
+    const handlers = createAgentConfigHandlers({ repoRoot, fsAdapter: memoryFs, now: () => 1 });
+
+    const result = await handlers.saveAgentModels({
+      assignments: [{ agent_id: 'provider-planner', model_id: 'gpt-4.1', idle_timeout_s: 900 }],
+    });
+
+    expect(result).toMatchObject({ ok: true });
+    const saved = JSON.parse(memoryFs.files.get(registryPath) ?? '{}') as { agents: Array<Record<string, unknown>> };
+    expect(saved.agents.find((a) => a.agent_id === 'provider-planner')?.idle_timeout_s).toBe(900);
+  });
+
+  it('rejects idle_timeout_s for a non-planner agent and leaves the registry bytes unchanged', async () => {
+    const memoryFs = new MemoryFs({
+      [registryPath]: asJson(timeoutRegistryDocument),
+      [defaultCatalogPath]: asJson(defaultCatalogDocument),
+      [catalogPath]: asJson(defaultCatalogDocument),
+    });
+    const handlers = createAgentConfigHandlers({ repoRoot, fsAdapter: memoryFs, now: () => 1 });
+
+    const result = await handlers.saveAgentModels({
+      assignments: [{ agent_id: 'provider-builder', model_id: 'claude-sonnet-4.6', idle_timeout_s: 300 }],
+    });
+
+    expect(result).toMatchObject({ ok: false });
+    // No partial write: idle rejection happens before the mutation/atomic-write pass.
+    expect(memoryFs.files.get(registryPath)).toBe(asJson(timeoutRegistryDocument));
+  });
+
+  it('preserves existing timeout, sibling, and root fields when timeouts are omitted', async () => {
+    const memoryFs = new MemoryFs({
+      [registryPath]: asJson(timeoutRegistryDocument),
+      [defaultCatalogPath]: asJson(defaultCatalogDocument),
+      [catalogPath]: asJson(defaultCatalogDocument),
+    });
+    const handlers = createAgentConfigHandlers({ repoRoot, fsAdapter: memoryFs, now: () => 1 });
+
+    const result = await handlers.saveAgentModels({
+      assignments: [{ agent_id: 'provider-builder', model_id: 'gpt-5.4' }],
+    });
+
+    expect(result).toMatchObject({ ok: true });
+    const saved = JSON.parse(memoryFs.files.get(registryPath) ?? '{}') as {
+      schema_version: number;
+      agents: Array<Record<string, unknown>>;
+    };
+    const builder = saved.agents.find((a) => a.agent_id === 'provider-builder');
+    expect(builder?.required_model).toBe('gpt-5.4');
+    expect(builder?.wall_clock_timeout_s).toBe(900);
+    expect(builder?.deny_rules).toEqual(['shell(git add)']);
+    const planner = saved.agents.find((a) => a.agent_id === 'provider-planner');
+    expect(planner?.idle_timeout_s).toBe(600);
+    expect(planner?.wall_clock_timeout_s).toBe(1800);
+    expect(planner?.interactive).toBe(true);
+    expect(saved.schema_version).toBe(1);
   });
 
   it('seeds the model catalog from the tracked default when the runtime file is missing', async () => {

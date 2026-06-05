@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from ..locking import acquire_file_lock, release_file_lock
+from ..paths import assert_safe_path_segment
 from ._backend import get_global_retrospective_root, get_qmd_index_service, write_json_via_backend
 from .storage import global_retrospective_root_path, resolve_scope_path
 
@@ -68,7 +69,7 @@ def write_archive_indexes(  # Archive-index lock: held
                 / "archive"
                 / "indexes"
                 / "by-root-task"
-                / root_task_id
+                / assert_safe_path_segment(root_task_id, "root_task_id")
                 / "lineage.json"
             )
             write_json_via_backend(root_lineage_index_path, root_lineage_index)
@@ -85,7 +86,7 @@ def write_archive_indexes(  # Archive-index lock: held
                 / "archive"
                 / "indexes"
                 / "by-parent-task"
-                / parent_task_id
+                / assert_safe_path_segment(parent_task_id, "parent_task_id")
                 / "children.json"
             )
             write_json_via_backend(parent_children_index_path, parent_children_index)

@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { ensureDir, readTextFile, safeJsonParse, writeTextFile } from '../core/index.js';
+import { ensureDir, readTextFile, safeJsonParse, writeTextFileAtomic } from '../core/index.js';
 
 export const DEFAULT_DEEP_FOCUS_IGNORE_PATH = 'config/deep-focus-ignore.default.json';
 export const RUNTIME_DEEP_FOCUS_IGNORE_PATH = '.platform-state/deep-focus-ignore.json';
@@ -56,6 +56,6 @@ export async function seedDeepFocusIgnoreConfig(
   }
 
   await ensureDir(path.dirname(runtimePath));
-  await writeTextFile(runtimePath, `${JSON.stringify(parsed, null, 2)}\n`);
+  await writeTextFileAtomic(runtimePath, `${JSON.stringify(parsed, null, 2)}\n`);
   return { action: 'created' };
 }

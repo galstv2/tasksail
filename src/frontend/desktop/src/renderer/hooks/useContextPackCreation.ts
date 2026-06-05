@@ -84,7 +84,7 @@ type SubmittingModalState = {
   message: string;
 };
 
-type ContextPackCreationState =
+export type ContextPackCreationState =
   | ClosedModalState
   | OpenModalState
   | SubmittingModalState;
@@ -390,9 +390,9 @@ export function useContextPackCreation(
 
   const { browsePath, discoverPrefill } = useContextPackDiscovery(
     client,
-    () => stateRef.current as { kind: string; draft: ContextPackCreationDraft },
+    () => stateRef.current,
     draftHandlers.updateDraft,
-    setState as (updater: (current: unknown) => unknown) => void,
+    setState,
   );
 
   useEffect(() => {

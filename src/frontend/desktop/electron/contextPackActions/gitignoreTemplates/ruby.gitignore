@@ -1,0 +1,19 @@
+
+# Bundler
+.bundle/
+vendor/bundle/
+
+# Build and generated files
+*.gem
+*.rbc
+/.config
+
+# Documentation
+rdoc/
+doc/
+
+# Test coverage
+coverage/
+
+# Temporary files
+tmp/

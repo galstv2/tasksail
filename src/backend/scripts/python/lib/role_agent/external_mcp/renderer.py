@@ -66,12 +66,27 @@ def _is_pid_alive(pid: int) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _read_provider_pid_sentinel(entry: Path) -> int | None:
+    """Read the provider PID from a .provider-pid sentinel file.
+
+    Returns the PID as an int, or None if the sentinel is absent or
+    contains non-numeric content. Never raises.
+    """
+    sentinel = entry / ".provider-pid"
+    try:
+        content = sentinel.read_text(encoding="utf-8").strip()
+        return int(content)
+    except (FileNotFoundError, ValueError, OSError):
+        return None
+
+
 def cleanup_stale_launches(root_dir: Path, agent_id: str) -> int:
     """Delete stale CLI home directories for *agent_id*.
 
-    Only deletes directories whose PID (extracted from the directory name)
-    is no longer active. Preserves directories belonging to concurrent
-    launches of the same agent.
+    For dirs with a .provider-pid sentinel: preserves the dir when
+    the provider PID is alive; removes it only when the PID is dead.
+    For legacy dirs (no sentinel): falls back to parsing the PID from
+    the directory name, same as before.
 
     Returns the number of directories deleted.
     """
@@ -86,13 +101,20 @@ def cleanup_stale_launches(root_dir: Path, agent_id: str) -> int:
         if not entry.is_dir() or not entry.name.startswith(prefix):
             continue
 
-        pid_match = _LAUNCH_TOKEN_PID_RE.search(entry.name)
-        if pid_match is None:
-            continue
-
-        pid = int(pid_match.group(1))
-        if _is_pid_alive(pid):
-            continue
+        # Provider-PID sentinel takes precedence when present.
+        provider_pid = _read_provider_pid_sentinel(entry)
+        if provider_pid is not None:
+            if _is_pid_alive(provider_pid):
+                continue
+            # Provider is dead; fall through to delete.
+        else:
+            # Legacy fallback: parse helper PID from directory name.
+            pid_match = _LAUNCH_TOKEN_PID_RE.search(entry.name)
+            if pid_match is None:
+                continue
+            pid = int(pid_match.group(1))
+            if _is_pid_alive(pid):
+                continue
 
         try:
             _rmtree(entry)
@@ -420,8 +442,11 @@ def prepare_launch_context(
     preflight_check_servers([s for s in surviving if not is_local_server(s)])
 
     # Step 5: create per-launch directory and render.
+    # SEC-TS-02: the per-launch dir holds resolved MCP auth tokens. mkdir mode is
+    # masked by umask, so chmod explicitly to guarantee owner-only access.
     _chr = cli_home_root(root)
-    _chr.mkdir(parents=True, exist_ok=True)
+    _chr.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(_chr, 0o700)
 
     # Generate a unique launch directory. Retry with increasing delay
     # until we get a path that does not already exist, then create it
@@ -431,7 +456,8 @@ def prepare_launch_context(
         token = _generate_launch_token(agent_id)
         launch_dir = _chr / token
         try:
-            launch_dir.mkdir(parents=True, exist_ok=False)
+            launch_dir.mkdir(parents=True, exist_ok=False, mode=0o700)
+            os.chmod(launch_dir, 0o700)
             break
         except FileExistsError:
             if attempt == max_attempts - 1:

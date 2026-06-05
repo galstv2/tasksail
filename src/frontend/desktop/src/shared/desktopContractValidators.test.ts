@@ -1402,7 +1402,7 @@ describe('externalMcp validators', () => {
         action: 'externalMcp.validateConnection',
         payload: {},
       });
-      expect(errors).toContain('payload.transport must be a non-empty string.');
+      expect(errors).toContain("payload.transport must be one of: 'http', 'sse'.");
     });
 
     it('accepts valid connection payload', () => {

@@ -473,7 +473,7 @@ describe('useContextPackCreation', () => {
     });
 
     expect(result.current.contextPackCreationModalProps.draft.estateName).toBe('Orders Platform');
-    expect(result.current.contextPackCreationModalProps.draft.contextPackId).toMatch(/^orders-platform-\d{4}$/);
+    expect(result.current.contextPackCreationModalProps.draft.contextPackId).toBe('orders-platform');
     expect(result.current.contextPackCreationModalProps.draft.contextPackDir).toBe(
       `/packs/${result.current.contextPackCreationModalProps.draft.contextPackId}`,
     );

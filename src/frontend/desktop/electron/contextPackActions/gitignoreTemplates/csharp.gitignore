@@ -1,0 +1,38 @@
+
+# Build output directories
+bin/
+obj/
+
+# NuGet packages
+packages/
+*.nupkg
+*.snupkg
+
+# Test results
+TestResults/
+
+# Database files generated during publish
+*.dacpac
+*.bak
+
+# User-specific files (editor)
+*.user
+*.suo
+
+# Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+
+# Crash dumps
+*.mdmp
+
+# Profiler output
+*.psess
+*.vsp
+*.vspx
+*.sap

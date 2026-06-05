@@ -36,7 +36,6 @@ function ContextPackSidebarExpanded({
   onToggleCollapse,
   onSelectContextPack,
   onSelectWorkingFocus,
-  onRefreshCatalog,
   onOpenCreateModal,
   onCommitDeepFocusSelection,
   onListRepoTree,
@@ -165,16 +164,6 @@ function ContextPackSidebarExpanded({
           <h2>Context packs</h2>
         </div>
         <div className="sidebar-header__right">
-          <button
-            type="button"
-            className="sidebar-icon-btn"
-            disabled={isBusy}
-            onClick={() => void onRefreshCatalog()}
-            aria-label="Refresh packs"
-            title="Refresh"
-          >
-            <RefreshIcon />
-          </button>
           <button
             type="button"
             className="sidebar-icon-btn sidebar-icon-btn--accent"

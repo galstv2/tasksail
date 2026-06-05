@@ -137,6 +137,7 @@ function deepFocusStateFromSelection(
 export type UseContextPackSelectionResult = {
   contextPackSidebarProps: Omit<ContextPackSidebarProps, 'collapsed' | 'onToggleCollapse' | 'onOpenPlannerModal'>;
   contextPackCreationModalProps: ContextPackCreationModalProps;
+  refreshCatalog: () => Promise<void>;
 };
 
 function buildSessionCreatedCatalogEntry(
@@ -685,19 +686,15 @@ export function useContextPackSelection(
       );
       const packDir = selectedContextPackDirRef.current;
       if (selectedPack?.estateType === 'distributed-platform') {
-        setSelectedRepoIds((current) => {
-          const next = toggleFocusSelection(selectedPack, current, focusId);
-          if (packDir) window.setTimeout(() => scheduleSidebarStateSave(packDir), 0);
-          return next;
-        });
-        return;
+        setSelectedRepoIds((current) => toggleFocusSelection(selectedPack, current, focusId));
+      } else {
+        setSelectedFocusIds((current) => toggleFocusSelection(selectedPack, current, focusId));
       }
-
-      setSelectedFocusIds((current) => {
-        const next = toggleFocusSelection(selectedPack, current, focusId);
-        if (packDir) window.setTimeout(() => scheduleSidebarStateSave(packDir), 0);
-        return next;
-      });
+      // Schedule the save outside the updater — a setState updater must be pure
+      // (it re-runs under StrictMode/concurrent and would double-schedule).
+      if (packDir) {
+        window.setTimeout(() => scheduleSidebarStateSave(packDir), 0);
+      }
     },
     [catalogResponse, scheduleSidebarStateSave],
   );
@@ -1004,6 +1001,7 @@ export function useContextPackSelection(
   );
 
   return {
+    refreshCatalog,
     contextPackSidebarProps: {
       contextPacks: catalogResponse?.contextPacks ?? [],
       activeContextPackDir: catalogResponse?.activeContextPackDir ?? null,
@@ -1040,7 +1038,6 @@ export function useContextPackSelection(
       onDeleteFocusFilter: handleDeleteFocusFilter,
       onDeleteContextPack: handleDeleteContextPack,
       onListRepoTree: handleListRepoTree,
-      onRefreshCatalog: () => refreshCatalog(),
       onOpenCreateModal: contextPackCreationModalProps.onOpen,
       onReseedContextPack: () => runReseedAction(),
       onPreviewSwitch: () => runAction('preview'),

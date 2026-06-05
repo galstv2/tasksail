@@ -157,6 +157,14 @@ function TaskBoard({
   const [chainInventory, setChainInventory] = useState<TaskBoardReadChildChainBranchInventoryResponse | null>(null);
   const [chainInventoryLoading, setChainInventoryLoading] = useState(false);
   const [regularBranchInventoryOpen, setRegularBranchInventoryOpen] = useState(false);
+
+  // Tracks the current selectedTask without adding it as a dep of the board reconciliation effect.
+  const selectedTaskRef = useRef<SelectedTask | null>(null);
+  useEffect(() => { selectedTaskRef.current = selectedTask; }, [selectedTask]);
+
+  // View Chain request identity token: taskId + rootTaskId. Late responses whose
+  // token no longer matches the current request are silently dropped.
+  const chainInventoryRequestRef = useRef<{ taskId: string; rootTaskId: string | null | undefined } | null>(null);
   const sortedCompletedItems = useMemo(
     () => board.completedItems
       .map((item, index) => ({ item, index, ms: archivedAtMs(item) }))
@@ -196,12 +204,85 @@ function TaskBoard({
     return () => { cancelled = true; };
   }, [selectedTask, readTaskContent]);
 
+  // Board-driven selectedTask reconciliation: when a new board snapshot arrives, re-resolve
+  // the open task detail modal against the live board. Rebind if the task moved columns;
+  // close if it disappeared. No-ops when no modal is open (selectedTask null).
+  // Intentionally depends only on `board` — firing on task selection would close modals
+  // for tasks not yet reflected in the snapshot.
+  const reconcileSelectedTaskFromBoard = useCallback((currentBoard: TaskBoardProps['board']) => {
+    const task = selectedTaskRef.current;
+    if (!task) return;
+
+    // Search all columns for the task. Completed cards are keyed by taskId; others by fileName.
+    let found: SelectedTask | null = null;
+
+    // Open column
+    const openMatch = currentBoard.dropboxItems.find((item) => item.fileName === task.fileName);
+    if (openMatch) {
+      found = { ...task, column: 'open', title: openMatch.title ?? task.title };
+    }
+
+    // Pending column
+    if (!found) {
+      const pendingMatch = currentBoard.pendingItems.find((item) => item.fileName === task.fileName);
+      if (pendingMatch) {
+        found = { ...task, column: 'pending', title: pendingMatch.title ?? task.title };
+      }
+    }
+
+    // Error column
+    if (!found) {
+      const errorMatch = currentBoard.errorItems.find((item) => item.fileName === task.fileName);
+      if (errorMatch) {
+        found = { ...task, column: 'error', title: errorMatch.title ?? task.title };
+      }
+    }
+
+    // Completed column — match by taskId (fileName is synthetic `${taskId}.md`)
+    if (!found) {
+      const completedMatch = task.taskId
+        ? currentBoard.completedItems.find((item) => item.taskId === task.taskId)
+        : currentBoard.completedItems.find((item) => `${item.taskId}.md` === task.fileName);
+      if (completedMatch) {
+        found = {
+          ...task,
+          column: 'completed',
+          fileName: `${completedMatch.taskId}.md`,
+          title: completedMatch.title ?? task.title,
+          taskId: completedMatch.taskId,
+          childChain: completedMatch.childChain,
+          branchHandoffs: completedMatch.branchHandoffs,
+        };
+      }
+    }
+
+    if (found) {
+      // Rebind: update column/metadata. Preserve artifactRelativePath only for same identity.
+      const sameIdentity = found.fileName === task.fileName && found.column === task.column;
+      setSelectedTask(sameIdentity ? found : { ...found, artifactRelativePath: undefined });
+    } else {
+      // Task no longer exists in any column — close the modal.
+      setSelectedTask(null);
+      setChainInventory(null);
+      setRegularBranchInventoryOpen(false);
+      chainInventoryRequestRef.current = null;
+    }
+  }, []); // no deps — reads selectedTaskRef instead
+
+  useEffect(() => {
+    reconcileSelectedTaskFromBoard(board);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [board]); // intentionally omits reconcileSelectedTaskFromBoard (stable callback)
+
   const handleCardClick = useCallback(
-    (fileName: string, title: string | null, column: TaskBoardContentColumn, completedEntry?: ArchivedTaskEntry) => {
+    (fileName: string, title: string | null, column: TaskBoardContentColumn, completedEntry?: ArchivedTaskEntry, rowTaskId?: string | null) => {
       if (!readTaskContent) return;
       // Omit artifactRelativePath so the initial completed read defaults to archive.md.
       // Retain childChain and branchHandoffs metadata so the completed detail modal can
       // offer View Chain or View Branches without re-deriving from file names or markdown.
+      // Capture the row's taskId for every column so board reconciliation can rebind by
+      // stable task identity when fileName and taskId differ (the markdown fallback-scanner
+      // rename path), instead of only by the synthetic completed `${taskId}.md` filename.
       setSelectedTask({
         fileName,
         title,
@@ -212,7 +293,7 @@ function TaskBoard({
               childChain: completedEntry.childChain,
               branchHandoffs: completedEntry.branchHandoffs,
             }
-          : {}),
+          : (rowTaskId ? { taskId: rowTaskId } : {})),
       });
     },
     [readTaskContent],
@@ -225,12 +306,32 @@ function TaskBoard({
   const handleViewChain = useCallback(() => {
     if (!readChildChainBranchInventory || !selectedTask) return;
     if (selectedTask.column !== 'completed' || !selectedTask.taskId || !selectedTask.childChain) return;
+    // Stamp the request token so late responses from a prior task/close can be discarded.
+    const requestToken = { taskId: selectedTask.taskId, rootTaskId: selectedTask.childChain.rootTaskId };
+    chainInventoryRequestRef.current = requestToken;
     setChainInventoryLoading(true);
     void readChildChainBranchInventory(selectedTask.taskId, selectedTask.childChain.rootTaskId)
       .then((response) => {
+        // Discard if the token no longer matches (task switched, modal closed, or root changed).
+        const current = chainInventoryRequestRef.current;
+        if (
+          !current
+          || current.taskId !== requestToken.taskId
+          || current.rootTaskId !== requestToken.rootTaskId
+        ) return;
         if (response) setChainInventory(response);
       })
-      .finally(() => setChainInventoryLoading(false));
+      .finally(() => {
+        // Only clear loading state if this request is still the current one.
+        const current = chainInventoryRequestRef.current;
+        if (
+          current
+          && current.taskId === requestToken.taskId
+          && current.rootTaskId === requestToken.rootTaskId
+        ) {
+          setChainInventoryLoading(false);
+        }
+      });
   }, [readChildChainBranchInventory, selectedTask]);
 
   const handleOpenDragOver = useCallback((e: DragEvent<HTMLDivElement>) => {
@@ -371,7 +472,7 @@ function TaskBoard({
                 taskId={item.taskId}
                 draggable={Boolean(onMoveToPending)}
                 sourceColumn="open"
-                onClick={() => handleCardClick(item.fileName, item.title, 'open')}
+                onClick={() => handleCardClick(item.fileName, item.title, 'open', undefined, item.taskId)}
                 onDelete={onDeleteTask ? () => setDeleteTarget({ fileName: item.fileName, title: item.title, column: 'open' }) : undefined}
               />
             ))
@@ -407,7 +508,7 @@ function TaskBoard({
                 meta={pendingMeta(item)}
                 draggable={item.state === 'pending'}
                 sourceColumn="pending"
-                onClick={() => handleCardClick(item.fileName, item.title, 'pending')}
+                onClick={() => handleCardClick(item.fileName, item.title, 'pending', undefined, item.taskId)}
                 onDelete={onDeleteTask && item.state === 'pending' ? () => setDeleteTarget({ fileName: item.fileName, title: item.title, column: 'pending' }) : undefined}
                 onStop={onKillTask && item.taskId && (item.state === 'active' || item.state === 'activating')
                   ? () => setKillTarget({ fileName: item.fileName, taskId: item.taskId!, title: item.title })
@@ -432,7 +533,7 @@ function TaskBoard({
                 taskId={item.taskId}
                 draggable
                 sourceColumn="error"
-                onClick={() => handleCardClick(item.fileName, item.title, 'error')}
+                onClick={() => handleCardClick(item.fileName, item.title, 'error', undefined, item.taskId)}
                 onDelete={onDeleteTask ? () => setDeleteTarget({ fileName: item.fileName, title: item.title, column: 'error' }) : undefined}
               />
             ))
@@ -462,8 +563,9 @@ function TaskBoard({
         <TaskDetailModal
           title={selectedTask.title}
           content={modalResult.content}
+          contentType={modalResult.contentType}
           column={selectedTask.column}
-          onClose={() => { setSelectedTask(null); setChainInventory(null); setRegularBranchInventoryOpen(false); }}
+          onClose={() => { setSelectedTask(null); setChainInventory(null); setRegularBranchInventoryOpen(false); chainInventoryRequestRef.current = null; }}
           artifactExplorer={
             selectedTask.column === 'completed' && modalResult.artifacts
               ? {

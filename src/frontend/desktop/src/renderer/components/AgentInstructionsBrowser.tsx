@@ -89,7 +89,7 @@ function AgentInstructionsBrowser(props: AgentInstructionsBrowserProps): JSX.Ele
             <h2 className="mcp-modal__title">Platform Instructions</h2>
             {descriptor && (
               <div className="instructions-browser__provider-subtitle">
-                Provider: {descriptor.providerId} · Registry: {descriptor.agentConfigPaths.root}
+                Provider: {descriptor.providerId}
               </div>
             )}
             <div className="instructions-browser__tabs" role="tablist" aria-label="Instruction directory tabs">

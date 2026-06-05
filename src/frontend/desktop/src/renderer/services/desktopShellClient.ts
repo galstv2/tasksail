@@ -3,7 +3,7 @@ type DesktopShellSource = Window['desktopShell'] & {
   loadModelCatalog: () => Promise<unknown>;
   loadCapabilities?: () => Promise<import('../../shared/desktopContract').DesktopInvokeResult>;
   saveAgentModels: (
-    assignments: Array<{ agent_id: string; model_id: string; reasoning_effort?: string }>,
+    assignments: import('../../shared/desktopContract').AgentConfigSaveAgentModelsRequest['payload']['assignments'],
   ) => Promise<unknown>;
   addModel: (displayName: string, modelId: string) => Promise<unknown>;
   removeModel: (modelId: string) => Promise<unknown>;
@@ -29,6 +29,10 @@ type DesktopShellSource = Window['desktopShell'] & {
   listInstructionFiles: (directory: import('../../shared/desktopContract').InstructionDirectory) => Promise<unknown>;
   readInstructionFile: (relativePath: string) => Promise<unknown>;
   writeInstructionFile: (relativePath: string, content: string) => Promise<unknown>;
+  listLogFiles: () => Promise<import('../../shared/desktopContract').DesktopInvokeResult>;
+  readLogFile: (
+    payload: import('../../shared/desktopContract').LogExplorerReadFileRequest['payload'],
+  ) => Promise<import('../../shared/desktopContract').DesktopInvokeResult>;
   subscribeContextPackCatalogChanged: (
     listener: (event: import('../../shared/desktopContract').ContextPackCatalogChangedEvent) => void,
   ) => () => void;
@@ -108,6 +112,8 @@ type DesktopShellBaseClient = Pick<
   | 'listInstructionFiles'
   | 'readInstructionFile'
   | 'writeInstructionFile'
+  | 'listLogFiles'
+  | 'readLogFile'
   | 'submitReinforcementFeedback'
   | 'updateRealignmentDoc'
   | 'readReinforcementOverview'
@@ -288,6 +294,8 @@ export function createDesktopShellClient(
     listInstructionFiles: (directory) => readShell().listInstructionFiles(directory),
     readInstructionFile: (relativePath) => readShell().readInstructionFile(relativePath),
     writeInstructionFile: (relativePath, content) => readShell().writeInstructionFile(relativePath, content),
+    listLogFiles: () => readShell().listLogFiles(),
+    readLogFile: (payload) => readShell().readLogFile(payload),
     submitReinforcementFeedback: (payload) => readShell().submitReinforcementFeedback(payload),
     updateRealignmentDoc: (payload) => readShell().updateRealignmentDoc(payload),
     readReinforcementOverview: () => readShell().readReinforcementOverview(),

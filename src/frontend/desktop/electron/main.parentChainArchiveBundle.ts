@@ -223,6 +223,15 @@ export async function readParentChainArchiveBundleAction(
     }
     if (read.truncated) {
       truncated = true;
+      // Remaining completed chain tasks past this point are unread; record them
+      // as missing so `status` reflects an incomplete bundle rather than 'available'.
+      const ordered = chain.taskIds.slice(0, parentIndex + 1);
+      for (const remainingId of ordered.slice(ordered.indexOf(taskId) + 1)) {
+        const remaining = state.tasks[remainingId];
+        if (remaining && remaining.state === 'completed') {
+          missingTaskIds.push(remainingId);
+        }
+      }
       break;
     }
   }

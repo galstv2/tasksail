@@ -14,6 +14,9 @@ import type {
   SystemSettingsPlatformConfig,
   SystemSettingsReadResponse,
   SystemSettingsSaveRequest,
+  LogExplorerListFilesResponse,
+  LogExplorerReadFileRequest,
+  LogExplorerReadFileResponse,
 } from './desktopContract';
 import { DESKTOP_ACTION_NAMES, DESKTOP_SHELL_TASK_NOTIFICATIONS_CHANNEL } from './desktopContract';
 import { validateDesktopActionRequest } from './desktopContractValidators';
@@ -66,6 +69,7 @@ describe('desktopContract', () => {
       action: 'taskBoard.readBoard',
       mode: 'read-only',
       message: '0 open, 4 pending, 0 failed, 0 completed.',
+      boardSnapshotSequence: 1,
       dropboxItems: [],
       pendingItems: [
         { fileName: 'ACTIVE.md', taskId: 'ACTIVE', title: 'Active', state: 'active' },
@@ -698,6 +702,55 @@ describe('desktopContract', () => {
 
     expect(readResponse.runtimeStatus).toBe('valid');
     expect(validateDesktopActionRequest(saveRequest)).toEqual([]);
+  });
+
+  it('registers the logExplorer actions with typed DTOs', () => {
+    expect(DESKTOP_ACTION_NAMES).toContain('logExplorer.listFiles');
+    expect(DESKTOP_ACTION_NAMES).toContain('logExplorer.readFile');
+
+    const listResponse: LogExplorerListFilesResponse = {
+      action: 'logExplorer.listFiles',
+      mode: 'read-only',
+      message: 'Loaded log files.',
+      sourceLabel: 'TaskSail platform logs',
+      categories: {
+        info: [],
+        warn: [],
+        error: [],
+      },
+    };
+    const readRequest: LogExplorerReadFileRequest = {
+      action: 'logExplorer.readFile',
+      payload: {
+        category: 'info',
+        fileName: 'backend-ts-20260603.jsonl',
+        limit: 100,
+        levelFilter: 'debug',
+      },
+    };
+    const readResponse: LogExplorerReadFileResponse = {
+      action: 'logExplorer.readFile',
+      mode: 'read-only',
+      message: 'Loaded log records.',
+      category: 'info',
+      fileName: 'backend-ts-20260603.jsonl',
+      displayName: 'backend-ts-20260603.jsonl',
+      sizeBytes: 120,
+      modifiedAt: '2026-06-03T00:00:00.000Z',
+      totalLines: 1,
+      totalMatchingLines: 1,
+      startLine: 1,
+      endLine: 1,
+      hasOlder: false,
+      hasNewer: false,
+      levelFilter: 'debug',
+      records: [],
+    };
+
+    expect(listResponse.sourceLabel).toBe('TaskSail platform logs');
+    expect(validateDesktopActionRequest(readRequest)).toEqual([]);
+    const desktopResponse: DesktopActionResponse = readResponse;
+    expect(desktopResponse.action).toBe('logExplorer.readFile');
   });
 
 });

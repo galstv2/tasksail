@@ -2,15 +2,41 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 
 import { desktopShellClient, type DesktopShellClient } from '../services/desktopShellClient';
 import type {
+  LogExplorerCategory,
+  LogExplorerFileEntry,
+  LogExplorerLevelFilter,
+  LogExplorerListFilesResponse,
+  LogExplorerReadFileResponse,
   SystemSettingsPlatformConfig,
   SystemSettingsEnvOverride,
   SystemSettingsRuntimeStatus,
 } from '../../shared/desktopContract';
 
 export type SystemSettingsFieldErrors = Partial<Record<keyof SystemSettingsPlatformConfig, string>>;
+export type SystemSettingsTab = 'settings' | 'log-explorer';
+
+export type SystemSettingsLogExplorerProps = {
+  loadingFiles: boolean;
+  loadingFile: boolean;
+  error: string | null;
+  sourceLabel: string | null;
+  categories: Record<LogExplorerCategory, LogExplorerFileEntry[]>;
+  selectedCategory: LogExplorerCategory;
+  selectedLevelFilter: LogExplorerLevelFilter;
+  selectedFileName: string;
+  file: LogExplorerReadFileResponse | null;
+  onRefresh: () => void;
+  onSelectCategory: (category: LogExplorerCategory) => void;
+  onSelectLevelFilter: (levelFilter: LogExplorerLevelFilter) => void;
+  onSelectFile: (fileName: string) => void;
+  onOlder: () => void;
+  onNewer: () => void;
+};
 
 export type SystemSettingsModalProps = {
   isOpen: boolean;
+  activeTab: SystemSettingsTab;
+  onSelectTab: (tab: SystemSettingsTab) => void;
   loading: boolean;
   saving: boolean;
   error: string | null;
@@ -24,6 +50,7 @@ export type SystemSettingsModalProps = {
   tasksActive: boolean;
   dirty: boolean;
   saveDisabled: boolean;
+  logExplorer: SystemSettingsLogExplorerProps;
   // Restart confirmation gate: Save Changes opens it; confirming saves then restarts.
   confirmRestartOpen: boolean;
   mountRootsText: string;
@@ -45,6 +72,12 @@ export type UseSystemSettingsModalResult = {
 };
 
 const PATH_SEPARATOR = /[\\/]/;
+const LOG_PAGE_LIMIT = 100;
+const DEFAULT_LOG_CATEGORIES: Record<LogExplorerCategory, LogExplorerFileEntry[]> = {
+  info: [],
+  warn: [],
+  error: [],
+};
 
 function isAbsoluteRoot(value: string): boolean {
   // Mirror the contract-layer isAbsolutePath trust-boundary check, which rejects
@@ -106,6 +139,7 @@ export function useSystemSettingsModal(
   client: DesktopShellClient = desktopShellClient,
 ): UseSystemSettingsModalResult {
   const [isOpen, setIsOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<SystemSettingsTab>('settings');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -119,7 +153,33 @@ export function useSystemSettingsModal(
   const [mountRootsText, setMountRootsText] = useState('');
   const [tasksActive, setTasksActive] = useState(false);
   const [confirmRestartOpen, setConfirmRestartOpen] = useState(false);
+  const [logLoadingFiles, setLogLoadingFiles] = useState(false);
+  const [logLoadingFile, setLogLoadingFile] = useState(false);
+  const [logError, setLogError] = useState<string | null>(null);
+  const [logSourceLabel, setLogSourceLabel] = useState<string | null>(null);
+  const [logCategories, setLogCategories] =
+    useState<Record<LogExplorerCategory, LogExplorerFileEntry[]>>(DEFAULT_LOG_CATEGORIES);
+  const [selectedLogCategory, setSelectedLogCategory] = useState<LogExplorerCategory>('info');
+  const [selectedLevelFilter, setSelectedLevelFilter] = useState<LogExplorerLevelFilter>('all');
+  const [selectedLogFileName, setSelectedLogFileName] = useState('');
+  const [logFile, setLogFile] = useState<LogExplorerReadFileResponse | null>(null);
   const loadingRef = useRef(false);
+  const logFilesLoadedRef = useRef(false);
+  const listRequestSeqRef = useRef(0);
+  const readRequestSeqRef = useRef(0);
+
+  const invalidateLogRequests = useCallback(() => {
+    listRequestSeqRef.current += 1;
+    readRequestSeqRef.current += 1;
+    setLogLoadingFiles(false);
+    setLogLoadingFile(false);
+  }, []);
+
+  const clearLogFileSelection = useCallback(() => {
+    readRequestSeqRef.current += 1;
+    setLogFile(null);
+    setLogLoadingFile(false);
+  }, []);
 
   const load = useCallback(async () => {
     if (loadingRef.current) {
@@ -153,14 +213,206 @@ export function useSystemSettingsModal(
 
   const openSystemSettingsModal = useCallback(() => {
     setIsOpen(true);
+    setActiveTab('settings');
     setSuccess(null);
     void load();
   }, [load]);
 
   const onClose = useCallback(() => {
+    invalidateLogRequests();
     setIsOpen(false);
     setError(null);
-  }, []);
+  }, [invalidateLogRequests]);
+
+  const readLogFile = useCallback(
+    async (
+      category: LogExplorerCategory,
+      fileName: string,
+      levelFilter: LogExplorerLevelFilter,
+      cursor?: { startLine?: number; beforeLine?: number },
+    ) => {
+      if (fileName.trim() === '') {
+        clearLogFileSelection();
+        return;
+      }
+      const requestSeq = readRequestSeqRef.current + 1;
+      readRequestSeqRef.current = requestSeq;
+      setLogLoadingFile(true);
+      setLogError(null);
+      try {
+        const result = await client.readLogFile({
+          category,
+          fileName,
+          limit: LOG_PAGE_LIMIT,
+          levelFilter,
+          ...(cursor?.startLine !== undefined
+            ? { startLine: cursor.startLine }
+            : cursor?.beforeLine !== undefined
+              ? { beforeLine: cursor.beforeLine }
+              : { tail: true }),
+        });
+        if (readRequestSeqRef.current !== requestSeq) {
+          return;
+        }
+        if (result.ok && result.response.action === 'logExplorer.readFile') {
+          setLogFile(result.response);
+        } else if (!result.ok) {
+          setLogFile(null);
+          setLogError(result.error);
+        }
+      } catch (err: unknown) {
+        if (readRequestSeqRef.current === requestSeq) {
+          setLogFile(null);
+          setLogError(err instanceof Error ? err.message : 'Unable to read log file.');
+        }
+      } finally {
+        if (readRequestSeqRef.current === requestSeq) {
+          setLogLoadingFile(false);
+        }
+      }
+    },
+    [client],
+  );
+
+  const selectNewestFile = useCallback(
+    (
+      categories: LogExplorerListFilesResponse['categories'],
+      preferredCategory: LogExplorerCategory,
+      preferredFileName: string,
+    ): { category: LogExplorerCategory; fileName: string } => {
+      const preferredFiles = categories[preferredCategory];
+      if (preferredFileName && preferredFiles.some((file) => file.fileName === preferredFileName)) {
+        return { category: preferredCategory, fileName: preferredFileName };
+      }
+      if (preferredFiles.length > 0) {
+        return { category: preferredCategory, fileName: preferredFiles[0].fileName };
+      }
+      for (const category of ['info', 'warn', 'error'] as const) {
+        if (categories[category].length > 0) {
+          return { category, fileName: categories[category][0].fileName };
+        }
+      }
+      return { category: preferredCategory, fileName: '' };
+    },
+    [],
+  );
+
+  const loadLogFiles = useCallback(
+    async (force = false) => {
+      if (!force && logFilesLoadedRef.current) {
+        return;
+      }
+      const requestSeq = listRequestSeqRef.current + 1;
+      listRequestSeqRef.current = requestSeq;
+      setLogLoadingFiles(true);
+      setLogError(null);
+      try {
+        const result = await client.listLogFiles();
+        if (listRequestSeqRef.current !== requestSeq) {
+          return;
+        }
+        if (result.ok && result.response.action === 'logExplorer.listFiles') {
+          const response = result.response;
+          const nextSelection = selectNewestFile(
+            response.categories,
+            selectedLogCategory,
+            selectedLogFileName,
+          );
+          logFilesLoadedRef.current = true;
+          setLogSourceLabel(response.sourceLabel);
+          setLogCategories(response.categories);
+          setSelectedLogCategory(nextSelection.category);
+          setSelectedLogFileName(nextSelection.fileName);
+          if (nextSelection.fileName) {
+            void readLogFile(nextSelection.category, nextSelection.fileName, selectedLevelFilter);
+          } else {
+            clearLogFileSelection();
+          }
+        } else if (!result.ok) {
+          setLogError(result.error);
+        }
+      } catch (err: unknown) {
+        if (listRequestSeqRef.current === requestSeq) {
+          setLogError(err instanceof Error ? err.message : 'Unable to list log files.');
+        }
+      } finally {
+        if (listRequestSeqRef.current === requestSeq) {
+          setLogLoadingFiles(false);
+        }
+      }
+    },
+    [clearLogFileSelection, client, readLogFile, selectNewestFile, selectedLevelFilter, selectedLogCategory, selectedLogFileName],
+  );
+
+  const onSelectTab = useCallback(
+    (tab: SystemSettingsTab) => {
+      setActiveTab(tab);
+      if (tab === 'log-explorer') {
+        void loadLogFiles(false);
+      } else {
+        invalidateLogRequests();
+      }
+    },
+    [invalidateLogRequests, loadLogFiles],
+  );
+
+  const onRefreshLogs = useCallback(() => {
+    void loadLogFiles(true);
+  }, [loadLogFiles]);
+
+  const onSelectLogCategory = useCallback(
+    (category: LogExplorerCategory) => {
+      const fileName = logCategories[category][0]?.fileName ?? '';
+      setSelectedLogCategory(category);
+      setSelectedLogFileName(fileName);
+      setLogError(null);
+      if (fileName) {
+        void readLogFile(category, fileName, selectedLevelFilter);
+      } else {
+        clearLogFileSelection();
+      }
+    },
+    [clearLogFileSelection, logCategories, readLogFile, selectedLevelFilter],
+  );
+
+  const onSelectLevelFilter = useCallback(
+    (levelFilter: LogExplorerLevelFilter) => {
+      setSelectedLevelFilter(levelFilter);
+      if (selectedLogFileName) {
+        void readLogFile(selectedLogCategory, selectedLogFileName, levelFilter);
+      }
+    },
+    [readLogFile, selectedLogCategory, selectedLogFileName],
+  );
+
+  const onSelectLogFile = useCallback(
+    (fileName: string) => {
+      setSelectedLogFileName(fileName);
+      setLogError(null);
+      if (fileName) {
+        void readLogFile(selectedLogCategory, fileName, selectedLevelFilter);
+      } else {
+        clearLogFileSelection();
+      }
+    },
+    [clearLogFileSelection, readLogFile, selectedLevelFilter, selectedLogCategory],
+  );
+
+  const onOlderLogs = useCallback(() => {
+    if (logFile?.hasOlder && selectedLogFileName) {
+      void readLogFile(selectedLogCategory, selectedLogFileName, selectedLevelFilter, {
+        beforeLine: logFile.startLine,
+      });
+    }
+  }, [logFile, readLogFile, selectedLevelFilter, selectedLogCategory, selectedLogFileName]);
+
+  const onNewerLogs = useCallback(() => {
+    if (logFile?.hasNewer && selectedLogFileName) {
+      void readLogFile(selectedLogCategory, selectedLogFileName, selectedLevelFilter, {
+        startLine: logFile.endLine + 1,
+      });
+    }
+  }, [logFile, readLogFile, selectedLevelFilter, selectedLogCategory, selectedLogFileName]);
 
   const onFieldChange = useCallback(
     <K extends keyof SystemSettingsPlatformConfig>(field: K, value: SystemSettingsPlatformConfig[K]) => {
@@ -258,6 +510,8 @@ export function useSystemSettingsModal(
   return {
     systemSettingsModalProps: {
       isOpen,
+      activeTab,
+      onSelectTab,
       loading,
       saving,
       error,
@@ -270,6 +524,23 @@ export function useSystemSettingsModal(
       tasksActive,
       dirty,
       saveDisabled,
+      logExplorer: {
+        loadingFiles: logLoadingFiles,
+        loadingFile: logLoadingFile,
+        error: logError,
+        sourceLabel: logSourceLabel,
+        categories: logCategories,
+        selectedCategory: selectedLogCategory,
+        selectedLevelFilter,
+        selectedFileName: selectedLogFileName,
+        file: logFile,
+        onRefresh: onRefreshLogs,
+        onSelectCategory: onSelectLogCategory,
+        onSelectLevelFilter,
+        onSelectFile: onSelectLogFile,
+        onOlder: onOlderLogs,
+        onNewer: onNewerLogs,
+      },
       confirmRestartOpen,
       mountRootsText,
       onClose,

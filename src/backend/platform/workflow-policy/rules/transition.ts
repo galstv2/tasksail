@@ -4,8 +4,8 @@
  * Ported from Python: src/backend/scripts/python/lib/policy/rules_transition.py
  */
 
-import path from 'node:path';
-import { readTextFile, resolvePaths, safeJsonParse } from '../../core/index.js';
+import { resolvePaths } from '../../core/index.js';
+import { softwareEngineerGuardrailPassed } from '../softwareEngineerEvidence.js';
 import { ISSUES_MD_RELATIVE_PATH } from '../models.js';
 import {
   issuesHaveBlockingFindings,
@@ -89,38 +89,7 @@ async function checkRemediationLoopExecutionRequired(
     throw new Error('task context required; activate a pending item before validation');
   }
   const taskRuntime = resolvePaths({ repoRoot: validator.rootDir, taskId }).taskRuntime;
-  const engineerReceiptPath = path.join(taskRuntime, 'guardrails', 'software-engineer.json');
-  let engineerRan = false;
-
-  const receiptText = await readTextFile(engineerReceiptPath);
-  if (receiptText !== undefined) {
-    try {
-      const engineerData = safeJsonParse<Record<string, unknown>>(receiptText, engineerReceiptPath);
-      const status = engineerData?.status ?? '';
-      if (status === 'passed' || status === 'internal-bypass') {
-        engineerRan = true;
-      }
-    } catch {
-      // ignore parse errors
-    }
-  }
-
-  if (!engineerRan) {
-    // Also check role-sessions.
-    const sessionPath = path.join(taskRuntime, 'role-sessions', 'software-engineer.json');
-    const sessionText = await readTextFile(sessionPath);
-    if (sessionText !== undefined) {
-      try {
-        const session = safeJsonParse<Record<string, unknown>>(sessionText, sessionPath);
-        const terminal = session?.terminal;
-        if (terminal && typeof terminal === 'object' && (terminal as Record<string, unknown>).status) {
-          engineerRan = true;
-        }
-      } catch {
-        // ignore parse errors
-      }
-    }
-  }
+  const engineerRan = await softwareEngineerGuardrailPassed(taskRuntime);
 
   if (!engineerRan) {
     validator.addViolation({

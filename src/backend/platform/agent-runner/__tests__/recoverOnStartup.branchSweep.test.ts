@@ -61,7 +61,7 @@ describe('recoverOnStartup branch sweep marker re-check', () => {
 
     expect(execFileMock).not.toHaveBeenCalledWith(
       'git',
-      ['branch', '-D', 'task/race-task'],
+      ['branch', '-D', '--', 'task/race-task'],
       { cwd: repoRoot },
     );
   });
@@ -78,7 +78,7 @@ describe('recoverOnStartup branch sweep marker re-check', () => {
 
     expect(execFileMock).toHaveBeenCalledWith(
       'git',
-      ['branch', '-D', 'task/orphan-task'],
+      ['branch', '-D', '--', 'task/orphan-task'],
       { cwd: repoRoot },
       expect.any(Function),
     );

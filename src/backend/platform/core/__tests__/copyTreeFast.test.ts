@@ -5,9 +5,32 @@ import path from 'node:path';
 
 import {
   copyTreeFast,
+  walkAndReflink,
+  REFLINK_WALK_LIMITS,
   type CopyTreeFastDeps,
   type CopyTreeSelectedStrategy,
 } from '../copyTreeFast.js';
+
+describe('walkAndReflink depth cap (SEC-TS-08)', () => {
+  it('throws when directory nesting exceeds the cap', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'reflink-cap-'));
+    const original = REFLINK_WALK_LIMITS.maxDepth;
+    REFLINK_WALK_LIMITS.maxDepth = 3;
+    try {
+      let p = path.join(tmp, 'src');
+      for (let i = 0; i < 6; i += 1) p = path.join(p, `d${i}`);
+      fs.mkdirSync(p, { recursive: true });
+      fs.writeFileSync(path.join(p, 'leaf.txt'), 'x');
+      const copy = (s: string, d: string): number => { fs.copyFileSync(s, d); return 0; };
+      await expect(
+        walkAndReflink(path.join(tmp, 'src'), path.join(tmp, 'dst'), copy),
+      ).rejects.toThrow(/exceeds 3 levels/);
+    } finally {
+      REFLINK_WALK_LIMITS.maxDepth = original;
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
 
 function makeDeps(
   platform: NodeJS.Platform,

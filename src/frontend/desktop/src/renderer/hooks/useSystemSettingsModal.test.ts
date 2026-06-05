@@ -7,6 +7,9 @@ import { createMockClient } from '../../test/factories/clientFactory';
 import { useSystemSettingsModal } from './useSystemSettingsModal';
 import type {
   DesktopInvokeResult,
+  LogExplorerListFilesResponse,
+  LogExplorerReadFilePayload,
+  LogExplorerReadFileResponse,
   SystemSettingsPlatformConfig,
 } from '../../shared/desktopContract';
 
@@ -56,6 +59,87 @@ function readResult(
       envOverrides: (overrides.envOverrides ?? []) as never,
     },
   } as DesktopInvokeResult;
+}
+
+function logListResponse(
+  overrides: Partial<LogExplorerListFilesResponse> = {},
+): DesktopInvokeResult {
+  return {
+    ok: true,
+    response: {
+      action: 'logExplorer.listFiles',
+      mode: 'read-only',
+      message: 'Loaded log files.',
+      sourceLabel: 'TaskSail platform logs',
+      categories: {
+        info: [
+          {
+            category: 'info',
+            fileName: 'new-info.jsonl',
+            displayName: 'new-info.jsonl',
+            sizeBytes: 10,
+            modifiedAt: '2026-06-03T10:00:00.000Z',
+            modifiedAtMs: 10,
+          },
+          {
+            category: 'info',
+            fileName: 'old-info.jsonl',
+            displayName: 'old-info.jsonl',
+            sizeBytes: 5,
+            modifiedAt: '2026-06-03T09:00:00.000Z',
+            modifiedAtMs: 9,
+          },
+        ],
+        warn: [
+          {
+            category: 'warn',
+            fileName: 'warn.jsonl',
+            displayName: 'warn.jsonl',
+            sizeBytes: 8,
+            modifiedAt: '2026-06-03T08:00:00.000Z',
+            modifiedAtMs: 8,
+          },
+        ],
+        error: [],
+      },
+      ...overrides,
+    },
+  } as DesktopInvokeResult;
+}
+
+function logReadResponse(
+  overrides: Partial<LogExplorerReadFileResponse> = {},
+): DesktopInvokeResult {
+  return {
+    ok: true,
+    response: {
+      action: 'logExplorer.readFile',
+      mode: 'read-only',
+      message: 'Loaded log file.',
+      category: 'info',
+      fileName: 'new-info.jsonl',
+      displayName: 'new-info.jsonl',
+      sizeBytes: 10,
+      modifiedAt: '2026-06-03T10:00:00.000Z',
+      totalLines: 50,
+      totalMatchingLines: 12,
+      startLine: 41,
+      endLine: 50,
+      hasOlder: true,
+      hasNewer: false,
+      levelFilter: 'all',
+      records: [],
+      ...overrides,
+    },
+  } as DesktopInvokeResult;
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
 }
 
 async function openAndLoad(client = createMockClient({ readSystemSettings: vi.fn().mockResolvedValue(readResult()) })) {
@@ -309,5 +393,248 @@ describe('useSystemSettingsModal', () => {
     });
     expect(result.current.systemSettingsModalProps.draft?.auto_merge).toBe(false);
     expect(result.current.systemSettingsModalProps.dirty).toBe(false);
+  });
+
+  it('selecting Log Explorer lazily loads files and selects the newest info file', async () => {
+    const listLogFiles = vi.fn().mockResolvedValue(logListResponse());
+    const readLogFile = vi.fn().mockResolvedValue(logReadResponse());
+    const client = createMockClient({
+      readSystemSettings: vi.fn().mockResolvedValue(readResult()),
+      listLogFiles,
+      readLogFile,
+    });
+    const { result } = await openAndLoad(client);
+
+    expect(listLogFiles).not.toHaveBeenCalled();
+    act(() => {
+      result.current.systemSettingsModalProps.onSelectTab('log-explorer');
+    });
+
+    await waitFor(() => expect(listLogFiles).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(readLogFile).toHaveBeenCalledWith({
+      category: 'info',
+      fileName: 'new-info.jsonl',
+      limit: 100,
+      levelFilter: 'all',
+      tail: true,
+    }));
+    expect(result.current.systemSettingsModalProps.activeTab).toBe('log-explorer');
+    expect(result.current.systemSettingsModalProps.logExplorer.selectedCategory).toBe('info');
+    expect(result.current.systemSettingsModalProps.logExplorer.selectedFileName).toBe('new-info.jsonl');
+    expect(result.current.systemSettingsModalProps.logExplorer.sourceLabel).toBe('TaskSail platform logs');
+
+    act(() => {
+      result.current.systemSettingsModalProps.onSelectTab('settings');
+      result.current.systemSettingsModalProps.onSelectTab('log-explorer');
+    });
+    expect(listLogFiles).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads logs through server-side category, file, level, and pager payloads', async () => {
+    const readLogFile = vi.fn().mockResolvedValue(logReadResponse());
+    const client = createMockClient({
+      readSystemSettings: vi.fn().mockResolvedValue(readResult()),
+      listLogFiles: vi.fn().mockResolvedValue(logListResponse()),
+      readLogFile,
+    });
+    const { result } = await openAndLoad(client);
+
+    act(() => {
+      result.current.systemSettingsModalProps.onSelectTab('log-explorer');
+    });
+    await waitFor(() => expect(readLogFile).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      result.current.systemSettingsModalProps.logExplorer.onSelectLevelFilter('debug');
+    });
+    await waitFor(() =>
+      expect(readLogFile).toHaveBeenLastCalledWith({
+        category: 'info',
+        fileName: 'new-info.jsonl',
+        limit: 100,
+        levelFilter: 'debug',
+        tail: true,
+      }),
+    );
+
+    act(() => {
+      result.current.systemSettingsModalProps.logExplorer.onSelectCategory('warn');
+    });
+    await waitFor(() =>
+      expect(readLogFile).toHaveBeenLastCalledWith({
+        category: 'warn',
+        fileName: 'warn.jsonl',
+        limit: 100,
+        levelFilter: 'debug',
+        tail: true,
+      }),
+    );
+
+    act(() => {
+      result.current.systemSettingsModalProps.logExplorer.onOlder();
+    });
+    await waitFor(() =>
+      expect(readLogFile).toHaveBeenLastCalledWith({
+        category: 'warn',
+        fileName: 'warn.jsonl',
+        limit: 100,
+        levelFilter: 'debug',
+        beforeLine: 41,
+      }),
+    );
+
+    act(() => {
+      result.current.systemSettingsModalProps.logExplorer.onSelectFile('new-info.jsonl');
+    });
+    await waitFor(() =>
+      expect(readLogFile.mock.calls.every(([payload]: [LogExplorerReadFilePayload]) =>
+        !('absolutePath' in payload) && !('logRoot' in payload) && !('rootPath' in payload),
+      )).toBe(true),
+    );
+  });
+
+  it('ignores stale log list and read responses', async () => {
+    const firstList = deferred<DesktopInvokeResult>();
+    const secondList = deferred<DesktopInvokeResult>();
+    const firstRead = deferred<DesktopInvokeResult>();
+    const secondRead = deferred<DesktopInvokeResult>();
+    const listLogFiles = vi
+      .fn()
+      .mockReturnValueOnce(firstList.promise)
+      .mockReturnValueOnce(secondList.promise);
+    const readLogFile = vi
+      .fn()
+      .mockReturnValueOnce(firstRead.promise)
+      .mockReturnValueOnce(secondRead.promise);
+    const client = createMockClient({
+      readSystemSettings: vi.fn().mockResolvedValue(readResult()),
+      listLogFiles,
+      readLogFile,
+    });
+    const { result } = await openAndLoad(client);
+
+    act(() => {
+      result.current.systemSettingsModalProps.onSelectTab('log-explorer');
+      result.current.systemSettingsModalProps.logExplorer.onRefresh();
+    });
+    secondList.resolve(logListResponse({
+      categories: {
+        info: [{
+          category: 'info',
+          fileName: 'second.jsonl',
+          displayName: 'second.jsonl',
+          sizeBytes: 2,
+          modifiedAt: '2026-06-03T11:00:00.000Z',
+          modifiedAtMs: 11,
+        }],
+        warn: [],
+        error: [],
+      },
+    }) as DesktopInvokeResult);
+    await waitFor(() => expect(readLogFile).toHaveBeenCalledTimes(1));
+    act(() => {
+      result.current.systemSettingsModalProps.logExplorer.onSelectLevelFilter('debug');
+    });
+    await waitFor(() => expect(readLogFile).toHaveBeenCalledTimes(2));
+    secondRead.resolve(logReadResponse({
+      fileName: 'second.jsonl',
+      displayName: 'second.jsonl',
+      levelFilter: 'debug',
+    }) as DesktopInvokeResult);
+    await waitFor(() => expect(result.current.systemSettingsModalProps.logExplorer.file?.fileName).toBe('second.jsonl'));
+
+    firstList.resolve(logListResponse() as DesktopInvokeResult);
+    firstRead.resolve(logReadResponse({ fileName: 'first.jsonl', displayName: 'first.jsonl' }) as DesktopInvokeResult);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(result.current.systemSettingsModalProps.logExplorer.selectedFileName).toBe('second.jsonl');
+    expect(result.current.systemSettingsModalProps.logExplorer.file?.fileName).toBe('second.jsonl');
+  });
+
+  it('invalidates pending log reads when leaving the Log Explorer tab', async () => {
+    const pendingRead = deferred<DesktopInvokeResult>();
+    const readLogFile = vi.fn().mockReturnValue(pendingRead.promise);
+    const client = createMockClient({
+      readSystemSettings: vi.fn().mockResolvedValue(readResult()),
+      listLogFiles: vi.fn().mockResolvedValue(logListResponse()),
+      readLogFile,
+    });
+    const { result } = await openAndLoad(client);
+
+    act(() => {
+      result.current.systemSettingsModalProps.onSelectTab('log-explorer');
+    });
+    await waitFor(() => expect(readLogFile).toHaveBeenCalledTimes(1));
+    expect(result.current.systemSettingsModalProps.logExplorer.loadingFile).toBe(true);
+
+    act(() => {
+      result.current.systemSettingsModalProps.onSelectTab('settings');
+    });
+    expect(result.current.systemSettingsModalProps.logExplorer.loadingFile).toBe(false);
+
+    await act(async () => {
+      pendingRead.resolve(logReadResponse({ fileName: 'late.jsonl', displayName: 'late.jsonl' }) as DesktopInvokeResult);
+      await pendingRead.promise;
+    });
+
+    expect(result.current.systemSettingsModalProps.activeTab).toBe('settings');
+    expect(result.current.systemSettingsModalProps.logExplorer.file).toBeNull();
+  });
+
+  it('invalidates pending log reads when the modal closes', async () => {
+    const pendingRead = deferred<DesktopInvokeResult>();
+    const readLogFile = vi.fn().mockReturnValue(pendingRead.promise);
+    const client = createMockClient({
+      readSystemSettings: vi.fn().mockResolvedValue(readResult()),
+      listLogFiles: vi.fn().mockResolvedValue(logListResponse()),
+      readLogFile,
+    });
+    const { result } = await openAndLoad(client);
+
+    act(() => {
+      result.current.systemSettingsModalProps.onSelectTab('log-explorer');
+    });
+    await waitFor(() => expect(readLogFile).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      result.current.systemSettingsModalProps.onClose();
+    });
+    expect(result.current.systemSettingsModalProps.isOpen).toBe(false);
+    expect(result.current.systemSettingsModalProps.logExplorer.loadingFile).toBe(false);
+
+    await act(async () => {
+      pendingRead.resolve(logReadResponse({ fileName: 'late.jsonl', displayName: 'late.jsonl' }) as DesktopInvokeResult);
+      await pendingRead.promise;
+    });
+
+    expect(result.current.systemSettingsModalProps.logExplorer.file).toBeNull();
+  });
+
+  it('active tasks keep settings save disabled without disabling log explorer handlers', async () => {
+    const listLogFiles = vi.fn().mockResolvedValue(logListResponse());
+    const readLogFile = vi.fn().mockResolvedValue(logReadResponse());
+    const client = createMockClient({
+      readSystemSettings: vi.fn().mockResolvedValue(readResult({ tasksActive: true })),
+      listLogFiles,
+      readLogFile,
+    });
+    const { result } = await openAndLoad(client);
+
+    act(() => {
+      result.current.systemSettingsModalProps.onFieldChange('auto_merge', true);
+    });
+    expect(result.current.systemSettingsModalProps.saveDisabled).toBe(true);
+
+    act(() => {
+      result.current.systemSettingsModalProps.onSelectTab('log-explorer');
+    });
+    await waitFor(() => expect(listLogFiles).toHaveBeenCalledTimes(1));
+    act(() => {
+      result.current.systemSettingsModalProps.logExplorer.onRefresh();
+      result.current.systemSettingsModalProps.logExplorer.onSelectLevelFilter('error');
+    });
+    await waitFor(() => expect(listLogFiles).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(readLogFile).toHaveBeenCalledWith(expect.objectContaining({
+      levelFilter: 'error',
+    })));
   });
 });

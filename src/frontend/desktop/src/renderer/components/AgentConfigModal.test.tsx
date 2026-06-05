@@ -122,6 +122,8 @@ function defaultProps(overrides: Partial<AgentConfigModalProps> = {}): AgentConf
     onSelectTab: vi.fn(),
     onAgentModelChange: vi.fn(),
     onAgentEffortChange: vi.fn(),
+    onAgentWallClockTimeoutChange: vi.fn(),
+    onAgentIdleTimeoutChange: vi.fn(),
     onConfirmModelChange: vi.fn(),
     onCancelModelChange: vi.fn(),
     onNewModelDisplayNameChange: vi.fn(),
@@ -170,6 +172,45 @@ describe('AgentConfigModal', () => {
     expect(within(lilyEffort.closest('label') as HTMLElement).getByText('Lily reasoning effort')).toHaveClass('agent-config__sr-only');
     expect(within(lilyEffort).getByRole('option', { name: 'None' })).toBeTruthy();
     expect(within(lilyEffort).getByRole('option', { name: 'high' })).toBeTruthy();
+  });
+
+  it('renders a Wall clock timeout (s) input for every agent row', () => {
+    render(<AgentConfigModal {...defaultProps()} />);
+
+    expect(screen.getByLabelText('Lily wall clock timeout (s)')).toBeInTheDocument();
+    expect(screen.getByLabelText('Dalton wall clock timeout (s)')).toBeInTheDocument();
+    expect(screen.getAllByLabelText(/wall clock timeout \(s\)/i)).toHaveLength(2);
+    expect(screen.getByLabelText('Lily wall clock timeout (s)')).toHaveClass('mcp-form__input');
+  });
+
+  it('renders Idle timeout (s) only for the descriptor planner agent', () => {
+    render(<AgentConfigModal {...defaultProps()} />);
+
+    const idle = screen.getByLabelText('Lily idle timeout (s)');
+    expect(idle).toBeInTheDocument();
+    expect(idle).toHaveAttribute('title', "Controls TaskSail's platform-level idle kill deadline in seconds.");
+    expect(screen.queryByLabelText('Dalton idle timeout (s)')).toBeNull();
+  });
+
+  it('binds existing timeout values and forwards the raw input to the hook handlers', () => {
+    const onAgentWallClockTimeoutChange = vi.fn();
+    const onAgentIdleTimeoutChange = vi.fn();
+    const props = defaultProps({ onAgentWallClockTimeoutChange, onAgentIdleTimeoutChange });
+    const agents = props.agents.map((agent) =>
+      (agent.agent_id === 'provider-planner'
+        ? { ...agent, selected_wall_clock_timeout_s: 1800, selected_idle_timeout_s: 600 }
+        : agent));
+    render(<AgentConfigModal {...props} agents={agents} />);
+
+    const wall = screen.getByLabelText('Lily wall clock timeout (s)');
+    const idle = screen.getByLabelText('Lily idle timeout (s)');
+    expect(wall).toHaveValue(1800);
+    expect(idle).toHaveValue(600);
+
+    fireEvent.change(wall, { target: { value: '1200' } });
+    expect(onAgentWallClockTimeoutChange).toHaveBeenCalledWith('provider-planner', '1200');
+    fireEvent.change(idle, { target: { value: '300' } });
+    expect(onAgentIdleTimeoutChange).toHaveBeenCalledWith('provider-planner', '300');
   });
 
   it('renders the reasoning effort disclaimer once and no effort controls in Models tab', () => {

@@ -23,7 +23,7 @@ import type {
   ContextPackDeepFocusState,
   ContextPackPrimaryFocusTarget,
 } from '../../shared/desktopContract';
-import { deepFocusTargetSelectionKey, migrateSupportScopes } from './SidebarDeepFocusUtils';
+import { primaryIdentityKey, migrateSupportScopes } from './SidebarDeepFocusUtils';
 
 function makeState(
   overrides: Partial<ContextPackDeepFocusState> = {},
@@ -270,6 +270,6 @@ describe('migrateSupportScopes (spec §5.3)', () => {
     const next = migrateSupportScopes(state);
 
     expect(next).toBe(state);
-    expect(deepFocusTargetSelectionKey(repoOne)).not.toBe(deepFocusTargetSelectionKey(repoTwo));
+    expect(primaryIdentityKey(repoOne)).not.toBe(primaryIdentityKey(repoTwo));
   });
 });

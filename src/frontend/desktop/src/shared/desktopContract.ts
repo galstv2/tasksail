@@ -14,6 +14,7 @@ export * from './desktopContractDeepFocus';
 export * from './desktopContractContextPack';
 export * from './desktopContractProvider';
 export * from './desktopContractTaskNotifications';
+export * from './desktopContractLogExplorer';
 
 import type {
   ContextPackListRepoTreeRequest,
@@ -218,6 +219,8 @@ export const DESKTOP_ACTION_NAMES = [
   'systemSettings.read',
   'systemSettings.save',
   'systemSettings.restart',
+  'logExplorer.listFiles',
+  'logExplorer.readFile',
 ] as const;
 
 export type DesktopActionName = (typeof DESKTOP_ACTION_NAMES)[number];
@@ -929,6 +932,22 @@ export type {
   SystemSettingsRestartResponse,
 } from './desktopContractSystemSettings';
 
+import type {
+  LogExplorerListFilesRequest, LogExplorerListFilesResponse,
+  LogExplorerReadFileRequest, LogExplorerReadFileResponse,
+} from './desktopContractLogExplorer';
+
+export type {
+  LogExplorerCategory,
+  LogExplorerRecordLevel,
+  LogExplorerLevelFilter,
+  LogExplorerFileEntry, LogExplorerListFilesRequest, LogExplorerListFilesResponse,
+  LogExplorerReadFilePayload,
+  LogExplorerReadFileRequest,
+  LogExplorerRecord,
+  LogExplorerReadFileResponse,
+} from './desktopContractLogExplorer';
+
 export type { InstructionFileEntry, InstructionDirectory } from './desktopContractAgentInstructions';
 import type { AgentInstructionsListFilesRequest, AgentInstructionsListFilesResponse, AgentInstructionsReadFileRequest, AgentInstructionsReadFileResponse, AgentInstructionsWriteFileRequest, AgentInstructionsWriteFileResponse } from './desktopContractAgentInstructions';
 export type { AgentInstructionsListFilesRequest, AgentInstructionsListFilesResponse, AgentInstructionsReadFileRequest, AgentInstructionsReadFileResponse, AgentInstructionsWriteFileRequest, AgentInstructionsWriteFileResponse };
@@ -983,6 +1002,12 @@ export type TaskBoardReadBoardResponse = {
   action: 'taskBoard.readBoard';
   mode: 'read-only';
   message: string;
+  /**
+   * Monotonically increasing counter assigned by main before each readTaskBoard
+   * call starts. Renderers apply only snapshots whose sequence is >= the last
+   * applied sequence, preventing stale reads from overwriting newer pushes.
+   */
+  boardSnapshotSequence: number;
   dropboxItems: TaskBoardItem[];
   pendingItems: TaskBoardPendingItem[];
   errorItems: TaskBoardItem[];
@@ -995,6 +1020,7 @@ export type TaskBoardMarkdownArtifact = {
   relativePath: string; // POSIX-style path relative to archive root, e.g. "archive.md"
   label: string;        // default label is relativePath
   sizeBytes: number;
+  contentType?: 'markdown' | 'xml';
 };
 
 export type TaskBoardReadTaskContentRequest = {
@@ -1013,6 +1039,7 @@ export type TaskBoardReadTaskContentResponse = {
   content: string;
   fileName: string;
   artifactRelativePath?: string;
+  contentType?: 'markdown' | 'xml';
   artifacts?: TaskBoardMarkdownArtifact[];
 };
 
@@ -1249,6 +1276,8 @@ export type DesktopActionRequest =
   | SystemSettingsReadRequest
   | SystemSettingsSaveRequest
   | SystemSettingsRestartRequest
+  | LogExplorerListFilesRequest
+  | LogExplorerReadFileRequest
   | AgentInstructionsListFilesRequest
   | AgentInstructionsReadFileRequest
   | AgentInstructionsWriteFileRequest
@@ -1352,6 +1381,8 @@ export type DesktopActionResponse =
   | SystemSettingsReadResponse
   | SystemSettingsSaveResponse
   | SystemSettingsRestartResponse
+  | LogExplorerListFilesResponse
+  | LogExplorerReadFileResponse
   | AgentInstructionsListFilesResponse
   | AgentInstructionsReadFileResponse
   | AgentInstructionsWriteFileResponse

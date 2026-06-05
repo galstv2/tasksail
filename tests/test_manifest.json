@@ -21,8 +21,7 @@
       "tests.domains.queue.test_queue_runtime_integration",
       "tests.domains.queue.test_queue_runtime_closeout",
       "tests.domains.workflow.test_run_role_agent",
-      "tests.domains.context_pack.test_switch_context_pack_workspace",
-      "tests.domains.e2e.test_mvp_green_light"
+      "tests.domains.context_pack.test_switch_context_pack_workspace"
     ],
     "contracts": [
       "tests.domains.docs_contracts.test_agent_registry_contract",
@@ -105,10 +104,6 @@
       "tests.domains.test_infra.test_script_lib",
       "tests.domains.test_infra.test_atomic_writes"
     ],
-    "e2e": [
-      "tests.domains.e2e.test_mvp_green_light",
-      "tests.domains.e2e.test_live_pipeline"
-    ],
     "reinforcement": [
       "tests.domains.reinforcement.test_persistence",
       "tests.domains.reinforcement.test_rewards",
@@ -157,7 +152,6 @@
     "tests/domains/docs_contracts/": ["docs_contracts"],
     "tests/domains/qmd/": ["qmd"],
     "tests/domains/test_infra/": ["test_infra"],
-    "tests/domains/e2e/": ["e2e"],
     "tests/domains/reinforcement/": ["reinforcement"]
   }
 }

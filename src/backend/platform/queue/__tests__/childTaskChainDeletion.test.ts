@@ -1,17 +1,23 @@
-import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { FIXED_TMP_SUFFIX } = vi.hoisted(() => ({ FIXED_TMP_SUFFIX: '0011223344556677' }));
-
-// Pin writeTextFileAtomic's random temp suffix so the "propagates write
-// failures" test can occupy that temp path with a directory and force the write
-// (and its retries) to fail. Other tests are unaffected — their writes still
-// create-and-rename the temp normally.
-vi.mock('node:crypto', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:crypto')>();
-  return { ...actual, randomBytes: () => Buffer.from(FIXED_TMP_SUFFIX, 'hex') };
+// Toggle to force the atomic state write to fail mid-test (after setup) so the
+// post-queue-delete write-failure path is exercised without coupling to the
+// atomic writer's internal temp naming or the dir-lock.
+const { failStateWrite } = vi.hoisted(() => ({ failStateWrite: { value: false } }));
+vi.mock('../../core/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../core/index.js')>();
+  return {
+    ...actual,
+    writeTextFileAtomic: async (...args: Parameters<typeof actual.writeTextFileAtomic>) => {
+      if (failStateWrite.value && args[0].endsWith('child-task-chains.json')) {
+        throw new Error('simulated write failure');
+      }
+      return actual.writeTextFileAtomic(...args);
+    },
+  };
 });
 
 import { cleanupDeletedChildTaskChainTask } from '../childTaskChainDeletion.js';
@@ -159,16 +165,17 @@ describe('cleanupDeletedChildTaskChainTask', () => {
     const before = state('pending', true);
     await writeChildTaskChains(repoRoot, before);
     const statePath = path.join(repoRoot, '.platform-state', 'child-task-chains.json');
-    const tempStatePath = `${statePath}.tmp-${process.pid}-${FIXED_TMP_SUFFIX}`;
-    await mkdir(tempStatePath, { recursive: true });
+    failStateWrite.value = true;
     let deleted = false;
+    try {
+      await expect(cleanupDeletedChildTaskChainTask(repoRoot, 'child', async () => { deleted = true; })).rejects.toThrow();
 
-    await expect(cleanupDeletedChildTaskChainTask(repoRoot, 'child', async () => { deleted = true; })).rejects.toThrow();
-
-    expect(deleted).toBe(true);
-    expect((await readFile(statePath, 'utf-8')).includes('"child"')).toBe(true);
-    expect(await readChildTaskChains(repoRoot)).toEqual(before);
-    await rm(tempStatePath, { recursive: true, force: true });
+      expect(deleted).toBe(true);
+      expect((await readFile(statePath, 'utf-8')).includes('"child"')).toBe(true);
+      expect(await readChildTaskChains(repoRoot)).toEqual(before);
+    } finally {
+      failStateWrite.value = false;
+    }
     expect((await readFile(statePath, 'utf-8')).includes('child')).toBe(true);
   });
 });

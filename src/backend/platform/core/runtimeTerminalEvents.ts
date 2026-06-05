@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { createLogger } from './logger.js';
 import { ensureDir, readTextFile, writeTextFileAtomic } from './io.js';
+import { isRecord } from './guards.js';
 import { withTaskTerminalEventsLock } from './taskTerminalEventsLock.js';
 import {
   formatTaskAgentDisplayName,
@@ -39,9 +40,6 @@ function runtimeTerminalEventsPath(repoRoot: string, taskId: string): string {
   );
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
 
 async function appendRuntimeTerminalEvent(
   input: RuntimeTerminalEventInput,

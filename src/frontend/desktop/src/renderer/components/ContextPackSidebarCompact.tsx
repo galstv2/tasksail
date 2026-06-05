@@ -10,7 +10,6 @@ type ContextPackSidebarCompactProps = Pick<
   | 'actionPending'
   | 'onToggleCollapse'
   | 'onSelectContextPack'
-  | 'onRefreshCatalog'
   | 'onOpenCreateModal'
   | 'onReseedContextPack'
   | 'onPreviewSwitch'
@@ -26,7 +25,6 @@ function ContextPackSidebarCompact({
   actionPending,
   onToggleCollapse,
   onSelectContextPack,
-  onRefreshCatalog,
   onOpenCreateModal,
   onReseedContextPack,
   onPreviewSwitch,
@@ -77,9 +75,6 @@ function ContextPackSidebarCompact({
           </button>
         ))}
         <div className="sidebar-icons__divider" />
-        <button type="button" className="sidebar-icon-btn" onClick={() => void onRefreshCatalog()} aria-label="Refresh packs" title="Refresh">
-          <RefreshIcon />
-        </button>
         <button type="button" className="sidebar-icon-btn" onClick={() => onOpenCreateModal()} aria-label="Create pack" title="Create">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
         </button>

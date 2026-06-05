@@ -407,6 +407,7 @@ export type ArchivedTaskParentContextFile = {
   path: string;
   relativePath: string;
   sizeBytes: number;
+  contentType?: 'markdown' | 'xml';
 };
 
 export type ArchivedTaskParentContextArtifacts = {

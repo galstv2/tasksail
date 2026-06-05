@@ -2,6 +2,7 @@ import type { TaskBoardContentColumn, TaskBoardMarkdownArtifact } from '../../..
 import MarkdownView from '../MarkdownView';
 import ModalShell from '../ModalShell';
 import TerminalSelectMenu, { type TerminalSelectMenuOption } from '../TerminalSelectMenu';
+import XmlArtifactView from './XmlArtifactView';
 
 export type TaskDetailModalFooterAction = {
   label: string;
@@ -11,9 +12,12 @@ export type TaskDetailModalFooterAction = {
   loading?: boolean;
 };
 
+type TaskBoardArtifactContentType = NonNullable<TaskBoardMarkdownArtifact['contentType']>;
+
 export type TaskDetailModalProps = {
   title: string | null;
   content: string;
+  contentType?: TaskBoardArtifactContentType;
   column: TaskBoardContentColumn;
   onClose: () => void;
   zIndex?: number;
@@ -56,9 +60,26 @@ function sortArtifactExplorerArtifacts(artifacts: TaskBoardMarkdownArtifact[]): 
   });
 }
 
+function artifactContentTypeForPath(relativePath: string | undefined): TaskBoardArtifactContentType {
+  return relativePath?.endsWith('.xml') ? 'xml' : 'markdown';
+}
+
+function selectedArtifactContentType(
+  artifactExplorer: TaskDetailModalProps['artifactExplorer'],
+  fallback: TaskBoardArtifactContentType | undefined,
+): TaskBoardArtifactContentType {
+  const selected = artifactExplorer?.artifacts.find((artifact) => (
+    artifact.relativePath === artifactExplorer.selectedRelativePath
+  ));
+  return selected?.contentType
+    ?? fallback
+    ?? artifactContentTypeForPath(artifactExplorer?.selectedRelativePath);
+}
+
 function TaskDetailModal({
   title,
   content,
+  contentType,
   column,
   onClose,
   zIndex,
@@ -75,6 +96,7 @@ function TaskDetailModal({
         primaryLabel: artifact.relativePath,
       }))
     : [];
+  const selectedContentType = selectedArtifactContentType(artifactExplorer, contentType);
   return (
     <ModalShell
       isOpen={true}
@@ -122,7 +144,9 @@ function TaskDetailModal({
           />
         </div>
       )}
-      <MarkdownView content={content} />
+      {selectedContentType === 'xml'
+        ? <XmlArtifactView content={content} />
+        : <MarkdownView content={content} />}
     </ModalShell>
   );
 }

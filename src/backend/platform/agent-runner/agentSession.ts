@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, chmodSync, writeFileSync, renameSync, unlinkSync } from 'node:fs';
 import {
   createLogger,
   emitTaskProgressEvent,
@@ -214,7 +214,12 @@ function createInternalMcpLaunchDir(
   agentId: string,
 ): string {
   const root = path.join(repoRoot, '.platform-state', 'runtime', providerHomeDirName);
-  mkdirSync(root, { recursive: true });
+  // SEC-TS-02: owner-only so other local users cannot traverse into per-launch
+  // dirs that hold resolved MCP auth tokens. mkdir does not tighten an existing
+  // dir, so chmod unconditionally (matches renderer.py) to correct a pre-existing
+  // permissive root.
+  mkdirSync(root, { recursive: true, mode: 0o700 });
+  chmodSync(root, 0o700);
   internalMcpLaunchCounter += 1;
   const token = `${agentId}-${Date.now()}-${process.pid}-${internalMcpLaunchCounter}`;
   return path.join(root, token);
@@ -247,12 +252,15 @@ export function logExternalMcpLaunchStatus(
   launchStatus: AgentMcpLaunchStatus,
   context?: { taskId?: string; providerId?: string; spanId?: string },
 ): void {
-  log.child({
+  const childLog = log.child({
     agentId,
     taskId: context?.taskId,
     providerId: context?.providerId,
     spanId: context?.spanId,
-  }).info('external_mcp.launch_status', {
+  });
+  const cleanStatus = launchStatus.status === 'available' || launchStatus.status === 'not-applicable';
+  const logMethod = cleanStatus ? childLog.debug : childLog.warn;
+  logMethod('external_mcp.launch_status', {
     status: launchStatus.status,
     injectionEnabled: launchStatus.injectionEnabled,
     selectedServerIds: launchStatus.selectedServerIds,
@@ -299,6 +307,10 @@ export async function runAgentSession(options: {
       effectivePromptSha256: string;
     };
   };
+  /** External MCP launch dir for this session. When present, a .provider-pid
+   *  sentinel is written immediately after the provider child is spawned so
+   *  cleanup_stale_launches can distinguish a live launch from a stale one. */
+  launchDir?: string;
 }): Promise<{
   runSummary: Awaited<ReturnType<typeof waitForAgentDetailed>>;
   greedyStopTriggered: boolean;
@@ -311,6 +323,24 @@ export async function runAgentSession(options: {
     wallClockTimeoutS: options.wallClockTimeoutS,
     idleTimeoutS: options.idleTimeoutS,
   });
+  // Best-effort: write a .provider-pid sentinel so the Python cleanup helper
+  // can identify live launch dirs by the long-running provider PID rather than
+  // the short-lived helper PID embedded in the dir name.
+  if (options.launchDir && child.pid !== undefined) {
+    const sentinelPath = path.join(options.launchDir, '.provider-pid');
+    // Best-effort, content-safe (pid only). Written atomically via temp + rename
+    // so a concurrent cleanup never observes a partial/empty sentinel. Uses
+    // node:fs directly (not the core-barrel writeTextFileAtomic) to avoid coupling
+    // this advisory write to the partial core mocks in the agent-runner test suite.
+    const tmpSentinel = `${sentinelPath}.tmp-${process.pid}`;
+    try {
+      writeFileSync(tmpSentinel, String(child.pid), { mode: 0o600 });
+      renameSync(tmpSentinel, sentinelPath);
+    } catch {
+      // Best-effort: drop the temp file if the rename did not consume it.
+      try { unlinkSync(tmpSentinel); } catch { /* ignore */ }
+    }
+  }
   const launchStartedAt = Date.now();
   const progressTaskId = options.env['TASKSAIL_TASK_ID'] || '';
   const progressIdentity = options.session && progressTaskId

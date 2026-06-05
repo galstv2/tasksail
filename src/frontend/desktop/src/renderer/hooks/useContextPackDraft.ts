@@ -24,18 +24,11 @@ export const INITIAL_DRAFT: ContextPackCreationDraft = {
   focusAreas: [],
 };
 
-function stableNumericSuffix(value: string): string {
-  const input = value.trim().toLowerCase();
-  let hash = 0;
-  for (let i = 0; i < input.length; i += 1) {
-    hash = (hash * 31 + input.charCodeAt(i)) % 9000;
-  }
-  return String(hash + 1000).padStart(4, '0');
-}
-
 export function generateContextPackId(displayName: string): string {
-  const slug = slugifyValue(displayName);
-  return `${slug}-${stableNumericSuffix(displayName)}`;
+  // A clean, readable slug. Uniqueness against existing packs is resolved at
+  // creation time in the Electron main process (resolveUniqueContextPackDir),
+  // which appends a -2/-3 counter only when the directory name actually collides.
+  return slugifyValue(displayName);
 }
 
 export function titleizeValue(value: string): string {

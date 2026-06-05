@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { acquireDirLock } from '../dirLock.js';
 import {
   repairTaskRegistry,
   loadTaskRegistry,
@@ -284,5 +285,102 @@ describe('taskRegistry §4.5 — array active shape', () => {
     const set = loaded.tasks.pack1!;
     expect(Array.isArray(set.active)).toBe(true);
     expect(set.active[0]!.taskId).toBe('OLD');
+  });
+});
+
+// ── Track L: repairTaskRegistry regression when queue lock is available ──────
+
+describe('repairTaskRegistry — queue-lock-available regression (Track L)', () => {
+  let repoRoot: string;
+
+  beforeEach(() => {
+    repoRoot = mkdtempSync(path.join(tmpdir(), 'tq-repair-lock-'));
+    mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'pendingitems'), { recursive: true });
+    mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'dropbox'), { recursive: true });
+    mkdirSync(path.join(repoRoot, '.platform-state'), { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(repoRoot, { recursive: true, force: true });
+  });
+
+  it('produces a correct registry snapshot when the queue lock is available', async () => {
+    // Plant a pending task file
+    writeFileSync(
+      path.join(repoRoot, 'AgentWorkSpace', 'pendingitems', 'task-alpha.md'),
+      '# Task Alpha\n',
+      'utf-8',
+    );
+    // Plant a dropbox task file
+    writeFileSync(
+      path.join(repoRoot, 'AgentWorkSpace', 'dropbox', 'task-beta.md'),
+      '# Task Beta\n',
+      'utf-8',
+    );
+
+    // repairTaskRegistry runs without a queue lock guard — this test verifies
+    // that it still produces the correct snapshot (no regression from Track L).
+    const repaired = await repairTaskRegistry(repoRoot);
+    const all = getAllTasks(repaired);
+
+    const pendingIds = all.pending.map((e) => e.taskId);
+    const openIds = all.open.map((e) => e.taskId);
+
+    expect(pendingIds).toContain('task-alpha');
+    expect(openIds).toContain('task-beta');
+    expect(all.active).toHaveLength(0);
+    expect(all.failed).toHaveLength(0);
+  });
+});
+
+// ── Track L: acquireDirLock(lockDir, 1, 0) guard contract ─────────────────
+//
+// The startup repair guard in ElectronAppController calls
+// acquireDirLock(queueLockDir, 1, 0): a single non-blocking attempt.
+// These tests exercise the REAL acquireDirLock against a real temp directory
+// and prove:
+//   (a) When the lock dir is absent → acquires and returns a release fn.
+//   (b) When the lock dir is already created (held) → returns null immediately.
+//
+// Acid test: if the production guard regressed to maxRetries=0 it would never
+// acquire even when free (acquireDirLock's loop body runs 0 times → null),
+// so the repair would always be skipped.  Test (a) would catch that regression
+// because acquireDirLock(free lockDir, 0, 0) returns null, not a function.
+
+describe('acquireDirLock single-attempt guard contract (Track L)', () => {
+  let lockBaseDir: string;
+  let lockDir: string;
+
+  beforeEach(() => {
+    lockBaseDir = mkdtempSync(path.join(tmpdir(), 'dirlock-guard-'));
+    lockDir = path.join(lockBaseDir, 'test.lock');
+  });
+
+  afterEach(async () => {
+    rmSync(lockBaseDir, { recursive: true, force: true });
+  });
+
+  it('returns a release function when the lock directory is free', async () => {
+    // maxRetries=1, backoffMs=0 — single non-blocking attempt.
+    const release = await acquireDirLock(lockDir, 1, 0);
+
+    // Must acquire successfully (non-null) when the directory does not exist.
+    expect(typeof release).toBe('function');
+
+    // Release must remove the lock dir.
+    await release!();
+    // After release, acquiring again must succeed (proves release cleaned up).
+    const release2 = await acquireDirLock(lockDir, 1, 0);
+    expect(typeof release2).toBe('function');
+    await release2!();
+  });
+
+  it('returns null immediately when the lock directory is already held', async () => {
+    // Simulate a concurrent holder by pre-creating the lock dir.
+    mkdirSync(lockDir);
+
+    // Single non-blocking attempt: must not acquire (returns null).
+    const release = await acquireDirLock(lockDir, 1, 0);
+    expect(release).toBeNull();
   });
 });

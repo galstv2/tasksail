@@ -109,7 +109,6 @@ function createSidebarProps() {
     onToggleCollapse: vi.fn(),
     onSelectContextPack: vi.fn(),
     onSelectWorkingFocus: vi.fn(),
-    onRefreshCatalog: vi.fn(),
     onOpenCreateModal: vi.fn(),
     onReseedContextPack: vi.fn(),
     onPreviewSwitch: vi.fn(),
@@ -165,13 +164,11 @@ describe('ContextPackSidebar', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Preview pack' }));
     fireEvent.click(screen.getByRole('button', { name: 'Apply pack' }));
     fireEvent.click(screen.getByRole('button', { name: 'Clear pack' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh packs' }));
     fireEvent.click(screen.getByRole('button', { name: 'Reseed pack' }));
 
     expect(props.onPreviewSwitch).toHaveBeenCalledTimes(1);
     expect(props.onApplySwitch).toHaveBeenCalledTimes(1);
     expect(props.onClearActive).toHaveBeenCalledTimes(1);
-    expect(props.onRefreshCatalog).toHaveBeenCalledTimes(1);
     expect(props.onReseedContextPack).toHaveBeenCalledTimes(1);
   });
 
@@ -183,7 +180,6 @@ describe('ContextPackSidebar', () => {
     expect(screen.getByLabelText('Context pack active')).toHaveTextContent('✓');
     expect(screen.getByRole('button', { name: 'Orders Estate' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Billing Estate' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Refresh packs' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Create pack' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Reseed pack' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Context packs' })).not.toBeInTheDocument();

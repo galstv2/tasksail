@@ -40,7 +40,9 @@ import {
 } from './main.desktopActionHandlers';
 import { createDropboxTask } from '../../../backend/platform/queue/createDropboxTask.js';
 import { createFollowupTask } from '../../../backend/platform/queue/createFollowupTask.js';
-import { resolveChildTaskChainCreationContext } from './main.childTaskChain';
+import { resolveChildTaskChainCreationContext, type ResolvedChildTaskChainCreationContext } from './main.childTaskChain';
+import { withDirLock } from '../../../backend/platform/queue/dirLock.js';
+import { resolveQueuePaths } from '../../../backend/platform/queue/paths.js';
 
 const log = createLogger('electron/main');
 
@@ -359,7 +361,7 @@ export async function handleDesktopAction(
         const canonicalDraft = canonicalizeEditableDraftRequirements(editableDraft);
         const metadata = stagedDraft.metadata;
         const taskTitle = resolvePlannerTaskTitleFromDraft(stagedDraft.draft.content);
-        let chainContext;
+        let chainContext: ResolvedChildTaskChainCreationContext | undefined;
         if (metadata.lineage.taskKind === 'child-task') {
           chainContext = await resolveChildTaskChainCreationContext({
             repoRoot: REPO_ROOT,
@@ -369,76 +371,80 @@ export async function handleDesktopAction(
             childExecutionScope: metadata.contextPackBinding,
           });
         }
-        const destinationPath = metadata.lineage.taskKind === 'child-task'
-          ? await createFollowupTask({
-              title: taskTitle,
-              summary: canonicalDraft.summary,
-              desiredOutcome: canonicalDraft.desiredOutcome,
-              constraints: canonicalDraft.constraints,
-              criticalRequirements: canonicalDraft.criticalRequirements,
-              compatibilityRequirements: canonicalDraft.compatibilityRequirements,
-              requiredValidation: canonicalDraft.requiredValidation,
-              acceptanceSignals: canonicalDraft.acceptanceSignals,
-              parentTaskId: metadata.lineage.parentTaskId,
-              parentQmdRecordId: metadata.lineage.parentQmdRecordId,
-              parentQmdScope: metadata.lineage.parentQmdScope,
-              rootTaskId: metadata.lineage.rootTaskId,
-              followupReason: metadata.lineage.followUpReason,
-              carryForwardSummary: canonicalDraft.carryForwardSummary,
-              suggestedPath: canonicalDraft.suggestedPath,
-              planningNotes: canonicalDraft.planningNotes,
-              contextPackDir: metadata.contextPackBinding.contextPackDir,
-              contextPackId: metadata.contextPackBinding.contextPackId,
-              scopeMode: metadata.contextPackBinding.scopeMode,
-              primaryRepoId: metadata.contextPackBinding.primaryRepoId,
-              primaryFocusId: metadata.contextPackBinding.primaryFocusId,
-              selectedRepoIds: metadata.contextPackBinding.selectedRepoIds,
-              selectedFocusIds: metadata.contextPackBinding.selectedFocusIds,
-              repositoryTypes: metadata.contextPackBinding.repositoryTypes,
-              deepFocusEnabled: metadata.contextPackBinding.deepFocusEnabled,
-              selectedFocusPath: metadata.contextPackBinding.selectedFocusPath,
-              selectedFocusTargetKind: metadata.contextPackBinding.selectedFocusTargetKind,
-              selectedFocusTargets: metadata.contextPackBinding.selectedFocusTargets,
-              selectedTestTarget: metadata.contextPackBinding.selectedTestTarget,
-              selectedSupportTargets: metadata.contextPackBinding.selectedSupportTargets,
-              deepFocusPrimaryRepoId: metadata.contextPackBinding.deepFocusPrimaryRepoId,
-              deepFocusPrimaryFocusId: metadata.contextPackBinding.deepFocusPrimaryFocusId,
-              branchChain: chainContext?.branchChain,
-              parentContextSnapshot: chainContext?.parentContextSnapshot,
-              childExecutionScope: chainContext?.childExecutionScope,
-              parentArchivePath: chainContext?.parentArchivePath,
-              parentArchiveArtifactDir: chainContext?.parentArchiveArtifactDir,
-              previousTaskId: chainContext?.previousTaskId,
-              repoRoot: REPO_ROOT,
-            })
-          : await createDropboxTask({
-              title: taskTitle,
-              summary: canonicalDraft.summary,
-              desiredOutcome: canonicalDraft.desiredOutcome,
-              constraints: canonicalDraft.constraints,
-              criticalRequirements: canonicalDraft.criticalRequirements,
-              compatibilityRequirements: canonicalDraft.compatibilityRequirements,
-              requiredValidation: canonicalDraft.requiredValidation,
-              acceptanceSignals: canonicalDraft.acceptanceSignals,
-              suggestedPath: canonicalDraft.suggestedPath,
-              planningNotes: canonicalDraft.planningNotes,
-              kind: metadata.lineage.taskKind,
-              contextPackDir: metadata.contextPackBinding.contextPackDir,
-              contextPackId: metadata.contextPackBinding.contextPackId,
-              scopeMode: metadata.contextPackBinding.scopeMode,
-              primaryRepoId: metadata.contextPackBinding.primaryRepoId,
-              primaryFocusId: metadata.contextPackBinding.primaryFocusId,
-              selectedRepoIds: metadata.contextPackBinding.selectedRepoIds,
-              selectedFocusIds: metadata.contextPackBinding.selectedFocusIds,
-              repositoryTypes: metadata.contextPackBinding.repositoryTypes,
-              deepFocusEnabled: metadata.contextPackBinding.deepFocusEnabled,
-              selectedFocusPath: metadata.contextPackBinding.selectedFocusPath,
-              selectedFocusTargetKind: metadata.contextPackBinding.selectedFocusTargetKind,
-              selectedFocusTargets: metadata.contextPackBinding.selectedFocusTargets,
-              selectedTestTarget: metadata.contextPackBinding.selectedTestTarget,
-              selectedSupportTargets: metadata.contextPackBinding.selectedSupportTargets,
-              repoRoot: REPO_ROOT,
-            });
+        const destinationPath = await withDirLock(
+          resolveQueuePaths(REPO_ROOT).queueLockDir,
+          'planner.finalizeSpec',
+          () => metadata.lineage.taskKind === 'child-task'
+            ? createFollowupTask({
+                title: taskTitle,
+                summary: canonicalDraft.summary,
+                desiredOutcome: canonicalDraft.desiredOutcome,
+                constraints: canonicalDraft.constraints,
+                criticalRequirements: canonicalDraft.criticalRequirements,
+                compatibilityRequirements: canonicalDraft.compatibilityRequirements,
+                requiredValidation: canonicalDraft.requiredValidation,
+                acceptanceSignals: canonicalDraft.acceptanceSignals,
+                parentTaskId: metadata.lineage.parentTaskId,
+                parentQmdRecordId: metadata.lineage.parentQmdRecordId,
+                parentQmdScope: metadata.lineage.parentQmdScope,
+                rootTaskId: metadata.lineage.rootTaskId,
+                followupReason: metadata.lineage.followUpReason,
+                carryForwardSummary: canonicalDraft.carryForwardSummary,
+                suggestedPath: canonicalDraft.suggestedPath,
+                planningNotes: canonicalDraft.planningNotes,
+                contextPackDir: metadata.contextPackBinding.contextPackDir,
+                contextPackId: metadata.contextPackBinding.contextPackId,
+                scopeMode: metadata.contextPackBinding.scopeMode,
+                primaryRepoId: metadata.contextPackBinding.primaryRepoId,
+                primaryFocusId: metadata.contextPackBinding.primaryFocusId,
+                selectedRepoIds: metadata.contextPackBinding.selectedRepoIds,
+                selectedFocusIds: metadata.contextPackBinding.selectedFocusIds,
+                repositoryTypes: metadata.contextPackBinding.repositoryTypes,
+                deepFocusEnabled: metadata.contextPackBinding.deepFocusEnabled,
+                selectedFocusPath: metadata.contextPackBinding.selectedFocusPath,
+                selectedFocusTargetKind: metadata.contextPackBinding.selectedFocusTargetKind,
+                selectedFocusTargets: metadata.contextPackBinding.selectedFocusTargets,
+                selectedTestTarget: metadata.contextPackBinding.selectedTestTarget,
+                selectedSupportTargets: metadata.contextPackBinding.selectedSupportTargets,
+                deepFocusPrimaryRepoId: metadata.contextPackBinding.deepFocusPrimaryRepoId,
+                deepFocusPrimaryFocusId: metadata.contextPackBinding.deepFocusPrimaryFocusId,
+                branchChain: chainContext?.branchChain,
+                parentContextSnapshot: chainContext?.parentContextSnapshot,
+                childExecutionScope: chainContext?.childExecutionScope,
+                parentArchivePath: chainContext?.parentArchivePath,
+                parentArchiveArtifactDir: chainContext?.parentArchiveArtifactDir,
+                previousTaskId: chainContext?.previousTaskId,
+                repoRoot: REPO_ROOT,
+              })
+            : createDropboxTask({
+                title: taskTitle,
+                summary: canonicalDraft.summary,
+                desiredOutcome: canonicalDraft.desiredOutcome,
+                constraints: canonicalDraft.constraints,
+                criticalRequirements: canonicalDraft.criticalRequirements,
+                compatibilityRequirements: canonicalDraft.compatibilityRequirements,
+                requiredValidation: canonicalDraft.requiredValidation,
+                acceptanceSignals: canonicalDraft.acceptanceSignals,
+                suggestedPath: canonicalDraft.suggestedPath,
+                planningNotes: canonicalDraft.planningNotes,
+                kind: metadata.lineage.taskKind,
+                contextPackDir: metadata.contextPackBinding.contextPackDir,
+                contextPackId: metadata.contextPackBinding.contextPackId,
+                scopeMode: metadata.contextPackBinding.scopeMode,
+                primaryRepoId: metadata.contextPackBinding.primaryRepoId,
+                primaryFocusId: metadata.contextPackBinding.primaryFocusId,
+                selectedRepoIds: metadata.contextPackBinding.selectedRepoIds,
+                selectedFocusIds: metadata.contextPackBinding.selectedFocusIds,
+                repositoryTypes: metadata.contextPackBinding.repositoryTypes,
+                deepFocusEnabled: metadata.contextPackBinding.deepFocusEnabled,
+                selectedFocusPath: metadata.contextPackBinding.selectedFocusPath,
+                selectedFocusTargetKind: metadata.contextPackBinding.selectedFocusTargetKind,
+                selectedFocusTargets: metadata.contextPackBinding.selectedFocusTargets,
+                selectedTestTarget: metadata.contextPackBinding.selectedTestTarget,
+                selectedSupportTargets: metadata.contextPackBinding.selectedSupportTargets,
+                repoRoot: REPO_ROOT,
+              }),
+        );
 
         try {
           await commitPendingRecordToHistory(destinationPath);
@@ -618,6 +624,10 @@ export async function handleDesktopAction(
       return resolvedHandlers.saveSystemSettings(request.payload);
     case 'systemSettings.restart':
       return resolvedHandlers.restartApp();
+    case 'logExplorer.listFiles':
+      return resolvedHandlers.listLogExplorerFiles();
+    case 'logExplorer.readFile':
+      return resolvedHandlers.readLogExplorerFile(request.payload);
     case 'agentConfig.loadAgents':
       return resolvedHandlers.loadAgentConfigAgents();
     case 'agentConfig.loadModelCatalog':
@@ -802,11 +812,15 @@ export async function handleDesktopAction(
       }
     case 'cancel-task':
       return resolvedHandlers.cancelTask(request.payload.taskId);
-    default:
+    default: {
+      // Exhaustiveness guard: a new DesktopActionName without a case above
+      // fails to compile here instead of silently falling through at runtime.
+      const _exhaustive: never = request;
       return {
         ok: false,
-        action: (request as { action?: string }).action,
+        action: (_exhaustive as { action?: string }).action,
         error: 'Unsupported desktop action requested.',
       };
+    }
   }
 }

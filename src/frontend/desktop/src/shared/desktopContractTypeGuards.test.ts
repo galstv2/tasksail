@@ -241,10 +241,20 @@ describe('isTaskBoardKillTaskResponse', () => {
 });
 
 describe('isTaskBoardReadBoardResponse', () => {
-  it('accepts valid cleanup-failed pending rows and rejects malformed cleanup fields', () => {
-    expect(isTaskBoardReadBoardResponse({
+  function validBoard(overrides: Record<string, unknown> = {}) {
+    return {
       action: 'taskBoard.readBoard',
+      boardSnapshotSequence: 1,
       dropboxItems: [],
+      pendingItems: [],
+      errorItems: [],
+      completedItems: [],
+      ...overrides,
+    };
+  }
+
+  it('accepts valid cleanup-failed pending rows and rejects malformed cleanup fields', () => {
+    expect(isTaskBoardReadBoardResponse(validBoard({
       pendingItems: [{
         fileName: 'task-a.md',
         taskId: 'task-a',
@@ -256,12 +266,8 @@ describe('isTaskBoardReadBoardResponse', () => {
         stopCleanupMessage: 'Cleanup failed.',
         stopCleanupRetryable: true,
       }],
-      errorItems: [],
-      completedItems: [],
-    })).toBe(true);
-    expect(isTaskBoardReadBoardResponse({
-      action: 'taskBoard.readBoard',
-      dropboxItems: [],
+    }))).toBe(true);
+    expect(isTaskBoardReadBoardResponse(validBoard({
       pendingItems: [{
         fileName: 'task-a.md',
         taskId: 'task-a',
@@ -269,12 +275,8 @@ describe('isTaskBoardReadBoardResponse', () => {
         state: 'stopping',
         stopCleanupStatus: 'retrying',
       }],
-      errorItems: [],
-      completedItems: [],
-    })).toBe(false);
-    expect(isTaskBoardReadBoardResponse({
-      action: 'taskBoard.readBoard',
-      dropboxItems: [],
+    }))).toBe(false);
+    expect(isTaskBoardReadBoardResponse(validBoard({
       pendingItems: [{
         fileName: 'task-a.md',
         taskId: 'task-a',
@@ -283,9 +285,111 @@ describe('isTaskBoardReadBoardResponse', () => {
         stopCleanupStatus: 'failed',
         stopCleanupErrorCode: 'wrong-code',
       }],
+    }))).toBe(false);
+  });
+
+  it('rejects missing boardSnapshotSequence', () => {
+    expect(isTaskBoardReadBoardResponse({
+      action: 'taskBoard.readBoard',
+      dropboxItems: [],
+      pendingItems: [],
       errorItems: [],
       completedItems: [],
     })).toBe(false);
+  });
+
+  it('rejects non-finite boardSnapshotSequence', () => {
+    expect(isTaskBoardReadBoardResponse(validBoard({ boardSnapshotSequence: NaN }))).toBe(false);
+    expect(isTaskBoardReadBoardResponse(validBoard({ boardSnapshotSequence: Infinity }))).toBe(false);
+    expect(isTaskBoardReadBoardResponse(validBoard({ boardSnapshotSequence: 'one' }))).toBe(false);
+  });
+
+  it('rejects malformed dropbox item shapes', () => {
+    expect(isTaskBoardReadBoardResponse(validBoard({
+      dropboxItems: [{ fileName: '', taskId: null, title: null }],
+    }))).toBe(false);
+    expect(isTaskBoardReadBoardResponse(validBoard({
+      dropboxItems: [{ fileName: 'open.md', taskId: 42, title: null }],
+    }))).toBe(false);
+  });
+
+  it('rejects malformed error item shapes', () => {
+    expect(isTaskBoardReadBoardResponse(validBoard({
+      errorItems: [{ fileName: '', taskId: null, title: null }],
+    }))).toBe(false);
+  });
+
+  it('accepts valid dropbox, error, and completed items alongside valid pending items', () => {
+    expect(isTaskBoardReadBoardResponse(validBoard({
+      dropboxItems: [{ fileName: 'open.md', taskId: 'open-1', title: 'Open task' }],
+      errorItems: [{ fileName: 'err.md', taskId: 'err-1', title: 'Error task' }],
+      completedItems: [{ taskId: 'done-1', title: 'Done', summary: '', rootTaskId: 'done-1', qmdRecordId: 'task:pack:done-1', followupReason: '', year: '2026', archivePath: '/archive/done-1/archive.md', archivedAt: '2026-01-01T00:00:00Z', contextPackName: 'pack' }],
+    }))).toBe(true);
+  });
+
+  it('rejects a completed row with an empty taskId', () => {
+    expect(isTaskBoardReadBoardResponse(validBoard({
+      completedItems: [{ taskId: '', title: 'Done', summary: '', rootTaskId: 'done-1', qmdRecordId: 'task:pack:done-1', followupReason: '', year: '2026', archivePath: '/archive/done-1/archive.md', archivedAt: null, contextPackName: 'pack' }],
+    }))).toBe(false);
+  });
+
+  it('rejects a completed row with a non-string archivePath', () => {
+    expect(isTaskBoardReadBoardResponse(validBoard({
+      completedItems: [{ taskId: 'done-1', title: 'Done', summary: '', rootTaskId: 'done-1', qmdRecordId: 'task:pack:done-1', followupReason: '', year: '2026', archivePath: 42, archivedAt: null, contextPackName: 'pack' }],
+    }))).toBe(false);
+  });
+
+  it('rejects a completed row with a numeric archivedAt (must be string or null)', () => {
+    expect(isTaskBoardReadBoardResponse(validBoard({
+      completedItems: [{ taskId: 'done-1', title: 'Done', summary: '', rootTaskId: 'done-1', qmdRecordId: 'task:pack:done-1', followupReason: '', year: '2026', archivePath: '/archive/done-1/archive.md', archivedAt: 1234567890, contextPackName: 'pack' }],
+    }))).toBe(false);
+  });
+
+  it('accepts a valid completed row that also carries optional childChain and branchHandoffs metadata', () => {
+    const completedWithMeta = {
+      taskId: 'done-1',
+      title: 'Done',
+      summary: '',
+      rootTaskId: 'done-1',
+      qmdRecordId: 'task:pack:done-1',
+      followupReason: '',
+      year: '2026',
+      archivePath: '/archive/done-1/archive.md',
+      archivedAt: '2026-01-01T00:00:00Z',
+      contextPackName: 'pack',
+      // Optional metadata fields that may be present on chain tasks
+      childChain: {
+        rootTaskId: 'done-1',
+        parentTaskId: null,
+        previousTaskId: null,
+        depth: 0,
+        state: 'completed',
+        currentTipTaskId: 'done-1',
+        isCurrentTip: true,
+        archivePath: '/archive/done-1/archive.md',
+        archiveArtifactDir: '/archive/done-1',
+        parentArchivePath: null,
+        parentArchiveArtifactDir: null,
+      },
+      branchHandoffs: [],
+    };
+    expect(isTaskBoardReadBoardResponse(validBoard({
+      completedItems: [completedWithMeta],
+    }))).toBe(true);
+  });
+
+  it('rejects duplicate fileName identities across columns', () => {
+    expect(isTaskBoardReadBoardResponse(validBoard({
+      dropboxItems: [{ fileName: 'task.md', taskId: 'task-1', title: 'Task' }],
+      errorItems: [{ fileName: 'task.md', taskId: 'task-2', title: 'Task 2' }],
+    }))).toBe(false);
+  });
+
+  it('rejects duplicate taskId identities across columns', () => {
+    expect(isTaskBoardReadBoardResponse(validBoard({
+      dropboxItems: [{ fileName: 'task-a.md', taskId: 'task-1', title: 'Task A' }],
+      pendingItems: [{ fileName: 'task-b.md', taskId: 'task-1', title: 'Task B', state: 'pending' }],
+    }))).toBe(false);
   });
 });
 

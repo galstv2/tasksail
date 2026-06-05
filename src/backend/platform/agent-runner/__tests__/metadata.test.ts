@@ -16,8 +16,6 @@ import type { RegistryJson } from '../types.js';
 
 const MOCK_REGISTRY: RegistryJson = {
   schema_version: 1,
-  default_wall_clock_timeout_s: 300,
-  parallel_wall_clock_timeout_s: 900,
   agents: [
     {
       agent_id: 'software-engineer',

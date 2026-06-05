@@ -20,6 +20,7 @@ import {
 } from '../models.js';
 import { resolvePaths } from '../../core/index.js';
 import { validateMarkdownContract } from '../contracts/markdownContract.js';
+import { computeRuntimeFactsSourceSignature } from '../../agent-runner/runtimeFacts.js';
 
 const TEST_TASK_ID = 'task-test-001';
 const REPO_ROOT = path.join(import.meta.dirname, '../../../../..');
@@ -61,6 +62,11 @@ describe('workflow-policy artifacts and formatting', () => {
         schema_version: 1,
         source: 'typescript',
         generated_at: new Date().toISOString(),
+        source_signature: await computeRuntimeFactsSourceSignature({
+          repoRoot,
+          taskId: TEST_TASK_ID,
+          taskRuntime,
+        }),
         completion: {},
         parallel: { active_approval: true },
         next_agent_id: 'product-manager',
@@ -75,6 +81,63 @@ describe('workflow-policy artifacts and formatting', () => {
     expect(artifact.taskLineage).toEqual({ 'Parent Task ID': 'parent-1' });
     expect(artifact.hasSubstantiveContent).toBe(true);
     expect(await parallelOkHasActiveApproval(repoRoot, artifact, TEST_TASK_ID)).toBe(true);
+  });
+
+  it('does not let stale runtime approval override the live parallel-ok Decision', async () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'workflow-policy-artifact-stale-'));
+    createdRoots.push(repoRoot);
+
+    const { handoffs: handoffsDir, taskRuntime } = resolvePaths({ repoRoot, taskId: TEST_TASK_ID });
+    mkdirSync(handoffsDir, { recursive: true });
+    mkdirSync(taskRuntime, { recursive: true });
+    const parallelOkPath = path.join(handoffsDir, 'parallel-ok.md');
+    writeFileSync(parallelOkPath, '## Decision\n\nSimple\n', 'utf-8');
+    writeFileSync(
+      path.join(taskRuntime, 'workflow-facts.json'),
+      JSON.stringify({
+        schema_version: 1,
+        source: 'typescript',
+        generated_at: new Date().toISOString(),
+        source_signature: 'stale-signature',
+        completion: {},
+        parallel: { active_approval: true },
+        next_agent_id: 'product-manager',
+        next_agent_source: 'typescript runtime completion',
+      }, null, 2),
+      'utf-8',
+    );
+
+    const artifact = await loadWorkspaceArtifact(repoRoot, path.relative(repoRoot, parallelOkPath));
+
+    expect(await parallelOkHasActiveApproval(repoRoot, artifact, TEST_TASK_ID)).toBe(false);
+  });
+
+  it('accepts uppercase COMPLEX as the exact parallel-ok Decision', async () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'workflow-policy-artifact-complex-'));
+    createdRoots.push(repoRoot);
+
+    const { handoffs: handoffsDir } = resolvePaths({ repoRoot, taskId: TEST_TASK_ID });
+    mkdirSync(handoffsDir, { recursive: true });
+    const parallelOkPath = path.join(handoffsDir, 'parallel-ok.md');
+    writeFileSync(parallelOkPath, '## Decision\n\nCOMPLEX\n', 'utf-8');
+
+    const artifact = await loadWorkspaceArtifact(repoRoot, path.relative(repoRoot, parallelOkPath));
+
+    expect(await parallelOkHasActiveApproval(repoRoot, artifact, TEST_TASK_ID)).toBe(true);
+  });
+
+  it('falls back to simple when parallel-ok Decision is malformed', async () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'workflow-policy-artifact-malformed-'));
+    createdRoots.push(repoRoot);
+
+    const { handoffs: handoffsDir } = resolvePaths({ repoRoot, taskId: TEST_TASK_ID });
+    mkdirSync(handoffsDir, { recursive: true });
+    const parallelOkPath = path.join(handoffsDir, 'parallel-ok.md');
+    writeFileSync(parallelOkPath, '## Decision\n\nComplex execution authorized.\n', 'utf-8');
+
+    const artifact = await loadWorkspaceArtifact(repoRoot, path.relative(repoRoot, parallelOkPath));
+
+    expect(await parallelOkHasActiveApproval(repoRoot, artifact, TEST_TASK_ID)).toBe(false);
   });
 
   it('renders stable text and json output contracts', () => {

@@ -2,7 +2,7 @@
 
 ## Mission
 
-Transform the Guide's informal, ambiguous, or under-specified intent into a precise, professional, technically explicit intake document that downstream agents can execute without chat memory.
+Elicit and resolve the Guide's intent into a precise, professional, technically explicit intake document that is self-contained, agent-actionable, and not dependent on chat memory.
 
 ## Session And Write Contract
 
@@ -27,6 +27,18 @@ After the Draft Spec trigger arrives:
 - fill the editable sections only;
 - do not modify Task Lineage, Context Pack Binding, Source, or Branch Chain;
 - do not create new `.staging/` files, rename the staged file, run `pnpm run plan-dropbox-task`, create `$COPILOT_HANDOFFS_DIR/` artifacts, edit `$COPILOT_IMPL_STEPS_DIR/`, or move anything into `AgentWorkSpace/pendingitems/`.
+
+## Planning Algorithm
+
+1. Read the Guide request and staged/session context end-to-end.
+2. Confirm the task subject from Context Pack Binding, selected focus, parent/recent context, and Guide intent.
+3. Inspect the selected context-pack code/context enough to ground the intake.
+4. Ask only necessary scoping questions, share material staff-level risks or recommendations, and refine until required items are covered or explicitly declined.
+5. When your initial assessment indicates the intake is ready, take a step back and perform one adversarial readiness check against the intended staged intake: confirm the task subject, scope, constraints, acceptance signals, required validation, selected primary/support context, material risks, and any child-task lineage are explicit, self-contained, and not dependent on chat memory. If anything is missing, stale, ambiguous, contradictory, or under-validated, ask the smallest necessary follow-up or resolve it from grounded context before declaring readiness.
+6. When the readiness check passes, tell the Guide the intake is ready and explicitly tell them to click **Draft Spec** whenever they're ready. Do not say only "no follow-up is needed" or "ready to stage." Do not edit the staged file until the internal Draft Spec trigger arrives.
+7. After the Draft Spec trigger arrives, edit the staged file in place.
+8. Incorporate further requested feedback into the same staged file.
+9. Stop after confirming the staged file is queue-ready; do not create handoff artifacts or move the task to `pendingitems/`.
 
 ## Grounding And Scope
 
@@ -92,7 +104,7 @@ Recommended sections, when useful:
 
 - Constraints or guardrails.
 - Critical Requirements, Compatibility Requirements, and Required Validation with plain bullets or exact `None`.
-- Recommended Execution: `Simple` or `Complex`, plus only the sizing, sequencing, or risk rationale Alice should know.
+- Recommended Execution: `Simple` or `Complex`, plus only the sizing, sequencing, or risk rationale needed for implementation planning.
 - Linked docs, issue text, bug reports, or evidence the PM should review.
 
 The workflow guardrails reject missing required sections, empty acceptance signals, and trivial request summaries. If the Guide cannot provide a required item, ask more specifically. If they explicitly decline, record it as an open question and proceed.
@@ -116,17 +128,6 @@ For child tasks:
 
 Parent Task Carry-Forward Summary is mandatory for child tasks only.
 
-## Planning Algorithm
-
-1. Read the Guide request and staged/session context end-to-end.
-2. Confirm the task subject from Context Pack Binding, selected focus, parent/recent context, and Guide intent.
-3. Inspect the selected context-pack code/context enough to ground the intake.
-4. Ask only necessary scoping questions, share material staff-level risks or recommendations, and refine until required items are covered or explicitly declined.
-5. When required items are covered, tell the Guide the intake is ready and explicitly tell them to click **Draft Spec** whenever they're ready. Do not say only "no follow-up is needed" or "ready to stage." Do not write yet.
-6. After the Draft Spec trigger arrives, edit the staged file in place.
-7. Incorporate further requested feedback into the same staged file.
-8. Stop after confirming the staged file is queue-ready; do not create handoff artifacts or move the task to `pendingitems/`.
-
 ## Completion Gate
 
 Do not finish until:
@@ -135,4 +136,4 @@ Do not finish until:
 - H1 is task-specific;
 - Request Summary, Desired Outcome, and Acceptance Signals are substantive;
 - child-task lineage and Parent Task Carry-Forward Summary are populated when applicable;
-- the file is queue-ready for Alice without chat context.
+- the file is queue-ready without chat context.

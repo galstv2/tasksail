@@ -81,6 +81,8 @@ describe('electron preload bridge', () => {
         saveAgentModels: expect.any(Function),
         addModel: expect.any(Function),
         removeModel: expect.any(Function),
+        listLogFiles: expect.any(Function),
+        readLogFile: expect.any(Function),
         readTaskNotifications: expect.any(Function),
         markTaskNotificationsSeen: expect.any(Function),
         dismissTaskNotification: expect.any(Function),
@@ -620,6 +622,94 @@ describe('electron preload bridge', () => {
     expect(desktopShellApi).not.toHaveProperty('writeHandoff');
   });
 
+  describe('onTaskBoardUpdate completedItems shape validation', () => {
+    it('does not invoke renderer callback when completedItems contains a malformed row (missing taskId)', async () => {
+      const { desktopShellApi } = await import('./preload');
+      const callback = vi.fn();
+      desktopShellApi.onTaskBoardUpdate(callback);
+
+      const handler = on.mock.calls.find(
+        (call) => call[0] === DESKTOP_SHELL_TASK_BOARD_CHANNEL,
+      )?.[1];
+      expect(handler).toBeDefined();
+
+      // A push whose completedItems row has an empty taskId — must be rejected.
+      const malformedBoard = {
+        action: 'taskBoard.readBoard',
+        mode: 'read-only',
+        message: '0 open, 0 pending, 0 failed, 1 completed.',
+        boardSnapshotSequence: 2,
+        dropboxItems: [],
+        pendingItems: [],
+        errorItems: [],
+        completedItems: [
+          // taskId is empty — isArchivedTaskEntry requires a non-empty string
+          { taskId: '', title: 'Bad task', summary: '', rootTaskId: 'done-1', qmdRecordId: 'task:pack:done-1', followupReason: '', year: '2026', archivePath: '/archive/done-1/archive.md', archivedAt: null, contextPackName: 'pack' },
+        ],
+      };
+      handler!({} as Electron.IpcRendererEvent, malformedBoard);
+
+      // Callback must NOT have been called — the malformed row fails the guard.
+      expect(callback).not.toHaveBeenCalled();
+      const logCalls = invoke.mock.calls.filter((call) => call[0] === LOG_EMIT_CHANNEL);
+      expect(logCalls.length).toBeGreaterThanOrEqual(1);
+      expect(logCalls[0]?.[1]).toMatchObject({ msg: 'preload.task-board-update.malformed' });
+    });
+
+    it('invokes renderer callback when completedItems contains a valid row with optional metadata', async () => {
+      const { desktopShellApi } = await import('./preload');
+      const callback = vi.fn();
+      desktopShellApi.onTaskBoardUpdate(callback);
+
+      const handler = on.mock.calls.find(
+        (call) => call[0] === DESKTOP_SHELL_TASK_BOARD_CHANNEL,
+      )?.[1];
+
+      // A valid completed push that also carries optional childChain + branchHandoffs.
+      const validBoard = {
+        action: 'taskBoard.readBoard',
+        mode: 'read-only',
+        message: '0 open, 0 pending, 0 failed, 1 completed.',
+        boardSnapshotSequence: 3,
+        dropboxItems: [],
+        pendingItems: [],
+        errorItems: [],
+        completedItems: [
+          {
+            taskId: 'done-1',
+            title: 'Done task',
+            summary: '',
+            rootTaskId: 'done-1',
+            qmdRecordId: 'task:pack:done-1',
+            followupReason: '',
+            year: '2026',
+            archivePath: '/archive/done-1/archive.md',
+            archivedAt: '2026-01-01T00:00:00Z',
+            contextPackName: 'pack',
+            childChain: {
+              rootTaskId: 'done-1',
+              parentTaskId: null,
+              previousTaskId: null,
+              depth: 0,
+              state: 'completed',
+              currentTipTaskId: 'done-1',
+              isCurrentTip: true,
+              archivePath: '/archive/done-1/archive.md',
+              archiveArtifactDir: '/archive/done-1',
+              parentArchivePath: null,
+              parentArchiveArtifactDir: null,
+            },
+            branchHandoffs: [],
+          },
+        ],
+      };
+      handler!({} as Electron.IpcRendererEvent, validBoard);
+
+      // Callback must be called — valid shape passes the guard.
+      expect(callback).toHaveBeenCalledWith(validBoard);
+    });
+  });
+
   describe('onStreamEvent validation', () => {
     it('invokes callback for well-formed stream events', async () => {
       const { desktopShellApi } = await import('./preload');
@@ -631,7 +721,18 @@ describe('electron preload bridge', () => {
       )?.[1];
       expect(handler).toBeDefined();
 
-      const validEvent = { id: 'evt-1', role: 'swe', message: 'Hello', timestamp: Date.now() };
+      const validEvent = {
+        id: 'evt-1',
+        timestamp: '2026-01-01T00:00:00.000Z',
+        role: 'swe',
+        source: 'pipeline',
+        taskId: 'task-1',
+        taskGuid: null,
+        taskShortGuid: null,
+        taskTitle: null,
+        severity: 'info',
+        message: 'Hello',
+      };
       handler!({} as Electron.IpcRendererEvent, validEvent);
       expect(callback).toHaveBeenCalledWith(validEvent);
     });
@@ -727,7 +828,16 @@ describe('electron preload bridge', () => {
       )?.[1];
       expect(handler).toBeDefined();
 
-      const validBoard = { action: 'taskBoard.readBoard', mode: 'read-only' };
+      const validBoard = {
+        action: 'taskBoard.readBoard',
+        mode: 'read-only',
+        message: '0 open, 0 pending, 0 failed, 0 completed.',
+        boardSnapshotSequence: 1,
+        dropboxItems: [],
+        pendingItems: [],
+        errorItems: [],
+        completedItems: [],
+      };
       handler!({} as Electron.IpcRendererEvent, validBoard);
       expect(callback).toHaveBeenCalledWith(validBoard);
     });
@@ -741,16 +851,22 @@ describe('electron preload bridge', () => {
         (call) => call[0] === DESKTOP_SHELL_TASK_BOARD_CHANNEL,
       )?.[1];
 
+      // Missing boardSnapshotSequence — rejected by the strengthened guard.
+      handler!({} as Electron.IpcRendererEvent, { action: 'taskBoard.readBoard', mode: 'read-only' });
       handler!({} as Electron.IpcRendererEvent, { action: 'taskBoard.somethingElse' });
       handler!({} as Electron.IpcRendererEvent, null);
       expect(callback).not.toHaveBeenCalled();
       const logCalls = invoke.mock.calls.filter((call) => call[0] === LOG_EMIT_CHANNEL);
-      expect(logCalls).toHaveLength(2);
+      expect(logCalls).toHaveLength(3);
       expect(logCalls[0]?.[1]).toMatchObject({
+        msg: 'preload.task-board-update.malformed',
+        extra: { action: 'taskBoard.readBoard', type: 'object' },
+      });
+      expect(logCalls[1]?.[1]).toMatchObject({
         msg: 'preload.task-board-update.malformed',
         extra: { action: 'taskBoard.somethingElse', type: 'object' },
       });
-      expect(logCalls[1]?.[1]).toMatchObject({
+      expect(logCalls[2]?.[1]).toMatchObject({
         msg: 'preload.task-board-update.malformed',
         extra: { action: null, type: 'object' },
       });

@@ -6,9 +6,9 @@
   display: inline-flex;
   align-items: center;
   padding: 0.16rem 0.5rem;
-  border: 1px solid rgba(45, 122, 74, 0.45);
+  border: 1px solid color-mix(in srgb, var(--ts-brand-green) 45%, transparent);
   border-radius: var(--ts-radius-sm);
-  background: rgba(45, 122, 74, 0.16);
+  background: color-mix(in srgb, var(--ts-brand-green) 16%, transparent);
   color: var(--ts-brand-green-light);
   font-family: var(--ts-font-mono);
   font-size: 0.7rem;
@@ -18,7 +18,7 @@
 }
 
 .task-detail-modal__branch-action-btn:hover:not(:disabled) {
-  background: rgba(45, 122, 74, 0.26);
+  background: color-mix(in srgb, var(--ts-brand-green) 26%, transparent);
 }
 
 .task-detail-modal__branch-action-btn:disabled {
@@ -37,7 +37,7 @@
   gap: 1rem;
   margin: 0 0 0.85rem;
   padding-bottom: 0.65rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  border-bottom: 1px solid color-mix(in srgb, var(--ts-text-inverse) 12%, transparent);
 }
 
 .child-chain-inventory__meta div {
@@ -76,12 +76,12 @@
   letter-spacing: 0.05em;
   color: var(--terminal-text);
   opacity: 0.7;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.16);
+  border-bottom: 1px solid color-mix(in srgb, var(--ts-text-inverse) 16%, transparent);
 }
 
 .child-chain-inventory__table td {
   padding: 0.45rem 0.6rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  border-bottom: 1px solid color-mix(in srgb, var(--ts-text-inverse) 7%, transparent);
   vertical-align: top;
 }
 
@@ -123,7 +123,7 @@
 .task-branch-inventory__subtitle {
   margin: 0 0 0.85rem;
   padding-bottom: 0.65rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  border-bottom: 1px solid color-mix(in srgb, var(--ts-text-inverse) 12%, transparent);
   font-size: 0.78rem;
   color: var(--terminal-text);
   opacity: 0.78;
@@ -144,12 +144,12 @@
   letter-spacing: 0.05em;
   color: var(--terminal-text);
   opacity: 0.7;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.16);
+  border-bottom: 1px solid color-mix(in srgb, var(--ts-text-inverse) 16%, transparent);
 }
 
 .task-branch-inventory__table td {
   padding: 0.45rem 0.6rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  border-bottom: 1px solid color-mix(in srgb, var(--ts-text-inverse) 7%, transparent);
   vertical-align: top;
 }
 

@@ -37,6 +37,10 @@ import {
   saveSystemSettingsAction,
 } from './systemSettingsHandlers';
 import {
+  listLogExplorerFilesAction,
+  readLogExplorerFileAction,
+} from './logExplorerHandlers';
+import {
   listAgentExtensionsCatalog,
   addAgentExtensionCatalog,
   reseedAgentExtensionCatalog,
@@ -260,6 +264,10 @@ export type DesktopActionHandlers = {
     payload: import('../src/shared/desktopContract').SystemSettingsSaveRequest['payload'],
   ) => Promise<DesktopInvokeResult>;
   restartApp: () => Promise<DesktopInvokeResult>;
+  listLogExplorerFiles: () => Promise<DesktopInvokeResult>;
+  readLogExplorerFile: (
+    payload: import('../src/shared/desktopContract').LogExplorerReadFileRequest['payload'],
+  ) => Promise<DesktopInvokeResult>;
   loadAgentConfigAgents: () => Promise<DesktopInvokeResult>;
   loadAgentModelCatalog: () => Promise<DesktopInvokeResult>;
   loadAgentConfigCapabilities: () => Promise<DesktopInvokeResult>;
@@ -683,6 +691,8 @@ export function createDefaultDesktopActionHandlers(
       },
     };
   },
+  listLogExplorerFiles: () => listLogExplorerFilesAction(),
+  readLogExplorerFile: (payload) => readLogExplorerFileAction(payload),
   loadAgentConfigAgents: () => loadAgentConfigAgents(),
   loadAgentModelCatalog: () => loadAgentModelCatalog(),
   loadAgentConfigCapabilities: () => loadAgentConfigCapabilities(),

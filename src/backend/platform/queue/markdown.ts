@@ -1,4 +1,4 @@
-import { createLogger, extractMarkdownSection, stripHtmlComments } from '../core/index.js';
+import { createLogger, extractMarkdownSection, relativePathEscapes, stripHtmlComments } from '../core/index.js';
 import type { PrimaryFocusTarget } from '../context-pack/deepFocusNormalization.js';
 import { parseSections } from '../workflow-policy/artifacts.js';
 import { loadMarkdownContract } from '../workflow-policy/contracts/markdownContract.js';
@@ -276,7 +276,7 @@ export type ContextPackBindingResult =
   | { kind: 'absent' }
   | {
       kind: 'invalid';
-      reason: 'missing-context-pack-dir' | 'malformed-targets' | 'malformed-deep-focus' | 'malformed-repository-types';
+      reason: 'missing-context-pack-dir' | 'unsafe-context-pack-dir' | 'malformed-targets' | 'malformed-deep-focus' | 'malformed-repository-types';
       section: string;
     }
   | { kind: 'binding'; binding: TaskContextPackBinding };
@@ -369,6 +369,9 @@ export function extractContextPackBinding(
 
   const dir = extractLabeledValue(section, 'Context Pack Dir', SECTION_NAMES.CONTEXT_PACK_BINDING);
   if (!dir) return { kind: 'invalid', reason: 'missing-context-pack-dir', section };
+  // SEC-TS-04: a relative Context Pack Dir must not escape via '..'. Agent-authored
+  // task markdown could otherwise drive reads outside the repo root once resolved.
+  if (relativePathEscapes(dir)) return { kind: 'invalid', reason: 'unsafe-context-pack-dir', section };
 
   const binding: TaskContextPackBinding = {
     contextPackDir: dir,

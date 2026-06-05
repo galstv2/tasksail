@@ -10,6 +10,7 @@ import {
   isPickDirectoryResponse,
   isDiscoverPrefillResponse as isDiscoverResponse,
 } from '../../shared/desktopContractTypeGuards';
+import type { ContextPackCreationState } from './useContextPackCreation';
 import type {
   ContextPackCreationDraft,
   FocusAreaEntryDraft,
@@ -203,9 +204,9 @@ export type UseContextPackDiscoveryResult = {
 
 export function useContextPackDiscovery(
   client: DesktopShellClient = desktopShellClient,
-  getState: () => { kind: string; draft: ContextPackCreationDraft; mode?: string },
+  getState: () => ContextPackCreationState,
   updateDraft: (updater: (draft: ContextPackCreationDraft) => ContextPackCreationDraft) => void,
-  setState: (updater: (current: unknown) => unknown) => void,
+  setState: (updater: (current: ContextPackCreationState) => ContextPackCreationState) => void,
 ): UseContextPackDiscoveryResult {
   const browsePath = useCallback(
     async (purpose: 'discovery-root' | 'context-pack-destination') => {
@@ -223,8 +224,8 @@ export function useContextPackDiscovery(
           const errorMsg = result.ok
             ? 'Directory selection returned an unexpected response.'
             : formatIpcError(result);
-          setState((s: unknown) => {
-            const state = s as { kind: string };
+          setState((s) => {
+            const state = s;
             return state.kind === 'closed'
               ? state
               : { ...state, error: errorMsg };
@@ -242,8 +243,8 @@ export function useContextPackDiscovery(
         }));
       } catch (error: unknown) {
         const errorMsg = normalizeIpcThrownError(error, 'Directory selection failed unexpectedly.');
-        setState((s: unknown) => {
-          const state = s as { kind: string };
+        setState((s) => {
+          const state = s;
           return state.kind === 'closed' ? state : { ...state, error: errorMsg };
         });
       }
@@ -258,8 +259,8 @@ export function useContextPackDiscovery(
     }
     const rootPath = current.draft.discoveryRoot.trim();
     if (!rootPath) {
-      setState((s: unknown) => {
-        const state = s as { kind: string };
+      setState((s) => {
+        const state = s;
         return state.kind === 'closed'
           ? state
           : { ...state, error: 'Choose a discovery root before scanning for suggestions.' };
@@ -267,8 +268,8 @@ export function useContextPackDiscovery(
       return;
     }
 
-    setState((s: unknown) => {
-      const state = s as { kind: string };
+    setState((s) => {
+      const state = s;
       return state.kind === 'closed'
         ? state
         : {
@@ -289,8 +290,8 @@ export function useContextPackDiscovery(
         const errorMsg = result.ok
           ? 'Discovery returned an unexpected response.'
           : formatIpcError(result);
-        setState((s: unknown) => {
-          const state = s as { kind: string };
+        setState((s) => {
+          const state = s;
           return state.kind === 'closed'
             ? state
             : {
@@ -307,8 +308,8 @@ export function useContextPackDiscovery(
         (isDistributedEstateMode(response.estateType) && response.candidateRepos.length === 0)
         || (isMonolithEstateMode(response.estateType) && response.candidateFocusAreas.length === 0);
 
-      setState((s: unknown) => {
-        const state = s as { kind: string; draft: ContextPackCreationDraft; step?: string };
+      setState((s) => {
+        const state = s;
         if (state.kind !== 'open') {
           return state;
         }
@@ -326,8 +327,8 @@ export function useContextPackDiscovery(
       });
     } catch (error: unknown) {
       const errorMsg = normalizeIpcThrownError(error, 'Discovery failed unexpectedly.');
-      setState((s: unknown) => {
-        const state = s as { kind: string };
+      setState((s) => {
+        const state = s;
         return state.kind === 'closed'
           ? state
           : {

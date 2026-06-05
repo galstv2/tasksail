@@ -13,6 +13,7 @@ import {
   writeTextFileAtomic,
 } from '../core/index.js';
 import { listActivePipelines, stopPipeline } from '../agent-runner/pipelineSupervisor.js';
+import { pipelineKillSwitchExists, requestPipelineKill } from '../agent-runner/pipeline/runtimeControl.js';
 import type { ActivationRollbackBinding } from './branchChainActivation.js';
 import { clearActivationProgress, readActivationProgressRecord } from './activationProgress.js';
 import { withDirLock } from './dirLock.js';
@@ -270,7 +271,8 @@ async function rollbackBindings(bindings: ActivationRollbackBinding[]): Promise<
       await execFileAsync('git', ['-C', binding.originalRoot, 'worktree', 'prune']).catch(() => {});
     }
     if (rollbackBinding.createdBranch && binding.worktreeBranch) {
-      await execFileAsync('git', ['-C', binding.originalRoot, 'branch', '-D', binding.worktreeBranch]).catch(() => {});
+      // SEC-TS-05: '--' guards against an agent-authored branch name starting with '-'.
+      await execFileAsync('git', ['-C', binding.originalRoot, 'branch', '-D', '--', binding.worktreeBranch]).catch(() => {});
     }
   }
 }
@@ -484,9 +486,46 @@ async function runActiveKillCleanup(args: {
   };
 }
 
+// Bounded window (ms) given to the owning process to acknowledge the durable kill switch.
+const CROSS_PROCESS_KILL_ACK_WINDOW_MS = 5000;
+// Poll interval for kill-switch acknowledgment.
+const CROSS_PROCESS_KILL_POLL_INTERVAL_MS = 250;
+
+/**
+ * Poll until the owning process acknowledges the durable kill switch (by clearing
+ * the switch file or removing the active marker), or the window expires.
+ *
+ * Injectable for tests via `_sleepMs` (replaces real setTimeout delay).
+ */
+async function pollForCrossProcessKillAck(args: {
+  repoRoot: string;
+  taskId: string;
+  activeMarkerPath: string;
+  windowMs: number;
+  _sleepMs?: (ms: number) => Promise<void>;
+}): Promise<'acked' | 'timeout'> {
+  const sleepMs = args._sleepMs ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const deadline = Date.now() + args.windowMs;
+  while (Date.now() < deadline) {
+    const switchGone = !pipelineKillSwitchExists(args.repoRoot, args.taskId);
+    const markerGone = !existsSync(args.activeMarkerPath);
+    if (switchGone || markerGone) return 'acked';
+    await sleepMs(CROSS_PROCESS_KILL_POLL_INTERVAL_MS);
+  }
+  // Final check after deadline.
+  if (!pipelineKillSwitchExists(args.repoRoot, args.taskId) || !existsSync(args.activeMarkerPath)) {
+    return 'acked';
+  }
+  return 'timeout';
+}
+
 export async function executeRequestedTaskKill(args: {
   repoRoot: string;
   taskId: string;
+  /** Injectable for tests: replaces real setTimeout in the cross-process kill-ack poll. */
+  _sleepMs?: (ms: number) => Promise<void>;
+  /** Injectable for tests: overrides the cross-process kill-ack window duration. */
+  _crossProcessKillWindowMs?: number;
 }): Promise<
   | { mode: 'failed'; taskId: string; movedItem: string; nextActiveItem?: string | null }
   | { mode: 'kill-requested'; taskId: string }
@@ -534,6 +573,22 @@ export async function executeRequestedTaskKill(args: {
       const hasActivationProgress = await readActivationProgressRecord(paths, args.taskId) !== null;
       if (hasActivationProgress || !hasActiveMarker) {
         return { mode: 'kill-requested', taskId: args.taskId };
+      }
+      // Cross-process kill path: write the durable kill switch and give the owning process
+      // a bounded window to acknowledge before we proceed to terminal cleanup ourselves.
+      await requestPipelineKill(args.repoRoot, args.taskId, 'cross-process-operator-kill');
+      const ackResult = await pollForCrossProcessKillAck({
+        repoRoot: args.repoRoot,
+        taskId: args.taskId,
+        activeMarkerPath,
+        windowMs: args._crossProcessKillWindowMs ?? CROSS_PROCESS_KILL_ACK_WINDOW_MS,
+        _sleepMs: args._sleepMs,
+      });
+      if (ackResult === 'timeout' && existsSync(activeMarkerPath)) {
+        log.warn('task_kill.cross_process_ownership_unconfirmed', {
+          taskId: args.taskId,
+          windowMs: args._crossProcessKillWindowMs ?? CROSS_PROCESS_KILL_ACK_WINDOW_MS,
+        });
       }
       await markStarted();
       try {

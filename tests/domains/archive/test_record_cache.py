@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+from src.backend.mcp.repo_context_mcp.services import archive_service
 from src.backend.mcp.repo_context_mcp.services.archive_service import TaskArchiveService
 from src.backend.mcp.repo_context_mcp.services.record_cache import ScopedRecordCache
 
@@ -187,3 +188,60 @@ class TestArchiveServiceCaching:
         assert cached_archives is not archives
         assert cached_retros == retros
         assert cached_retros is not retros
+
+
+# ---------------------------------------------------------------------------
+# SEC-PY-07 — bounded archive scan over an HTTP-controlled scope_dir
+# ---------------------------------------------------------------------------
+
+
+class TestArchiveScanBounds:
+    def test_scan_stops_at_limit(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.setattr(archive_service, "_RECORD_SCAN_LIMIT", 5)
+        for i in range(40):
+            (tmp_path / f"r{i}.json").write_text("{}", encoding="utf-8")
+        found = archive_service._iter_bounded_json_files(tmp_path)
+        # Bounded: the walk stops at the limit, never enumerating all 40.
+        assert len(found) <= 5
+
+    def test_oversized_record_skipped(
+        self, tmp_path: Path, write_record, monkeypatch,
+    ) -> None:
+        monkeypatch.setattr(archive_service, "_MAX_RECORD_BYTES", 1024)
+        scope_dir = tmp_path / "qmd" / "scope"
+        write_record(scope_dir, "small.json", {
+            "record_type": "task-archive",
+            "task_id": "T-small",
+            "record_id": "rec-small",
+        })
+        write_record(scope_dir, "big.json", {
+            "record_type": "task-archive",
+            "task_id": "T-big",
+            "record_id": "rec-big",
+            "blob": "x" * 10000,
+        })
+
+        service = TaskArchiveService(workspace_root=tmp_path)
+        archives = service.iter_task_archive_records(scope_dir)
+        task_ids = {rec["task_id"] for _, rec in archives}
+        assert "T-small" in task_ids
+        assert "T-big" not in task_ids
+
+    def test_dir_symlink_named_json_does_not_crash(
+        self, tmp_path: Path, write_record,
+    ) -> None:
+        scope_dir = tmp_path / "qmd" / "scope"
+        write_record(scope_dir, "real.json", {
+            "record_type": "task-archive",
+            "task_id": "T-real",
+            "record_id": "rec-real",
+        })
+        # A directory symlink named like a record must not crash the scan.
+        target_dir = scope_dir / "subdir"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        (scope_dir / "evil.json").symlink_to(target_dir, target_is_directory=True)
+
+        service = TaskArchiveService(workspace_root=tmp_path)
+        archives = service.iter_task_archive_records(scope_dir)
+        task_ids = {rec["task_id"] for _, rec in archives}
+        assert "T-real" in task_ids

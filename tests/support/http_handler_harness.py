@@ -112,7 +112,11 @@ def build_request(
     headers: dict[str, str] | None = None,
 ) -> bytes:
     """Serialize an HTTP/1.1 request to raw bytes."""
-    lines = [f"{method} {path} HTTP/1.1", "Host: localhost"]
+    lines = [f"{method} {path} HTTP/1.1"]
+    # Default Host preserved unless the caller overrides it (case-insensitive),
+    # so foreign-Host paths can be exercised without emitting a duplicate header.
+    if not (headers and any(key.lower() == "host" for key in headers)):
+        lines.append("Host: localhost")
     body_bytes = body or b""
     if body is not None:
         lines.append(f"Content-Length: {len(body_bytes)}")

@@ -69,6 +69,21 @@ describe('workflow-policy runtimeInference', () => {
     expect(completion['software-engineer']).toEqual({ completed: true });
   });
 
+  it('does not mark software-engineer complete for a failed role-session terminal status', async () => {
+    // Guards the equality-not-truthy contract: a finished-but-failed session must
+    // not count as completion (no guardrail receipt is present to fall back to).
+    checkAgentArtifactCompletion.mockResolvedValue(true);
+    writeFileSync(
+      path.join(repoRoot, '.platform-state', 'runtime', 'tasks', TEST_TASK_ID, 'role-sessions', 'software-engineer.json'),
+      JSON.stringify({ terminal: { status: 'failed', exit_code: 1 } }),
+      'utf-8',
+    );
+
+    const completion = await computeRuntimeCompletionFacts({ repoRoot, taskId: TEST_TASK_ID, handoffsDir, implStepsDir });
+
+    expect(completion['software-engineer']).toEqual({ completed: false });
+  });
+
   it('falls back to the SWE guardrail receipt when no role-session receipt exists', async () => {
     checkAgentArtifactCompletion.mockResolvedValue(true);
     writeFileSync(

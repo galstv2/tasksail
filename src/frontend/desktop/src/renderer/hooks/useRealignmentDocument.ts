@@ -51,7 +51,7 @@ function docToDraft(doc: ReinforcementGlobalDocData): DocumentDraft {
 }
 
 export function useRealignmentDocument(
-  hasActiveContextPack: boolean,
+  activeContextPackDir: string | null,
   client: DesktopShellClient = desktopShellClient,
 ): UseRealignmentDocumentResult {
   const [draft, setDraft] = useState<DocumentDraft>(EMPTY_DRAFT);
@@ -61,19 +61,22 @@ export function useRealignmentDocument(
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<SaveState>({ status: 'idle' });
+  const requestGenerationRef = useRef(0);
 
   const load = useCallback(async () => {
-    if (!hasActiveContextPack) {
+    if (!activeContextPackDir) {
       setDraft(EMPTY_DRAFT);
       setBaseline(EMPTY_DRAFT);
       setVersion(0);
       setUpdatedAt('');
       return;
     }
+    const generation = ++requestGenerationRef.current;
     setLoading(true);
     setLoadError(null);
     try {
       const result = await client.readRealignmentDoc();
+      if (generation !== requestGenerationRef.current) return;
       if (result.ok && result.response.action === 'reinforcement.readRealignmentDoc') {
         const d = docToDraft(result.response.document);
         setDraft(d);
@@ -84,15 +87,27 @@ export function useRealignmentDocument(
         setLoadError(result.error);
       }
     } catch (err: unknown) {
+      if (generation !== requestGenerationRef.current) return;
       setLoadError(err instanceof Error ? err.message : 'Failed to load document.');
     } finally {
-      setLoading(false);
+      if (generation === requestGenerationRef.current) {
+        setLoading(false);
+      }
     }
-  }, [hasActiveContextPack, client]);
+  }, [activeContextPackDir, client]);
 
+  // Reset and reload on pack change
   useEffect(() => {
+    setDraft(EMPTY_DRAFT);
+    setBaseline(EMPTY_DRAFT);
+    setVersion(0);
+    setUpdatedAt('');
+    setLoadError(null);
+    setSaveState({ status: 'idle' });
+    requestGenerationRef.current += 1;
     load().catch(() => {});
-  }, [load]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeContextPackDir]);
 
   const onFieldChange = useCallback((field: keyof DocumentDraft, value: string) => {
     setDraft((prev) => ({ ...prev, [field]: value }));

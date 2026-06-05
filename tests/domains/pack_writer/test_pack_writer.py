@@ -343,10 +343,11 @@ def test_write_manifest_crash_between_tempfile_and_replace_preserves_original(
     def _explode(*_a: object, **_kw: object) -> None:
         raise OSError("simulated crash mid-write")
 
-    # PackWriter -> pack_io.write_text_atomic -> os.replace; intercept the rename step
-    # at its concrete home in repo_context_mcp/utils.py.
-    from src.backend.mcp.repo_context_mcp import utils as _utils
-    monkeypatch.setattr(_utils.os, "replace", _explode)
+    # PackWriter -> pack_io.write_text_atomic -> utils.write_text_atomic ->
+    # lib/io.atomic_write_text -> os.replace; intercept the rename step at its
+    # concrete home in scripts/python/lib/io.py.
+    from src.backend.scripts.python.lib import io as _io
+    monkeypatch.setattr(_io.os, "replace", _explode)
 
     model = _load_v2_fixture()
     # Mutate something so the would-be write differs from the original.

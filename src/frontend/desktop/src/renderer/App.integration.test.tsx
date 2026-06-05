@@ -60,7 +60,7 @@ describe("App", () => {
           ],
         },
       })
-      .mockResolvedValueOnce({
+      .mockResolvedValue({
         ok: true,
         response: {
           action: 'contextPack.list',
@@ -222,10 +222,17 @@ describe("App", () => {
     await renderApp();
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Create Context Pack' })).toBeInTheDocument();
+      expect(screen.getByLabelText('Select context pack')).toHaveTextContent('Orders Estate');
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Create Context Pack' }));
+    const sidebar = screen.getByLabelText('Context pack sidebar');
+    await waitFor(() => {
+      expect(
+        within(sidebar).getByRole('button', { name: 'Create Context Pack' }),
+      ).toBeEnabled();
+    });
+
+    fireEvent.click(within(sidebar).getByRole('button', { name: 'Create Context Pack' }));
 
     await waitFor(() => {
       expect(screen.getByRole('dialog', { name: 'Create Context Pack' })).toBeInTheDocument();
@@ -264,7 +271,7 @@ describe("App", () => {
         mode: 'distributed',
       }),
     );
-    expect(window.desktopShell.listContextPacks).toHaveBeenCalledTimes(2);
+    expect(window.desktopShell.listContextPacks).toHaveBeenCalledTimes(3);
     const packSelect = screen.getByLabelText('Select context pack') as HTMLSelectElement;
     expect(packSelect).toBeInTheDocument();
     expect(screen.getByText('Created catalog estate.')).toBeInTheDocument();
@@ -353,6 +360,7 @@ describe("App", () => {
     };
     window.desktopShell.listContextPacks = vi
       .fn()
+      .mockResolvedValueOnce(activePackResponse)
       .mockResolvedValueOnce(activePackResponse)
       .mockResolvedValueOnce(activePackResponse)
       .mockResolvedValue({

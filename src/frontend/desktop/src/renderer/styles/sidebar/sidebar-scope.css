@@ -298,11 +298,11 @@
 .focus-filter-modal__list::-webkit-scrollbar { width: var(--ts-scrollbar-width, 5px); }
 .focus-filter-modal__list::-webkit-scrollbar-track { background: var(--ts-scrollbar-track, transparent); }
 .focus-filter-modal__list::-webkit-scrollbar-thumb {
-  background: var(--ts-scrollbar-thumb, rgba(0, 0, 0, 0.12));
+  background: var(--ts-scrollbar-thumb);
   border-radius: var(--ts-radius-pill);
 }
 .focus-filter-modal__list::-webkit-scrollbar-thumb:hover {
-  background: var(--ts-scrollbar-thumb-hover, rgba(0, 0, 0, 0.2));
+  background: var(--ts-scrollbar-thumb-hover);
 }
 
 .focus-filter-modal__row {
@@ -526,7 +526,7 @@
   font-size: 0.66rem;
   color: var(--ts-text);
   word-break: break-all;
-  background: var(--ts-bg-hover, rgba(0, 0, 0, 0.04));
+  background: var(--ts-bg-hover);
   border: 1px solid var(--ts-border);
   border-radius: var(--ts-radius-sm, 4px);
   padding: 0.3rem 0.45rem;

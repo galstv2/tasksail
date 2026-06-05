@@ -22,6 +22,15 @@ const sessionMocks = vi.hoisted(() => ({
   getPlanningAgentReasoningEffort: vi.fn(),
   getPlanningAgentRequiredModel: vi.fn(() => 'gpt-4.1'),
   reasoningEffortCapabilities: vi.fn(),
+  resolveLilyPlannerLaunchExtensions: vi.fn((args: { plannerSessionId: string }) => Promise.resolve({
+    plannerSessionId: args.plannerSessionId,
+    launchExtensions: undefined,
+    availabilityNote: undefined,
+    skillCount: 0,
+    pluginCount: 0,
+    extensionIds: [],
+    cleanup: vi.fn(),
+  })),
 }));
 
 vi.mock('electron', () => ({
@@ -80,6 +89,14 @@ vi.mock('./plannerCliProcess', () => ({
   getPlanningAgentRequiredModel: sessionMocks.getPlanningAgentRequiredModel,
   spawnPlannerCliProcess: vi.fn(),
 }));
+
+vi.mock('./plannerLaunchExtensions', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./plannerLaunchExtensions')>();
+  return {
+    ...actual,
+    resolveLilyPlannerLaunchExtensions: sessionMocks.resolveLilyPlannerLaunchExtensions,
+  };
+});
 
 vi.mock('./plannerHistory', () => ({
   appendPendingMessage: sessionMocks.appendPendingMessage,

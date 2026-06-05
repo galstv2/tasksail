@@ -897,6 +897,70 @@ describe('PlannerModal', () => {
     expect(within(card!).getByText('Support')).toBeInTheDocument();
   });
 
+  it('renders Deep Focus child target paths in the current workspace scope popover', () => {
+    const basePack = makeScopePack();
+    const baseTarget = basePack.focusTargets[0]!;
+    const summary = makeCurrentScopeSummary({
+      flag: 'Deep Focus',
+      selectedPack: {
+        ...basePack,
+        repoCount: 2,
+        focusTargets: [
+          {
+            ...baseTarget,
+            focusId: 'platform',
+            displayName: 'Platform',
+            repoId: 'platform',
+            repoLocalPath: '/workspace/platform',
+          },
+          {
+            ...baseTarget,
+            focusId: 'tools',
+            displayName: 'Tools',
+            repoId: 'tools',
+            repoLocalPath: '/workspace/tools',
+          },
+        ],
+      },
+      selection: {
+        selectedRepoIds: [],
+        selectedFocusIds: [],
+        deepFocusEnabled: true,
+        deepFocusPrimaryRepoId: 'platform',
+        deepFocusPrimaryFocusId: null,
+        selectedFocusPath: null,
+        selectedFocusTargetKind: null,
+        selectedFocusTargets: [
+          {
+            path: 'libs',
+            kind: 'directory',
+            repoLocalPath: '/workspace/platform',
+            repoId: 'platform',
+            role: 'anchor',
+          },
+          {
+            path: 'Acme.Cli',
+            kind: 'directory',
+            repoLocalPath: '/workspace/tools',
+            repoId: 'tools',
+            role: 'primary',
+          },
+        ],
+        selectedTestTarget: null,
+        selectedSupportTargets: [],
+      },
+    });
+
+    render(<PlannerModal {...makeProps({ workspaceScopeSummary: summary })} />);
+
+    const card = screen
+      .getByText('Current workspace selection')
+      .closest<HTMLElement>('.focus-selection-summary-card');
+    expect(card).not.toBeNull();
+    expect(within(card!).getByText('platform/libs, tools/Acme.Cli')).toBeInTheDocument();
+    expect(within(card!).queryByText('Platform, Tools')).toBeNull();
+  });
+
   it('does not render the regular or recent scope trigger in child-task mode', () => {
     render(
       <PlannerModal

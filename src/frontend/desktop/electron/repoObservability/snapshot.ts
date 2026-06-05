@@ -100,6 +100,7 @@ export async function readObservabilitySnapshot(
   async function readRuntimeReceipts(runtimeTaskIds: string[]): Promise<{
     agentTerminalSessions: AgentTerminalSession[];
     guardrails: GuardrailObservation[];
+    guardrailsByTaskId: Map<string, GuardrailObservation[]>;
   }> {
     const perTaskResults = await Promise.all(runtimeTaskIds.map(async (runtimeTaskId) => {
       const roleSessionsDir = join(
@@ -140,14 +141,21 @@ export async function readObservabilitySnapshot(
           : observation;
       });
       return {
+        taskId: runtimeTaskId,
         agentTerminalSessions: mergeGuardrailStateIntoSessions(sessions, normalizedGuardrails),
         guardrails: normalizedGuardrails,
       };
     }));
 
+    const guardrailsByTaskId = new Map<string, GuardrailObservation[]>();
+    for (const result of perTaskResults) {
+      guardrailsByTaskId.set(result.taskId, result.guardrails);
+    }
+
     return {
       agentTerminalSessions: perTaskResults.flatMap((result) => result.agentTerminalSessions),
       guardrails: perTaskResults.flatMap((result) => result.guardrails),
+      guardrailsByTaskId,
     };
   }
 
@@ -198,7 +206,7 @@ export async function readObservabilitySnapshot(
     runtimeTaskIds = runtimeTaskIdsOverride ?? activeTaskIds;
     pendingQueueItems = await readUnscopedPendingQueueItems(fsAdapter, new Set(activeTaskIds));
   }
-  const { agentTerminalSessions, guardrails } = await readRuntimeReceipts(runtimeTaskIds);
+  const { agentTerminalSessions, guardrails, guardrailsByTaskId } = await readRuntimeReceipts(runtimeTaskIds);
   const guardrailSummary = buildGuardrailSummary(guardrails);
 
   const activeTaskId = activeTaskIds[0] ?? null;
@@ -266,6 +274,10 @@ export async function readObservabilitySnapshot(
       { ...implRef, taskId: tid },
     );
 
+    const taskGuardrails = guardrailsByTaskId.get(tid);
+    const taskGuardrailSummary = taskGuardrails !== undefined
+      ? buildGuardrailSummary(taskGuardrails)
+      : guardrailSummary;
     const feed = await buildTaskLifecycleFeed({
       fsAdapter,
       activeTaskId: tid,
@@ -273,7 +285,7 @@ export async function readObservabilitySnapshot(
       professionalTask: taskProfessionalTask,
       currentState,
       agentTerminalSessions,
-      guardrailSummary,
+      guardrailSummary: taskGuardrailSummary,
       recoveryState,
       handoffsDir: taskHandoffsDir,
     });

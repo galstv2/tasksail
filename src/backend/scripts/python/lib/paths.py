@@ -94,3 +94,15 @@ def ensure_within_root(
         candidate.relative_to(root_dir)
     except ValueError:
         fail(message)
+
+
+def assert_safe_path_segment(value: str, field_name: str) -> str:
+    """Reject an untrusted *single* path segment that could redirect a write.
+
+    Identifiers such as task IDs are interpolated as one directory name; a
+    separator or traversal token would escape the intended parent. Fails closed
+    via ``fail`` and returns the value unchanged when safe.
+    """
+    if not value or "/" in value or "\\" in value or value in {".", ".."}:
+        fail(f"Unsafe {field_name} path segment: {value!r}")
+    return value

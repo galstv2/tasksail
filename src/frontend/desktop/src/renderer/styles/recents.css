@@ -255,7 +255,7 @@
   justify-content: space-between;
   gap: 0.5rem;
   padding: 0.4rem 0.85rem;
-  background: rgba(220, 38, 38, 0.05);
+  background: color-mix(in srgb, var(--ts-danger) 5%, transparent);
   border-bottom: 1px solid var(--ts-border);
 }
 

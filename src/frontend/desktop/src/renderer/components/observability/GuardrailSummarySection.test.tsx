@@ -108,4 +108,12 @@ describe('GuardrailSummarySection', () => {
     );
     expect(screen.getByText('internal bypass')).toBeInTheDocument();
   });
+
+  it('renders Safety Checks as aggregate section title', () => {
+    render(
+      <GuardrailSummarySection guardrailSummary={makeSummary()} guardrails={[]} />,
+    );
+    // The global Safety Checks section is clearly aggregate
+    expect(screen.getByText('Safety Checks')).toBeInTheDocument();
+  });
 });

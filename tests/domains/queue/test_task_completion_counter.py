@@ -72,6 +72,35 @@ def test_cycle_task_ids_capped_at_10(tmp_path: Path) -> None:
     assert len(state["cycle_task_ids"]) <= RETROSPECTIVE_CYCLE_LENGTH
 
 
+def test_claimed_retrospective_winner_is_not_counted_again_after_loser_closeout(tmp_path: Path) -> None:
+    counter_dir = tmp_path / ".platform-state" / "task-counters"
+    counter_dir.mkdir(parents=True)
+    counter_file = counter_dir / "test-pack.json"
+    counter_file.write_text(
+        json.dumps({
+            "schema_version": "task-counter/v1",
+            "context_pack_id": "test-pack",
+            "completed_count": 1,
+            "cycle_count": 1,
+            "last_archived_task_id": "TASK-11",
+            "last_archived_at": "2026-01-11T00:00:00.000Z",
+            "last_retrospective_at": "2026-01-10T00:00:00.000Z",
+            "last_retrospective_task_id": "TASK-10",
+            "cycle_task_ids": ["TASK-10", "TASK-11"],
+        }),
+        encoding="utf-8",
+    )
+
+    counter = TaskCompletionCounter(tmp_path, "test-pack")
+    state = counter.increment("TASK-10")
+
+    assert state["completed_count"] == 1
+    assert state["cycle_count"] == 1
+    assert state["last_archived_task_id"] == "TASK-11"
+    assert state["last_retrospective_task_id"] == "TASK-10"
+    assert state["cycle_task_ids"] == ["TASK-10", "TASK-11"]
+
+
 def test_corrupted_file_returns_empty_state(tmp_path: Path) -> None:
     counter_dir = tmp_path / ".platform-state" / "task-counters"
     counter_dir.mkdir(parents=True)
@@ -98,4 +127,3 @@ def test_multiple_full_cycles(tmp_path: Path) -> None:
             state = counter.increment(f"C{cycle}-TASK-{i}")
     assert state["cycle_count"] == 3
     assert state["completed_count"] == 0
-

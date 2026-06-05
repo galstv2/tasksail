@@ -1,0 +1,18 @@
+
+# PowerShell module build output
+bin/
+obj/
+
+# Pester test results
+TestResults/
+*.xml
+
+# PSake / Invoke-Build artifacts
+Build/
+
+# PowerShell module package output
+*.nupkg
+
+# Temporary files
+tmp/
+temp/

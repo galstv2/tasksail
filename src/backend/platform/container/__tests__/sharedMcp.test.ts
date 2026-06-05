@@ -27,9 +27,14 @@ vi.mock('../directRuntimeProcess.js', () => ({
   isDirectMcpHealthy: vi.fn(),
 }));
 
-// Hoist the mock so it can be referenced in the factory below.
-const { toEngineHostPathMock } = vi.hoisted(() => ({
+// Hoist mocks so they can be referenced in the factories below.
+const { toEngineHostPathMock, acquireDirLockMock } = vi.hoisted(() => ({
   toEngineHostPathMock: vi.fn((p: string) => p),
+  acquireDirLockMock: vi.fn<Parameters<typeof import('../../queue/dirLock.js').acquireDirLock>, ReturnType<typeof import('../../queue/dirLock.js').acquireDirLock>>(),
+}));
+
+vi.mock('../../queue/dirLock.js', () => ({
+  acquireDirLock: acquireDirLockMock,
 }));
 
 vi.mock('../../core/platform.js', async (importOriginal) => {
@@ -71,6 +76,9 @@ describe('shared MCP helpers', () => {
     mockIsDirectMcpHealthy.mockReset();
     toEngineHostPathMock.mockReset();
     toEngineHostPathMock.mockImplementation((p: string) => p);
+    acquireDirLockMock.mockReset();
+    // Default: immediately return a no-op release function (lock always acquired).
+    acquireDirLockMock.mockResolvedValue(async () => { /* no-op release */ });
     vi.mocked(mkdir).mockClear();
     vi.mocked(readFile).mockReset();
     vi.mocked(readFile).mockRejectedValue(Object.assign(new Error('missing'), { code: 'ENOENT' }));
@@ -215,7 +223,9 @@ describe('shared MCP helpers', () => {
     let healthChecks = 0;
     mockCheckServiceHealth.mockImplementation(async () => {
       healthChecks += 1;
-      return { service: 'repo-context-mcp', healthy: healthChecks >= 11, attempts: 1 };
+      // 10 concurrent fast-path calls (unhealthy) + 1 post-lock re-check (unhealthy) = 11 checks
+      // before bootstrap; then the post-bootstrap check (12th) is healthy.
+      return { service: 'repo-context-mcp', healthy: healthChecks >= 12, attempts: 1 };
     });
     mockCreateRuntimeFromConfig.mockResolvedValue(runtime as never);
 
@@ -335,8 +345,9 @@ describe('shared MCP helpers', () => {
       repo_context_mcp_external_mount_roots: ['/external'],
     } as never);
     mockCheckServiceHealth
-      .mockResolvedValueOnce({ service: 'repo-context-mcp', healthy: false, attempts: 1 })
-      .mockResolvedValueOnce({ service: 'repo-context-mcp', healthy: true, attempts: 1 });
+      .mockResolvedValueOnce({ service: 'repo-context-mcp', healthy: false, attempts: 1 }) // fast path
+      .mockResolvedValueOnce({ service: 'repo-context-mcp', healthy: false, attempts: 1 }) // post-lock re-check
+      .mockResolvedValueOnce({ service: 'repo-context-mcp', healthy: true, attempts: 1 });  // post-bootstrap
     mockCreateRuntimeFromConfig.mockResolvedValue(runtime as never);
 
     await ensureSharedMcpRunning('/repo');
@@ -352,7 +363,8 @@ describe('shared MCP helpers', () => {
         REPO_CONTEXT_MCP_CONTAINER_PORT: '8811',
       }),
     });
-    expect(mockCheckServiceHealth).toHaveBeenCalledTimes(2);
+    // 3 calls: fast-path check + post-lock re-check + post-bootstrap health verification.
+    expect(mockCheckServiceHealth).toHaveBeenCalledTimes(3);
   });
 
   it('bootstraps direct runtime without writing a compose override', async () => {
@@ -366,8 +378,9 @@ describe('shared MCP helpers', () => {
       repo_context_mcp_external_mount_roots: ['/external'],
     } as never);
     mockCheckServiceHealth
-      .mockResolvedValueOnce({ service: 'repo-context-mcp', healthy: false, attempts: 1 })
-      .mockResolvedValueOnce({ service: 'repo-context-mcp', healthy: true, attempts: 1 });
+      .mockResolvedValueOnce({ service: 'repo-context-mcp', healthy: false, attempts: 1 }) // fast path
+      .mockResolvedValueOnce({ service: 'repo-context-mcp', healthy: false, attempts: 1 }) // post-lock re-check
+      .mockResolvedValueOnce({ service: 'repo-context-mcp', healthy: true, attempts: 1 });  // post-bootstrap
     mockCreateRuntimeFromConfig.mockResolvedValue(runtime as never);
 
     await ensureSharedMcpRunning('/repo');
@@ -480,5 +493,120 @@ describe('shared MCP helpers', () => {
 
     await expect(runtimeRequiresContainerPaths('/repo')).resolves.toBe(false);
     await expect(runtimeRequiresContainerPaths('/repo')).resolves.toBe(true);
+  });
+
+  it('cross-process bootstrap lock: second caller skips bootstrap after post-lock health re-check succeeds', async () => {
+    // Acid test: this test FAILS if the acquireDirLock call is removed from
+    // ensureSharedMcpRunning, because without the lock both callers see an
+    // unhealthy post-lock re-check and both bootstrap (bootstrap called twice).
+    //
+    // Two concurrent callers with DISTINCT repoRoots bypass the in-process
+    // sharedMcpBootstrapInFlight coalescing map and both reach acquireDirLock.
+    // We inject a controllable barrier: caller B's acquireDirLock does not
+    // resolve until caller A calls its release function.  This forces the
+    // sequencing:
+    //   A acquires → A bootstraps → A releases → B acquires → B re-checks
+    //   health (healthy) → B skips bootstrap.
+    //
+    // Without the acquireDirLock guard in production both callers would proceed
+    // in parallel, both see unhealthy health, and both call bootstrap → the
+    // toHaveBeenCalledTimes(1) assertion fails.
+
+    const repoRootA = '/repo-xproc-lock-barrier-a';
+    const repoRootB = '/repo-xproc-lock-barrier-b';
+
+    const runtime = {
+      backend: 'docker' as const,
+      requiresComposeFile: true,
+      bootstrap: vi.fn().mockResolvedValue(undefined),
+    };
+    const config = {
+      mcp_port: 8817,
+      container_runtime: 'docker',
+      repo_context_mcp_external_mount_roots: [],
+    };
+    mockGetPlatformConfig.mockResolvedValue(config as never);
+    mockCreateRuntimeFromConfig.mockResolvedValue(runtime as never);
+
+    // Deferred that B's acquireDirLock awaits.  Resolved when A calls release.
+    let unblockB!: () => void;
+    const bCanAcquire = new Promise<void>((resolve) => { unblockB = resolve; });
+
+    // acquireDirLock mock:
+    //   First invocation  → A acquires immediately; its release fn unblocks B.
+    //   Second invocation → B blocks on bCanAcquire, then acquires.
+    let acquireCallCount = 0;
+    acquireDirLockMock.mockImplementation(async () => {
+      acquireCallCount += 1;
+      if (acquireCallCount === 1) {
+        // Caller A: acquired; release signals B.
+        return async () => { unblockB(); };
+      }
+      // Caller B: blocks until A releases.
+      await bCanAcquire;
+      return async () => { /* no-op */ };
+    });
+
+    // Health sequence:
+    //   A – pre-lock: unhealthy → proceeds to acquire
+    //   A – post-lock re-check: unhealthy → runs bootstrap
+    //   A – post-bootstrap: healthy (consumed by runSharedMcpBootstrap internally)
+    //   B – pre-lock: unhealthy → proceeds to acquire (would bootstrap without the lock)
+    //   B – post-lock re-check: healthy (peer finished) → skips bootstrap
+    mockCheckServiceHealth
+      .mockResolvedValueOnce({ service: 'repo-context-mcp', healthy: false, attempts: 1 }) // A pre-lock
+      .mockResolvedValueOnce({ service: 'repo-context-mcp', healthy: false, attempts: 1 }) // A post-lock re-check
+      .mockResolvedValueOnce({ service: 'repo-context-mcp', healthy: true, attempts: 1 })  // A post-bootstrap
+      .mockResolvedValueOnce({ service: 'repo-context-mcp', healthy: false, attempts: 1 }) // B pre-lock
+      .mockResolvedValueOnce({ service: 'repo-context-mcp', healthy: true, attempts: 1 }); // B post-lock re-check (healthy)
+
+    // Launch both callers concurrently.
+    const firstCall = ensureSharedMcpRunning(repoRootA);
+    const secondCall = ensureSharedMcpRunning(repoRootB);
+
+    await Promise.all([firstCall, secondCall]);
+
+    // acquireDirLock must have been called for both callers (proves both reached the lock).
+    expect(acquireDirLockMock).toHaveBeenCalledTimes(2);
+    // Same lock-dir identity (H3): production locks on the repo-scoped path
+    // <repoRoot>/.platform-state/runtime/shared-mcp-bootstrap.lock. A same-REPO
+    // two-caller contention test is infeasible in one vitest process (the
+    // sharedMcpBootstrapInFlight map coalesces same-repo calls before the FS lock);
+    // the real acquireDirLock filesystem mutual exclusion is covered by
+    // queue/__tests__/dirLock.test.ts.
+    expect(acquireDirLockMock).toHaveBeenCalledWith(
+      expect.stringMatching(/repo-xproc-lock-barrier-a[/\\]\.platform-state[/\\]runtime[/\\]shared-mcp-bootstrap\.lock$/),
+    );
+    expect(acquireDirLockMock).toHaveBeenCalledWith(
+      expect.stringMatching(/repo-xproc-lock-barrier-b[/\\]\.platform-state[/\\]runtime[/\\]shared-mcp-bootstrap\.lock$/),
+    );
+    // Exactly one bootstrap: A bootstrapped; B's post-lock re-check found it healthy and skipped.
+    // If the lock were removed, B would also bootstrap → called twice → assertion fails.
+    expect(runtime.bootstrap).toHaveBeenCalledTimes(1);
+  });
+
+  it('cross-process bootstrap lock: falls back gracefully when lock cannot be acquired', async () => {
+    // When acquireDirLock returns null, the bootstrap proceeds anyway with a warning.
+    acquireDirLockMock.mockResolvedValue(null);
+
+    const runtime = {
+      backend: 'docker' as const,
+      requiresComposeFile: true,
+      bootstrap: vi.fn().mockResolvedValue(undefined),
+    };
+    mockGetPlatformConfig.mockResolvedValue({
+      mcp_port: 8817,
+      container_runtime: 'docker',
+      repo_context_mcp_external_mount_roots: [],
+    } as never);
+    mockCheckServiceHealth
+      .mockResolvedValueOnce({ service: 'repo-context-mcp', healthy: false, attempts: 1 })
+      .mockResolvedValueOnce({ service: 'repo-context-mcp', healthy: true, attempts: 1 });
+    mockCreateRuntimeFromConfig.mockResolvedValue(runtime as never);
+
+    await expect(ensureSharedMcpRunning('/repo-lock-fallback')).resolves.toBeUndefined();
+
+    // Bootstrap ran even without the lock.
+    expect(runtime.bootstrap).toHaveBeenCalledTimes(1);
   });
 });

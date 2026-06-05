@@ -23,16 +23,6 @@ DIFFICULTY_REWARDS: dict[str, int] = {
     "hard": 3000,
 }
 
-# ---------------------------------------------------------------------------
-# Agent role multipliers (keyed by agent_id from registry.json)
-# ---------------------------------------------------------------------------
-ROLE_MULTIPLIERS: dict[str, float] = {
-    "planning-agent": 1.00,
-    "product-manager": 1.50,
-    "software-engineer": 1.50,
-    "qa": 1.00,
-}
-
 def _load_agent_roles() -> dict[str, str]:
     """Load agent roles from registry.json (single source of truth)."""
     from src.backend.scripts.python.lib.registry import agent_roles
@@ -40,6 +30,15 @@ def _load_agent_roles() -> dict[str, str]:
 
 
 AGENT_ROLES: dict[str, str] = _load_agent_roles()
+
+
+def _load_agent_reward_multipliers() -> dict[str, float]:
+    """Load reward multipliers from registry.json (single source of truth)."""
+    from src.backend.scripts.python.lib.registry import agent_reward_multipliers
+    return agent_reward_multipliers()
+
+
+AGENT_REWARD_MULTIPLIERS: dict[str, float] = _load_agent_reward_multipliers()
 
 # Settlement constants
 SETTLEMENT_STREAK_THRESHOLD = 10

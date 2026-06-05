@@ -12,7 +12,33 @@ function statusLabel(status: string): string {
   return 'Not found';
 }
 
+function ArtifactRow({ artifact }: { artifact: ArtifactReference & { taskId?: string | null } }): JSX.Element {
+  return (
+    <div key={artifact.path} className="obs-file-row">
+      <div className="obs-file-row__header">
+        <span className="obs-file-row__name">{artifact.label}</span>
+        <span
+          className={classNames('obs-file-row__status', `obs-file-row__status--${artifact.status === 'present' ? 'ok' : artifact.status === 'empty' ? 'warn' : 'missing'}`)}
+        >
+          {statusLabel(artifact.status)}
+        </span>
+      </div>
+      {artifact.detail && (
+        <span className="obs-file-row__detail">{artifact.detail}</span>
+      )}
+    </div>
+  );
+}
+
 function ArtifactReferencesSection({ artifactReferences }: ArtifactReferencesSectionProps): JSX.Element {
+  // Group by taskId so repeated handoff/ImplementationSteps labels remain attributable.
+  const taskIds = [...new Set(artifactReferences.map((a) => a.taskId ?? null))];
+  const hasMultipleTasks = taskIds.length > 1 || (taskIds.length === 1 && taskIds[0] !== null);
+  const grouped = taskIds.map((taskId) => ({
+    taskId,
+    artifacts: artifactReferences.filter((a) => (a.taskId ?? null) === taskId),
+  }));
+
   return (
     <section className="obs-section">
       <h3 className="obs-section__title">Task Files</h3>
@@ -21,19 +47,16 @@ function ArtifactReferencesSection({ artifactReferences }: ArtifactReferencesSec
         <p className="obs-section__empty">No files have been created yet. They will appear here as the task progresses.</p>
       ) : (
         <div className="obs-file-list" aria-label="Task files">
-          {artifactReferences.map((artifact) => (
-            <div key={artifact.path} className="obs-file-row">
-              <div className="obs-file-row__header">
-                <span className="obs-file-row__name">{artifact.label}</span>
-                <span
-                  className={classNames('obs-file-row__status', `obs-file-row__status--${artifact.status === 'present' ? 'ok' : artifact.status === 'empty' ? 'warn' : 'missing'}`)}
-                >
-                  {statusLabel(artifact.status)}
-                </span>
-              </div>
-              {artifact.detail && (
-                <span className="obs-file-row__detail">{artifact.detail}</span>
+          {grouped.map(({ taskId, artifacts }) => (
+            <div key={taskId ?? '__unscoped__'} className="obs-artifact-group">
+              {hasMultipleTasks && taskId && (
+                <div className="obs-artifact-group__label" aria-label={`Artifacts for task ${taskId}`}>
+                  {taskId}
+                </div>
               )}
+              {artifacts.map((artifact) => (
+                <ArtifactRow key={artifact.path} artifact={artifact} />
+              ))}
             </div>
           ))}
         </div>

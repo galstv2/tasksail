@@ -22,6 +22,7 @@ import type {
   AgentConfigSaveAgentModelsRequest,
   DesktopInvokeResult,
 } from '../src/shared/desktopContract';
+import { isValidTimeoutSeconds } from '../src/shared/desktopContractValidationCore';
 import { REPO_ROOT } from './paths';
 
 const MODEL_CATALOG_SCHEMA_VERSION = 1;
@@ -35,6 +36,8 @@ type RegistryAgentRecord = JsonRecord & {
   required_model: string;
   reasoning_effort?: string;
   workflow_order: number;
+  wall_clock_timeout_s?: number;
+  idle_timeout_s?: number;
 };
 
 type AgentRegistryDocument = JsonRecord & {
@@ -128,6 +131,20 @@ function normalizeAgentRecord(value: unknown, index: number): RegistryAgentRecor
       delete value.reasoning_effort;
     }
   }
+  if (
+    value.wall_clock_timeout_s !== undefined
+    && value.wall_clock_timeout_s !== null
+    && !isValidTimeoutSeconds(value.wall_clock_timeout_s)
+  ) {
+    throw new Error(`Agent ${value.agent_id} has an invalid wall_clock_timeout_s.`);
+  }
+  if (
+    value.idle_timeout_s !== undefined
+    && value.idle_timeout_s !== null
+    && !isValidTimeoutSeconds(value.idle_timeout_s)
+  ) {
+    throw new Error(`Agent ${value.agent_id} has an invalid idle_timeout_s.`);
+  }
   return value as RegistryAgentRecord;
 }
 
@@ -177,6 +194,8 @@ function toSlimAgent(agent: RegistryAgentRecord): AgentConfigAgentEntry {
     required_model: agent.required_model,
     ...(agent.reasoning_effort ? { reasoning_effort: agent.reasoning_effort } : {}),
     workflow_order: agent.workflow_order,
+    ...(typeof agent.wall_clock_timeout_s === 'number' ? { wall_clock_timeout_s: agent.wall_clock_timeout_s } : {}),
+    ...(typeof agent.idle_timeout_s === 'number' ? { idle_timeout_s: agent.idle_timeout_s } : {}),
   };
 }
 
@@ -437,8 +456,13 @@ export function createAgentConfigHandlers(options: AgentConfigHandlerOptions = {
           ensureModelCatalogDocument(repoRoot, fsAdapter, now),
         ]);
         const catalogModelIds = new Set(catalog.models.map((m) => m.model_id));
-        const assignments = new Map<string, { modelId: string; reasoningEffort?: string }>();
+        const assignments = new Map<
+          string,
+          { modelId: string; reasoningEffort?: string; wallClockTimeoutS?: number; idleTimeoutS?: number }
+        >();
         const requestedEfforts = new Set<string>();
+        // Resolve the active provider's planner agent up front; idle_timeout_s is planner-only.
+        const plannerAgentId = getActiveProvider(repoRoot).plannerAgentId();
 
         for (const assignment of payload.assignments) {
           const modelValidation = validateModelIdOrFail(
@@ -475,9 +499,34 @@ export function createAgentConfigHandlers(options: AgentConfigHandlerOptions = {
             }
             requestedEfforts.add(reasoningEffort);
           }
+          if (
+            assignment.wall_clock_timeout_s !== undefined
+            && !isValidTimeoutSeconds(assignment.wall_clock_timeout_s)
+          ) {
+            return fail(
+              'agentConfig.saveAgentModels',
+              'Wall clock timeout must be an integer number of seconds from 1 to 86400 when provided.',
+            );
+          }
+          if (assignment.idle_timeout_s !== undefined) {
+            if (!isValidTimeoutSeconds(assignment.idle_timeout_s)) {
+              return fail(
+                'agentConfig.saveAgentModels',
+                'Idle timeout must be an integer number of seconds from 1 to 86400 when provided.',
+              );
+            }
+            if (plannerAgentId === null || assignment.agent_id !== plannerAgentId) {
+              return fail(
+                'agentConfig.saveAgentModels',
+                'Idle timeout can only be set for the planner agent.',
+              );
+            }
+          }
           assignments.set(assignment.agent_id, {
             modelId: assignment.model_id,
             ...(reasoningEffort ? { reasoningEffort } : {}),
+            ...(assignment.wall_clock_timeout_s !== undefined ? { wallClockTimeoutS: assignment.wall_clock_timeout_s } : {}),
+            ...(assignment.idle_timeout_s !== undefined ? { idleTimeoutS: assignment.idle_timeout_s } : {}),
           });
         }
 
@@ -519,6 +568,13 @@ export function createAgentConfigHandlers(options: AgentConfigHandlerOptions = {
               agent.reasoning_effort = assignment.reasoningEffort;
             } else {
               delete agent.reasoning_effort;
+            }
+            // Timeouts are only written when supplied; omission preserves existing values.
+            if (assignment.wallClockTimeoutS !== undefined) {
+              agent.wall_clock_timeout_s = assignment.wallClockTimeoutS;
+            }
+            if (assignment.idleTimeoutS !== undefined) {
+              agent.idle_timeout_s = assignment.idleTimeoutS;
             }
           }
         }

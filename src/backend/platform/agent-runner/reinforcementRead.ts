@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { readdir, readFile } from 'node:fs/promises';
 import { findRepoRoot } from '../core/index.js';
+import { getActiveProvider } from '../cli-provider/index.js';
 import {
   agentRewardsDir,
   legacyAgentRewardsDir,
@@ -74,13 +75,6 @@ type RealignmentJobReceipt = {
   reason?: string;
 };
 
-const CURRENT_ROLE_MULTIPLIERS: Record<string, number> = {
-  'planning-agent': 1.0,
-  'product-manager': 1.5,
-  'software-engineer': 1.5,
-  qa: 1.0,
-};
-
 const SETTLEMENT_STREAK_THRESHOLD = 10;
 
 export async function readReinforcementOverview(
@@ -135,6 +129,9 @@ export async function readReinforcementOverview(
 export async function readAgentRewards(
   repoRoot: string = findRepoRoot(),
 ): Promise<AgentRewardSummary[]> {
+  const registryPath = path.join(repoRoot, getActiveProvider(repoRoot).agentConfigPaths().registry);
+  const multiplierMap = await buildMultiplierMap(registryPath);
+
   const canonicalDir = agentRewardsDir(repoRoot);
   let aDir = canonicalDir;
   let files = await readdir(canonicalDir).catch(() => [] as string[]);
@@ -152,15 +149,36 @@ export async function readAgentRewards(
   const loaded = await Promise.all(
     selectedJsonFiles.map((file) => readJsonSafe<JsonRecord>(path.join(aDir, file))),
   );
-  return loaded.filter((d): d is JsonRecord => d !== null).map(mapAgentReward);
+  const getMultiplier = (agentId: string): number => multiplierMap.get(agentId) ?? 1.0;
+  return loaded.filter((d): d is JsonRecord => d !== null).map((e) => mapAgentReward(e, getMultiplier));
 }
 
-function mapAgentReward(e: JsonRecord): AgentRewardSummary {
+async function buildMultiplierMap(registryPath: string): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  try {
+    const raw = await readFile(registryPath, 'utf-8');
+    const parsed = JSON.parse(raw) as { agents?: JsonRecord[] };
+    const agents = Array.isArray(parsed?.agents) ? parsed.agents : [];
+    for (const agent of agents) {
+      const agentId = String(agent.agent_id ?? '');
+      const val = agent.reward_multiplier;
+      const multiplier = typeof val === 'number' && isFinite(val) ? val : 1.0;
+      if (agentId) {
+        map.set(agentId, multiplier);
+      }
+    }
+  } catch {
+    // Registry unreadable — all agents default to 1.0
+  }
+  return map;
+}
+
+function mapAgentReward(e: JsonRecord, getMultiplier: (agentId: string) => number): AgentRewardSummary {
   const agentId = String(e.agent_id ?? '');
   return {
     agentId,
     role: String(e.role ?? ''),
-    multiplier: CURRENT_ROLE_MULTIPLIERS[agentId] ?? (typeof e.multiplier === 'number' ? e.multiplier : 0),
+    multiplier: getMultiplier(agentId),
     lifetimeReward: typeof e.lifetime_reward === 'number' ? e.lifetime_reward : 0,
     unrewardedTaskCount: typeof e.unrewarded_task_count === 'number' ? e.unrewarded_task_count : 0,
     unrewardedRewardTotal: typeof e.unrewarded_reward_total === 'number' ? e.unrewarded_reward_total : 0,

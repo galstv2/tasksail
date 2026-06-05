@@ -55,7 +55,7 @@ interface ArchiveProof {
 async function readSentinel(sentinelPath: string): Promise<CompletingSentinelPayload> {
   try {
     const parsed: unknown = JSON.parse(await readFile(sentinelPath, 'utf8'));
-    if (parsed && typeof parsed === 'object') {
+    if (parsed && typeof parsed === 'object' && typeof (parsed as { ts?: unknown }).ts === 'number') {
       return parsed as CompletingSentinelPayload;
     }
   } catch {

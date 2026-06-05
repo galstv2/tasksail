@@ -83,12 +83,17 @@ export async function migrateLegacyReinforcementStore(repoRoot: string): Promise
 }
 
 export async function readJsonSafe<T>(filePath: string): Promise<T | null> {
+  let raw: string;
   try {
-    const raw = await readFile(filePath, 'utf-8');
-    return JSON.parse(raw) as T;
+    raw = await readFile(filePath, 'utf-8');
   } catch {
+    // Absent/unreadable file is "no data" (null). The JSON.parse below is
+    // intentionally OUTSIDE this catch so a corrupt store surfaces an error
+    // instead of being silently masked as empty (which blanked the
+    // reinforcement dashboard while real data sat on disk).
     return null;
   }
+  return JSON.parse(raw) as T;
 }
 
 export async function readStoreJsonSafe<T>(

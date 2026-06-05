@@ -15,6 +15,7 @@ from .file_analysis import (
     read_preview,
 )
 from .utils import (
+    ensure_path_within,
     load_json,
     read_existing_created_at,
     slugify_timestamp,
@@ -27,7 +28,11 @@ logger = logging.getLogger(__name__)
 
 
 def record_storage_path(scope_dir: Path, system_layer: str, repo_id: str, source_path: str) -> Path:
-    return scope_dir / "estate" / system_layer / repo_id / "records" / Path(source_path + ".json")
+    # repo_id and source_path come from the untrusted plan manifest; assert the
+    # composed path stays within scope_dir so a crafted value cannot escape it.
+    composed = scope_dir / "estate" / system_layer / repo_id / "records" / Path(source_path + ".json")
+    ensure_path_within(scope_dir, composed, "repo_id")
+    return composed
 
 
 def sidecar_record_path(markdown_path: Path) -> Path:
@@ -35,7 +40,9 @@ def sidecar_record_path(markdown_path: Path) -> Path:
 
 
 def state_file_path(scope_dir: Path, repo_id: str) -> Path:
-    return scope_dir / "operational" / "bootstrap" / repo_id / "seed-state.json"
+    composed = scope_dir / "operational" / "bootstrap" / repo_id / "seed-state.json"
+    ensure_path_within(scope_dir, composed, "repo_id")
+    return composed
 
 
 def pack_seed_state_path(scope_dir: Path) -> Path:

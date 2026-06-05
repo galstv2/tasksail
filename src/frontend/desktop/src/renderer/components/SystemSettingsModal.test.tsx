@@ -32,6 +32,8 @@ const DRAFT: SystemSettingsPlatformConfig = {
 function baseProps(overrides: Partial<SystemSettingsModalProps> = {}): SystemSettingsModalProps {
   return {
     isOpen: true,
+    activeTab: 'settings',
+    onSelectTab: vi.fn(),
     loading: false,
     saving: false,
     error: null,
@@ -44,6 +46,78 @@ function baseProps(overrides: Partial<SystemSettingsModalProps> = {}): SystemSet
     tasksActive: false,
     dirty: true,
     saveDisabled: false,
+    logExplorer: {
+      loadingFiles: false,
+      loadingFile: false,
+      error: null,
+      sourceLabel: 'TaskSail platform logs',
+      categories: {
+        info: [
+          {
+            category: 'info',
+            fileName: 'tasksail.jsonl',
+            displayName: 'tasksail.jsonl',
+            sizeBytes: 120,
+            modifiedAt: '2026-06-03T10:00:00.000Z',
+            modifiedAtMs: 10,
+          },
+        ],
+        warn: [
+          {
+            category: 'warn',
+            fileName: 'warnings.jsonl',
+            displayName: 'warnings.jsonl',
+            sizeBytes: 60,
+            modifiedAt: '2026-06-03T09:00:00.000Z',
+            modifiedAtMs: 9,
+          },
+        ],
+        error: [],
+      },
+      selectedCategory: 'info',
+      selectedLevelFilter: 'all',
+      selectedFileName: 'tasksail.jsonl',
+      file: {
+        action: 'logExplorer.readFile',
+        mode: 'read-only',
+        message: 'Loaded log file.',
+        category: 'info',
+        fileName: 'tasksail.jsonl',
+        displayName: 'tasksail.jsonl',
+        sizeBytes: 120,
+        modifiedAt: '2026-06-03T10:00:00.000Z',
+        totalLines: 10,
+        totalMatchingLines: 2,
+        startLine: 4,
+        endLine: 9,
+        hasOlder: true,
+        hasNewer: false,
+        levelFilter: 'all',
+        records: [
+          {
+            lineNumber: 4,
+            parsed: true,
+            prettyJson: '{\n  "level": "debug",\n  "msg": "debug record"\n}',
+            raw: '{"level":"debug","msg":"debug record"}',
+            summary: { level: 'debug', ts: '2026-06-03T10:00:00.000Z', msg: 'debug record' },
+          },
+          {
+            lineNumber: 9,
+            parsed: false,
+            prettyJson: '',
+            raw: '<img src=x onerror=alert(1)>\n<script>bad</script>',
+            parseError: 'Invalid JSON',
+            summary: { level: 'other' },
+          },
+        ],
+      },
+      onRefresh: vi.fn(),
+      onSelectCategory: vi.fn(),
+      onSelectLevelFilter: vi.fn(),
+      onSelectFile: vi.fn(),
+      onOlder: vi.fn(),
+      onNewer: vi.fn(),
+    },
     confirmRestartOpen: false,
     mountRootsText: '',
     onClose: vi.fn(),
@@ -62,7 +136,6 @@ describe('SystemSettingsModal', () => {
     render(<SystemSettingsModal {...baseProps()} />);
 
     expect(screen.getByRole('dialog', { name: 'System Settings' })).toBeInTheDocument();
-    expect(screen.getByText('config/platform.default.json')).toBeInTheDocument();
 
     for (const group of ['Platform', 'Runtime', 'Task Execution', 'Retention', 'External MCP']) {
       expect(screen.getByText(group)).toBeInTheDocument();
@@ -70,6 +143,18 @@ describe('SystemSettingsModal', () => {
 
     // schema_version is read-only (rendered as text, not an editable control).
     expect(screen.getByTestId('system-settings-schema-version')).toHaveTextContent('1');
+  });
+
+  it('renders Settings and Log Explorer tabs with selected state and click handlers', () => {
+    const onSelectTab = vi.fn();
+    render(<SystemSettingsModal {...baseProps({ onSelectTab })} />);
+
+    expect(screen.getByRole('tablist', { name: 'System Settings sections' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Settings' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Log Explorer' })).toHaveAttribute('aria-selected', 'false');
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Log Explorer' }));
+    expect(onSelectTab).toHaveBeenCalledWith('log-explorer');
   });
 
   it('uses the correct control type for each field kind', () => {
@@ -102,6 +187,130 @@ describe('SystemSettingsModal', () => {
     expect(discard).not.toHaveClass('action-button--primary');
     expect(save).toHaveClass('action-button');
     expect(save).toHaveClass('action-button--primary');
+  });
+
+  it('renders Log Explorer controls, hides save actions, and shows icon-only refresh', () => {
+    const onRefresh = vi.fn();
+    render(
+      <SystemSettingsModal
+        {...baseProps({
+          activeTab: 'log-explorer',
+          logExplorer: { ...baseProps().logExplorer, onRefresh },
+        })}
+      />,
+    );
+
+    expect(screen.getByRole('dialog', { name: 'System Settings' })).toHaveStyle('--modal-shell-max-w: 760px');
+    expect(screen.getByRole('tab', { name: 'Log Explorer' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByLabelText('Category')).toHaveValue('info');
+    expect(screen.getByLabelText('Level')).toHaveValue('all');
+    expect(screen.getByLabelText('Log file')).toHaveValue('tasksail.jsonl');
+    expect(screen.queryByRole('button', { name: 'Save Changes' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Discard' })).not.toBeInTheDocument();
+
+    const refresh = screen.getByRole('button', { name: 'Refresh log files' });
+    expect(refresh).toHaveAttribute('title', 'Refresh log files');
+    expect(refresh).toHaveTextContent('');
+    fireEvent.click(refresh);
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders debug and malformed records as literal text with pager controls', () => {
+    const onOlder = vi.fn();
+    const onNewer = vi.fn();
+    render(
+      <SystemSettingsModal
+        {...baseProps({
+          activeTab: 'log-explorer',
+          logExplorer: { ...baseProps().logExplorer, onOlder, onNewer },
+        })}
+      />,
+    );
+
+    expect(screen.getAllByText('Debug').find((node) =>
+      node.classList.contains('system-settings__log-level--debug'),
+    )).toBeDefined();
+    expect(screen.getByText('Other')).toHaveClass('system-settings__log-level--other');
+    expect(screen.getByText('Invalid JSON')).toBeInTheDocument();
+    expect(screen.getByText(/<img src=x onerror=alert\(1\)>/)).toBeInTheDocument();
+    expect(screen.getByText(/<script>bad<\/script>/)).toBeInTheDocument();
+    expect(document.querySelector('img')).toBeNull();
+    expect(document.querySelector('script')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Older' }));
+    expect(onOlder).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: 'Newer' })).not.toBeInTheDocument();
+  });
+
+  it('sorts log rows by timestamp descending and expands a clicked row', () => {
+    render(
+      <SystemSettingsModal
+        {...baseProps({
+          activeTab: 'log-explorer',
+          logExplorer: {
+            ...baseProps().logExplorer,
+            file: {
+              ...baseProps().logExplorer.file!,
+              records: [
+                {
+                  lineNumber: 1,
+                  parsed: true,
+                  prettyJson: '{\n  "level": "info",\n  "msg": "oldest"\n}',
+                  raw: '{"level":"info","msg":"oldest"}',
+                  summary: { level: 'info', ts: '2026-06-03T10:00:00.000Z', msg: 'oldest' },
+                },
+                {
+                  lineNumber: 2,
+                  parsed: true,
+                  prettyJson: '{\n  "level": "error",\n  "msg": "newest"\n}',
+                  raw: '{"level":"error","msg":"newest"}',
+                  summary: { level: 'error', ts: '2026-06-03T10:02:00.000Z', msg: 'newest' },
+                },
+                {
+                  lineNumber: 3,
+                  parsed: true,
+                  prettyJson: '{\n  "level": "warn",\n  "msg": "middle"\n}',
+                  raw: '{"level":"warn","msg":"middle"}',
+                  summary: { level: 'warn', ts: '2026-06-03T10:01:00.000Z', msg: 'middle' },
+                },
+              ],
+            },
+          },
+        })}
+      />,
+    );
+
+    expect(screen.getAllByText(/Line [123]/).map((node) => node.textContent)).toEqual([
+      'Line 2',
+      'Line 3',
+      'Line 1',
+    ]);
+
+    const row = screen.getByText('newest').closest('details');
+    expect(row).not.toHaveAttribute('open');
+    fireEvent.click(screen.getByText('newest').closest('summary')!);
+    expect(row).toHaveAttribute('open');
+  });
+
+  it('renders only available log pager buttons', () => {
+    render(
+      <SystemSettingsModal
+        {...baseProps({
+          activeTab: 'log-explorer',
+          logExplorer: {
+            ...baseProps().logExplorer,
+            file: {
+              ...baseProps().logExplorer.file!,
+              hasOlder: false,
+              hasNewer: true,
+            },
+          },
+        })}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Older' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Newer' })).toBeInTheDocument();
   });
 
   it('shows env override and runtime repair warnings without implying env edits', () => {
@@ -164,6 +373,16 @@ describe('SystemSettingsModal', () => {
     expect(screen.getByLabelText('Auto merge')).toBeDisabled();
     expect(screen.getByLabelText('MCP port')).toBeDisabled();
     expect(screen.getByLabelText('External mount roots')).toBeDisabled();
+  });
+
+  it('keeps Log Explorer controls enabled while settings are locked by active tasks', () => {
+    render(<SystemSettingsModal {...baseProps({ activeTab: 'log-explorer', tasksActive: true })} />);
+
+    expect(screen.queryByText(/locked while a task is running/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Category')).not.toBeDisabled();
+    expect(screen.getByLabelText('Level')).not.toBeDisabled();
+    expect(screen.getByLabelText('Log file')).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Refresh log files' })).not.toBeDisabled();
   });
 
   it('renders the restart confirmation and wires confirm/cancel handlers', () => {

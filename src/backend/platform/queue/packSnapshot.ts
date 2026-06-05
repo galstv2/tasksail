@@ -1,5 +1,5 @@
 import { rename, rm, writeFile } from 'node:fs/promises';
-import { resolvePath } from '../core/index.js';
+import { resolvePath, createLogger, getErrorMessage } from '../core/index.js';
 import {
   buildStandardMonolithPrimaryTargets,
   readContextPackManifest,
@@ -182,12 +182,18 @@ export async function writeTaskPackSnapshot(options: WriteTaskPackSnapshotOption
   return snapshot;
 }
 
+const log = createLogger('platform/queue/packSnapshot');
+
 function tryResolveDeepFocusSelection(
   options: Parameters<typeof resolveDeepFocusSelection>[0],
 ): ReturnType<typeof resolveDeepFocusSelection> | undefined {
   try {
     return resolveDeepFocusSelection(options);
-  } catch {
+  } catch (err) {
+    // Deep-focus resolution is best-effort (caller falls back to standard
+    // targets), but a swallowed failure was a black box — log it so an
+    // inconsistent pack is diagnosable.
+    log.warn('pack_snapshot.deep_focus.resolution_failed', { error: getErrorMessage(err) });
     return undefined;
   }
 }

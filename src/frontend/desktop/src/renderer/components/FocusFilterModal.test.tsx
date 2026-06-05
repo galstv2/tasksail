@@ -29,6 +29,40 @@ const pack: ContextPackCatalogEntry = {
   focusTargets: [],
 };
 
+function repositoryTarget(
+  id: string,
+  displayName: string,
+  repoLocalPath: string,
+): ContextPackCatalogEntry['focusTargets'][number] {
+  return {
+    focusId: id,
+    displayName,
+    kind: 'repository',
+    repoId: id,
+    repoLocalPath,
+    serviceName: null,
+    systemLayer: null,
+    repoRole: null,
+    repositoryType: 'primary',
+    relativePath: null,
+    focusType: null,
+    group: null,
+    defaultFocusable: true,
+    activationPriority: 1,
+    adjacentRepoIds: [],
+    adjacentFocusIds: [],
+  };
+}
+
+const distributedDeepFocusPack: ContextPackCatalogEntry = {
+  ...pack,
+  repoCount: 2,
+  focusTargets: [
+    repositoryTarget('platform', 'Platform', '/workspace/platform'),
+    repositoryTarget('tools', 'Tools', '/workspace/tools'),
+  ],
+};
+
 const selection: ContextPackFocusFilterSelection = {
   selectedRepoIds: ['api'],
   selectedFocusIds: [],
@@ -248,11 +282,133 @@ describe('FocusFilterModal', () => {
     const modeFlag = within(row!).getByText('Deep Focus', { selector: '.focus-filter-modal__row-flag' });
     expect(modeFlag).toBeInTheDocument();
     expect(within(row!).getByText('Primary')).toBeInTheDocument();
-    expect(within(row!).getByText('api')).toBeInTheDocument();
+    expect(within(row!).getByText('src')).toBeInTheDocument();
     expect(within(row!).getByText('Test')).toBeInTheDocument();
-    expect(within(row!).getByText('Global: tests, api: tests')).toBeInTheDocument();
+    expect(within(row!).getByText('Global: tests, src: tests')).toBeInTheDocument();
     expect(within(row!).getByText('Support')).toBeInTheDocument();
-    expect(within(row!).getByText('Global: docs, api: docs')).toBeInTheDocument();
+    expect(within(row!).getByText('Global: docs, src: docs')).toBeInTheDocument();
+  });
+
+  it('shows path-derived distributed Deep Focus primaries in the current workspace card', () => {
+    renderFocusFilterModal({
+      selectedPack: distributedDeepFocusPack,
+      currentSelection: {
+        ...deepFocusSelection,
+        deepFocusPrimaryRepoId: 'platform',
+        selectedFocusTargets: [
+          {
+            path: 'libs',
+            kind: 'directory',
+            repoLocalPath: '/workspace/platform',
+            repoId: 'platform',
+            role: 'anchor',
+          },
+          {
+            path: 'Acme.Cli',
+            kind: 'directory',
+            repoLocalPath: '/workspace/tools',
+            repoId: 'tools',
+            role: 'primary',
+          },
+        ],
+      },
+    });
+
+    const row = screen.getByText('Current workspace selection').closest<HTMLElement>('.focus-filter-modal__row');
+    expect(row).not.toBeNull();
+    expect(within(row!).getByText('platform/libs, tools/Acme.Cli')).toBeInTheDocument();
+    expect(within(row!).queryByText('Platform, Tools')).toBeNull();
+  });
+
+  it('shows path-derived distributed Deep Focus primaries in saved filter rows', () => {
+    renderFocusFilterModal({
+      selectedPack: distributedDeepFocusPack,
+      filters: [{
+        id: 'filter-deep-focus',
+        name: 'Distributed deep focus',
+        contextPackDir: pack.contextPackDir,
+        createdAt: '2026-05-17T00:00:00.000Z',
+        updatedAt: '2026-05-17T00:00:00.000Z',
+        selection: {
+          ...deepFocusSelection,
+          deepFocusPrimaryRepoId: 'platform',
+          selectedFocusTargets: [
+            {
+              path: 'libs',
+              kind: 'directory',
+              repoLocalPath: '/workspace/platform',
+              repoId: 'platform',
+              role: 'anchor',
+            },
+            {
+              path: 'Acme.Cli',
+              kind: 'directory',
+              repoLocalPath: '/workspace/tools',
+              repoId: 'tools',
+              role: 'primary',
+            },
+          ],
+        },
+      }],
+    });
+
+    const row = screen.getByText('Distributed deep focus').closest<HTMLElement>('.focus-filter-modal__row');
+    expect(row).not.toBeNull();
+    expect(within(row!).getByText('platform/libs, tools/Acme.Cli')).toBeInTheDocument();
+    expect(within(row!).queryByText('Platform, Tools')).toBeNull();
+  });
+
+  it('shows path-derived Deep Focus test and support labels when identity metadata is present', () => {
+    renderFocusFilterModal({
+      selectedPack: distributedDeepFocusPack,
+      currentSelection: {
+        ...deepFocusSelection,
+        deepFocusPrimaryRepoId: 'platform',
+        selectedFocusTargets: [{
+          path: 'libs',
+          kind: 'directory',
+          repoLocalPath: '/workspace/platform',
+          repoId: 'platform',
+          role: 'anchor',
+        }],
+        selectedTestTarget: {
+          path: 'tests/platform',
+          kind: 'directory',
+          repoLocalPath: '/workspace/platform',
+          repoId: 'platform',
+        },
+        selectedSupportTargets: [{
+          path: 'docs/platform.md',
+          kind: 'file',
+          repoLocalPath: '/workspace/platform',
+          repoId: 'platform',
+        }],
+      },
+    });
+
+    const row = screen.getByText('Current workspace selection').closest<HTMLElement>('.focus-filter-modal__row');
+    expect(row).not.toBeNull();
+    expect(within(row!).getByText('Global: platform')).toBeInTheDocument();
+    expect(within(row!).getByText('Global: platform.md')).toBeInTheDocument();
+    expect(within(row!).queryByText('Global: Platform')).toBeNull();
+  });
+
+  it('shows the scalar selectedFocusPath instead of the parent anchor label', () => {
+    renderFocusFilterModal({
+      selectedPack: distributedDeepFocusPack,
+      currentSelection: {
+        ...deepFocusSelection,
+        deepFocusPrimaryRepoId: 'platform',
+        selectedFocusPath: 'src/orders',
+        selectedFocusTargetKind: 'directory',
+        selectedFocusTargets: [],
+      },
+    });
+
+    const row = screen.getByText('Current workspace selection').closest<HTMLElement>('.focus-filter-modal__row');
+    expect(row).not.toBeNull();
+    expect(within(row!).getByText('orders')).toBeInTheDocument();
+    expect(within(row!).queryByText('Platform')).toBeNull();
   });
 
   it('uses the default ModalShell surface instead of terminal mode', () => {

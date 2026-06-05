@@ -367,13 +367,23 @@ export function DeepFocusSummary({
   actionRef,
   onOpenEditor,
 }: DeepFocusSummaryProps): JSX.Element {
-  const viewModel: ScopeSummaryViewModel = buildScopeSummaryViewModel(
-    committedTopLevel,
-    committedPrimaries,
-    selectedFocusPath,
-    selectedFocusTargetKind,
-    selectedTestTarget,
-    selectedSupportTargets,
+  const viewModel: ScopeSummaryViewModel = useMemo(
+    () => buildScopeSummaryViewModel(
+      committedTopLevel,
+      committedPrimaries,
+      selectedFocusPath,
+      selectedFocusTargetKind,
+      selectedTestTarget,
+      selectedSupportTargets,
+    ),
+    [
+      committedTopLevel,
+      committedPrimaries,
+      selectedFocusPath,
+      selectedFocusTargetKind,
+      selectedTestTarget,
+      selectedSupportTargets,
+    ],
   );
 
   if (viewModel.primaryCount === 0) {

@@ -72,7 +72,7 @@ describe('useRealignmentSessions', () => {
 
   it('starts analysis by realignment id and keeps the job local to the session', async () => {
     const client = mockClient();
-    const { result } = renderHook(() => useRealignmentSessions(true, client));
+    const { result } = renderHook(() => useRealignmentSessions('/packs/test', client));
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -111,7 +111,7 @@ describe('useRealignmentSessions', () => {
         },
       }),
     });
-    const { result } = renderHook(() => useRealignmentSessions(true, client));
+    const { result } = renderHook(() => useRealignmentSessions('/packs/test', client));
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -131,7 +131,7 @@ describe('useRealignmentSessions', () => {
     const client = mockClient({
       dismissRealignment: vi.fn().mockRejectedValue(new Error('Dismiss failed.')),
     });
-    const { result } = renderHook(() => useRealignmentSessions(true, client));
+    const { result } = renderHook(() => useRealignmentSessions('/packs/test', client));
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -155,5 +155,165 @@ describe('useRealignmentSessions', () => {
         },
       }));
     });
+  });
+
+  it('resets sessions and analysisRun when pack changes', async () => {
+    const client = mockClient();
+    let packDir: string | null = '/packs/pack-a';
+    const { result, rerender } = renderHook(() => useRealignmentSessions(packDir, client));
+
+    await waitFor(() => expect(result.current.sessions).toHaveLength(1));
+
+    // Change pack
+    packDir = '/packs/pack-b';
+    rerender();
+
+    // After switch, sessions should start as cleared before new load resolves
+    expect(result.current.analysisRun.status).toBe('idle');
+  });
+
+  it('runAnalysis: stale pack-A IPC response does not overwrite pack-B idle state', async () => {
+    // Deferred IPC for pack A's runRealignmentAnalysis call.
+    let resolvePackA!: (v: unknown) => void;
+    const packAPromise = new Promise((resolve) => { resolvePackA = resolve; });
+
+    const runAnalysisFn = vi.fn()
+      .mockReturnValueOnce(packAPromise); // first call for pack A is deferred
+
+    const client = mockClient({ runRealignmentAnalysis: runAnalysisFn });
+    let packDir: string | null = '/packs/pack-a';
+    const { result, rerender } = renderHook(() => useRealignmentSessions(packDir, client));
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    // Start runAnalysis for pack A (IPC stays pending).
+    act(() => {
+      void result.current.runAnalysis('/packs/pack-a', 'RA-A');
+    });
+    // status moves to 'starting' while IPC is in flight.
+    expect(result.current.analysisRun.status).toBe('starting');
+
+    // Switch to pack B — hook resets analysisRun to idle.
+    packDir = '/packs/pack-b';
+    rerender();
+
+    await waitFor(() => expect(result.current.analysisRun.status).toBe('idle'));
+
+    // Now resolve the pack-A IPC with a 'started' response.
+    await act(async () => {
+      resolvePackA({
+        ok: true,
+        response: {
+          action: 'reinforcement.runRealignmentAnalysis',
+          mode: 'analysis-started',
+          message: 'Analysis started for pack A.',
+          job: { jobId: 'j:RA-A', realignmentId: 'RA-A', status: 'started' },
+        },
+      });
+    });
+
+    // The stale pack-A 'running' state must NOT have been written to pack B.
+    expect(result.current.analysisRun.status).toBe('idle');
+  });
+
+  it('dismissRealignment: stale pack-A IPC response (ok) does not mutate pack-B state', async () => {
+    let resolvePackA!: (v: unknown) => void;
+    const packAPromise = new Promise((resolve) => { resolvePackA = resolve; });
+
+    const dismissFn = vi.fn().mockReturnValueOnce(packAPromise);
+    const client = mockClient({ dismissRealignment: dismissFn });
+    let packDir: string | null = '/packs/pack-a';
+    const { result, rerender } = renderHook(() => useRealignmentSessions(packDir, client));
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    // Kick off dismissRealignment for pack A (stays pending).
+    act(() => { void result.current.dismissRealignment('/packs/pack-a', 'RA-A'); });
+
+    // Switch to pack B.
+    packDir = '/packs/pack-b';
+    rerender();
+    await waitFor(() => expect(result.current.analysisRun.status).toBe('idle'));
+    const sessionsBeforeResolve = result.current.sessions;
+    const selectedBefore = result.current.selectedSessionId;
+
+    // Resolve with a successful dismiss for pack A.
+    await act(async () => {
+      resolvePackA({
+        ok: true,
+        response: { action: 'reinforcement.dismissRealignment', mode: 'dismissed', message: 'Dismissed.', realignmentId: 'RA-A' },
+      });
+    });
+
+    // Pack B's sessions / selectedSessionId / analysisRun must be unchanged by the stale A response.
+    expect(result.current.sessions).toEqual(sessionsBeforeResolve);
+    expect(result.current.selectedSessionId).toBe(selectedBefore);
+    expect(result.current.analysisRun.status).toBe('idle');
+  });
+
+  it('dismissRealignment: stale pack-A IPC rejection does not set pack-B error state', async () => {
+    let rejectPackA!: (err: unknown) => void;
+    const packAPromise = new Promise<never>((_, reject) => { rejectPackA = reject; });
+
+    const dismissFn = vi.fn().mockReturnValueOnce(packAPromise);
+    const client = mockClient({ dismissRealignment: dismissFn });
+    let packDir: string | null = '/packs/pack-a';
+    const { result, rerender } = renderHook(() => useRealignmentSessions(packDir, client));
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    // Kick off dismissRealignment for pack A (stays pending).
+    act(() => { void result.current.dismissRealignment('/packs/pack-a', 'RA-A'); });
+
+    // Switch to pack B before the IPC settles.
+    packDir = '/packs/pack-b';
+    rerender();
+    await waitFor(() => expect(result.current.analysisRun.status).toBe('idle'));
+
+    // Reject the pack-A IPC — simulates network/server error.
+    await act(async () => {
+      rejectPackA(new Error('Dismiss failed for pack A.'));
+    });
+
+    // Pack B must remain in idle state — the error from pack A must not bleed in.
+    expect(result.current.analysisRun.status).toBe('idle');
+  });
+
+  it('ignores stale session responses from old pack after pack change', async () => {
+    let resolveOld!: (v: unknown) => void;
+    const oldPackPromise = new Promise((resolve) => { resolveOld = resolve; });
+    const listFn = vi.fn()
+      .mockReturnValueOnce(oldPackPromise)
+      .mockResolvedValueOnce({
+        ok: true,
+        response: {
+          action: 'reinforcement.listRealignmentSessions',
+          mode: 'read-only',
+          message: '1 session(s).',
+          sessions: [{ realignmentId: 'RA-B', triggerTaskId: 'T-B', triggerFeedbackId: 'FB-B', participatingAgents: [], failureAnalysis: '', rootCause: '', correctiveActions: [], status: 'open', meetingNotes: '', createdAt: '2026-03-22T00:00:00Z' }],
+        },
+      });
+    const client = mockClient({ listRealignmentSessions: listFn });
+    let packDir: string | null = '/packs/pack-a';
+    const { result, rerender } = renderHook(() => useRealignmentSessions(packDir, client));
+
+    packDir = '/packs/pack-b';
+    rerender();
+
+    await waitFor(() => expect(result.current.sessions[0]?.realignmentId).toBe('RA-B'));
+
+    // Resolve old pack A response
+    resolveOld({
+      ok: true,
+      response: {
+        action: 'reinforcement.listRealignmentSessions',
+        mode: 'read-only',
+        message: '1 session(s).',
+        sessions: [{ realignmentId: 'RA-A', triggerTaskId: 'T-A', triggerFeedbackId: 'FB-A', participatingAgents: [], failureAnalysis: '', rootCause: '', correctiveActions: [], status: 'open', meetingNotes: '', createdAt: '2026-03-22T00:00:00Z' }],
+      },
+    });
+
+    // RA-A from pack A must not appear
+    await waitFor(() => expect(result.current.sessions.some((s) => s.realignmentId === 'RA-A')).toBe(false));
   });
 });

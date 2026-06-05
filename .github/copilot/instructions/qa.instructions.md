@@ -32,7 +32,7 @@ Implementation-spec requirements and slices are both first-class inputs. The imp
 
 Your starting CWD is the platform repo, not the task worktree repo.
 
-- Review task source files from the task worktree repo. Use `COPILOT_TARGET_REPOS_JSON`, `COPILOT_PRIMARY_FOCUS_PATH`, or `COPILOT_WRITABLE_ROOTS_JSON` to find the correct worktree path.
+- Review task source files from the task worktree repo. First resolve task worktree roots from `TASKSAIL_TASK_WORKTREES_FILE` when present, otherwise `TASKSAIL_TASK_WORKTREES`; each entry has `{ repoId, role, worktreeRoot }`. Use `COPILOT_TARGET_REPOS_JSON`, `COPILOT_PRIMARY_FOCUS_PATH`, or `COPILOT_WRITABLE_ROOTS_JSON` only as fallback launch context when task worktree metadata is unavailable.
 - If Deep Focus makes `COPILOT_PRIMARY_FOCUS_PATH` a file, treat it as the review starting point and use writable roots for implementation-boundary reasoning.
 - Read-only context roots are reference-only and must not be edited.
 - Run validation commands from the task worktree repo unless the slice explicitly says otherwise.
@@ -45,7 +45,7 @@ Do not edit Alice artifacts or Dalton evidence artifacts. You own only `issues.m
 
 ## Review Decision Rules
 
-Decide the final review outcome before writing `issues.md`. Once you set `## Review Outcome`, do not change it or re-review your own output.
+Decide the final review outcome before writing `issues.md`. Once you set `## Review Outcome`, do not change the verdict or start a second code-review pass. You may still re-open your own artifacts for the bounded final artifact confirmation required by this file.
 
 If any acceptance criterion from any slice is not fully met, the finding is blocking. Partial delivery is not complete delivery.
 
@@ -129,6 +129,8 @@ Write order is mandatory for first-pass review, remediation return, and artifact
 
 Before finishing, verify the required artifacts match the recorded Review Outcome and this write order. Closeout is incomplete if `issues.md` is missing, required `retrospective-input.md` sections for the current launch phase are incomplete, or `final-summary.md` was completed before `retrospective-input.md`.
 
+Before stopping, perform one bounded final artifact confirmation pass from disk. Verify `issues.md`, and when required `retrospective-input.md` and `final-summary.md`, against the recorded Review Outcome, required headings, routing fields, requirement verification, retrospective section rules, and artifact write order. Patch only owned-artifact format, routing, requirement-verification, retrospective-section, or closeout-completeness issues found during this pass. Do not change `## Review Outcome`, add new findings, reopen source review, or edit Alice/Dalton artifacts during final confirmation.
+
 Before exit on `pass` or `advisory`, re-open `final-summary.md` and verify every generated `CR-*`, `COMP-*`, and `VAL-*` line is marked `verified` or `advisory` with evidence, and `## QA Status` is exactly `passed` or `issues-found`.
 
 Preserve every top-level `##` heading in `issues.md`, `final-summary.md`, and `retrospective-input.md`. Do not replace those files with a custom summary, bullet-only document, or renamed/case-changed heading set. Populate content only under seeded template headings.
@@ -176,7 +178,7 @@ Always populate current-task-only content for:
 - Dalton's Contribution;
 - Ron's Contribution.
 
-Cycle-level sections are populated only when `Retrospective Required: true`:
+Cycle-level sections are populated only by a retrospective-phase Ron launch when `Retrospective Required: true`:
 
 - What Went Well;
 - What Could Have Gone Better;
@@ -186,7 +188,7 @@ Cycle-level sections are populated only when `Retrospective Required: true`:
 
 When `Retrospective Required: false`, leave every cycle-level section completely empty. No placeholder text, no `N/A`, and no single-bullet summaries.
 
-When `Retrospective Required: true` during normal QA launch, write per-task sections only and leave cycle-level sections empty. A separate retrospective launch with `launchPhase: Retrospective` fills the cycle-level sections using the previous nine tasks.
+When `Retrospective Required: true` during normal QA launch, write per-task sections only and leave cycle-level sections empty. A separate retrospective-phase Ron launch with `launchPhase: Retrospective` fills the cycle-level sections from the provided `## Cycle Context (Last 10 Tasks)` block.
 
 When launched in retrospective phase, you receive a `## Cycle Context (Last 10 Tasks)` block. Rewrite only the five cycle-level sections and satisfy these rules:
 
@@ -210,5 +212,6 @@ Do not declare review complete until:
 - `final-summary.md` preserves platform-owned Closeout Owner Agent ID;
 - `final-summary.md` includes Difficulty Level, Task branches, Completed Work, Key Design Decisions, Known Limitations, and Test Result Summary;
 - retrospective per-task sections are populated;
-- retrospective cycle-level sections are empty unless the launch phase is retrospective;
-- every blocking Finding Type is one of `code-review`, `test-gap`, `security`, `hygiene`, or `release-risk`.
+- retrospective cycle-level sections are empty unless the launch phase is retrospective and `Retrospective Required: true`;
+- every blocking Finding Type is one of `code-review`, `test-gap`, `security`, `hygiene`, or `release-risk`;
+- the bounded final artifact confirmation pass was performed, and owned-artifact issues found during that pass were patched without changing the Review Outcome, adding new findings, reopening source review, or editing Alice/Dalton artifacts.

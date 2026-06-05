@@ -1,16 +1,33 @@
 import path from 'node:path';
 import { mkdir, rm, rmdir, stat } from 'node:fs/promises';
-import { createLogger, readTextFile, safeJsonParse, writeTextFile, sleep } from '../core/index.js';
+import { createLogger, readTextFile, safeJsonParse, writeTextFileAtomic, sleep } from '../core/index.js';
 import { setLabelValue } from './artifacts.js';
+import { acquireDirLock } from './dirLock.js';
 
 const log = createLogger('platform/queue/retrospectiveFlag');
 
 const TASK_COUNTER_DIR_RELATIVE = '.platform-state/task-counters';
+const RETROSPECTIVE_RUN_LOCK_DIR_RELATIVE = '.platform-state/retrospective-runs';
 const DEFAULT_CONTEXT_PACK_ID = 'platform-core';
 export const RETROSPECTIVE_CYCLE_LENGTH = 10;
 export const RETROSPECTIVE_REQUIRED_LABEL = 'Retrospective Required';
 const SCHEMA_VERSION = 'task-counter/v1';
 const COUNTER_LOCK_STALE_MS = 5 * 60 * 1000;
+
+interface RetrospectiveRunClaim {
+  contextPackId: string;
+  lockDir: string;
+  release: () => Promise<void>;
+}
+
+export type RetrospectiveRunClaimResult =
+  | { claimed: true; claim: RetrospectiveRunClaim }
+  | {
+      claimed: false;
+      contextPackId: string;
+      lockDir: string;
+      reason: 'already-running' | 'counter-not-required';
+    };
 
 interface CounterLockDiagnostics {
   lockDir: string;
@@ -165,6 +182,7 @@ interface CounterPayload {
   last_archived_task_id: string;
   last_archived_at: string;
   last_retrospective_at: string;
+  last_retrospective_task_id: string;
   cycle_task_ids: string[];
 }
 
@@ -177,6 +195,7 @@ function emptyCounter(contextPackId: string): CounterPayload {
     last_archived_task_id: '',
     last_archived_at: '',
     last_retrospective_at: '',
+    last_retrospective_task_id: '',
     cycle_task_ids: [],
   };
 }
@@ -204,7 +223,7 @@ async function writeCounter(
   counterPath: string,
   payload: CounterPayload,
 ): Promise<void> {
-  await writeTextFile(counterPath, JSON.stringify(payload, null, 2) + '\n');
+  await writeTextFileAtomic(counterPath, JSON.stringify(payload, null, 2) + '\n');
 }
 
 function incrementCounter(
@@ -213,10 +232,13 @@ function incrementCounter(
   taskId?: string,
 ): CounterPayload {
   const next = { ...state };
+  const countedAt = new Date().toISOString();
   next.completed_count = (next.completed_count ?? 0) + 1;
   if (next.completed_count >= RETROSPECTIVE_CYCLE_LENGTH) {
     next.completed_count = 0;
     next.cycle_count = (next.cycle_count ?? 0) + 1;
+    next.last_retrospective_at = countedAt;
+    next.last_retrospective_task_id = taskId ?? '';
   }
   next.schema_version = SCHEMA_VERSION;
   next.context_pack_id = contextPackId;
@@ -225,7 +247,7 @@ function incrementCounter(
       ? [...next.cycle_task_ids, taskId]
       : [taskId];
     next.last_archived_task_id = taskId;
-    next.last_archived_at = new Date().toISOString();
+    next.last_archived_at = countedAt;
     next.cycle_task_ids = cycleTaskIds.slice(-RETROSPECTIVE_CYCLE_LENGTH);
   }
   return next;
@@ -248,6 +270,10 @@ function retrospectiveRequiredForTask(
 ): boolean {
   if (!taskId || willIncrement) {
     return isRetrospectiveRequiredForCompletedCount(state.completed_count);
+  }
+
+  if (state.last_retrospective_task_id === taskId) {
+    return true;
   }
 
   if (state.last_archived_task_id !== taskId) {
@@ -292,6 +318,78 @@ export async function getRetrospectiveRequiredForNextTask(options: {
   }
 }
 
+async function claimRetrospectiveCounterBoundary(options: {
+  repoRoot: string;
+  contextPackId: string;
+  taskId: string;
+}): Promise<boolean> {
+  const counterDir = path.join(options.repoRoot, TASK_COUNTER_DIR_RELATIVE);
+  const counterPath = path.join(counterDir, `${options.contextPackId}.json`);
+  await mkdir(counterDir, { recursive: true });
+
+  const lock = await acquireCounterLock(counterDir, options.contextPackId);
+  if (!lock.release) {
+    throw new Error(
+      `claimRetrospectiveRun: could not acquire counter lock for context pack "${options.contextPackId}" (${formatCounterLockDiagnostics(lock.diagnostics)})`,
+    );
+  }
+
+  try {
+    const state = await readCounter(counterPath, options.contextPackId);
+    if (!isRetrospectiveRequiredForCompletedCount(state.completed_count)) {
+      return false;
+    }
+
+    // Claim the cycle boundary before the long-running Ron launch. Otherwise
+    // a stale-label loser can skip the active run lock, close out first, and
+    // incorrectly become the 10th counted task.
+    await writeCounter(counterPath, incrementCounter(state, options.contextPackId, options.taskId));
+    return true;
+  } finally {
+    await lock.release();
+  }
+}
+
+export async function claimRetrospectiveRun(options: {
+  repoRoot: string;
+  contextPackDir?: string;
+  taskId: string;
+}): Promise<RetrospectiveRunClaimResult> {
+  const contextPackId = contextPackIdFromDir(options.contextPackDir);
+  const lockRoot = path.join(options.repoRoot, RETROSPECTIVE_RUN_LOCK_DIR_RELATIVE);
+  const lockDir = path.join(lockRoot, `${contextPackId}.lock`);
+  await mkdir(lockRoot, { recursive: true });
+
+  const release = await acquireDirLock(lockDir, 2, 0);
+  if (!release) {
+    return { claimed: false, contextPackId, lockDir, reason: 'already-running' };
+  }
+
+  try {
+    const counterClaimed = await claimRetrospectiveCounterBoundary({
+      repoRoot: options.repoRoot,
+      contextPackId,
+      taskId: options.taskId,
+    });
+    if (!counterClaimed) {
+      await release();
+      return { claimed: false, contextPackId, lockDir, reason: 'counter-not-required' };
+    }
+
+    return {
+      claimed: true,
+      claim: {
+        contextPackId,
+        lockDir,
+        release,
+      },
+    };
+  } catch (error) {
+    await release();
+    throw error;
+  }
+}
+
 async function writeRetrospectiveRequiredLabel(
   retrospectivePath: string,
   content: string,
@@ -303,14 +401,14 @@ async function writeRetrospectiveRequiredLabel(
     required ? 'true' : 'false',
   );
   if (updated !== content) {
-    await writeTextFile(retrospectivePath, updated);
+    await writeTextFileAtomic(retrospectivePath, updated);
   }
 }
 
 /**
  * Stamp the activation-time `Retrospective Required` label from the current
- * counter position without mutating the completion counter. Archive/closeout
- * remains the only path that increments, wraps, or appends task IDs.
+ * counter position without mutating the completion counter. Retrospective run
+ * claim and archive/closeout paths own counter mutation.
  */
 export async function stampRetrospectiveRequiredMetadata(options: {
   repoRoot: string;

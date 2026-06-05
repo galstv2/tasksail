@@ -28,7 +28,53 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { rebuildAgentMirror } from '../rebuildAgentMirror.js';
+import { rebuildAgentMirror, mirrorTree, MIRROR_WALK_LIMITS } from '../rebuildAgentMirror.js';
+
+describe('mirrorTree depth cap (SEC-TS-07)', () => {
+  it('throws when directory nesting exceeds the cap', async () => {
+    const tmp = mkdtempSync(path.join(tmpdir(), 'mirror-cap-'));
+    const original = MIRROR_WALK_LIMITS.maxDepth;
+    MIRROR_WALK_LIMITS.maxDepth = 3;
+    try {
+      let p = path.join(tmp, 'src');
+      for (let i = 0; i < 6; i += 1) p = path.join(p, `d${i}`);
+      mkdirSync(p, { recursive: true });
+      writeFileSync(path.join(p, 'leaf.txt'), 'x');
+      await expect(
+        mirrorTree(path.join(tmp, 'src'), path.join(tmp, 'dst')),
+      ).rejects.toThrow(/exceeds 3 levels/);
+    } finally {
+      MIRROR_WALK_LIMITS.maxDepth = original;
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('SEC-TS-07: entry cap is shared across subtree walks (budget threading)', async () => {
+    const tmp = mkdtempSync(path.join(tmpdir(), 'mirror-budget-'));
+    const original = MIRROR_WALK_LIMITS.maxEntries;
+    MIRROR_WALK_LIMITS.maxEntries = 3;
+    try {
+      const srcA = path.join(tmp, 'a');
+      mkdirSync(srcA, { recursive: true });
+      writeFileSync(path.join(srcA, 'f1'), 'x');
+      writeFileSync(path.join(srcA, 'f2'), 'x');
+      const srcB = path.join(tmp, 'b');
+      mkdirSync(srcB, { recursive: true });
+      writeFileSync(path.join(srcB, 'f3'), 'x');
+      writeFileSync(path.join(srcB, 'f4'), 'x');
+
+      // A single shared budget must carry across both walks: 2 + 2 = 4 > cap of 3.
+      const budget = { entries: 0 };
+      await mirrorTree(srcA, path.join(tmp, 'dstA'), 0, budget);
+      await expect(
+        mirrorTree(srcB, path.join(tmp, 'dstB'), 0, budget),
+      ).rejects.toThrow(/entry count exceeds 3/);
+    } finally {
+      MIRROR_WALK_LIMITS.maxEntries = original;
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('rebuildAgentMirror', () => {
   let workDir: string;

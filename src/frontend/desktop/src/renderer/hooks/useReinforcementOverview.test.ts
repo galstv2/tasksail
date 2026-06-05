@@ -28,7 +28,7 @@ const MOCK_OVERVIEW = {
 describe('useReinforcementOverview', () => {
   it('returns empty overview when no active context pack', async () => {
     const client = createMockClient();
-    const { result } = renderHook(() => useReinforcementOverview(false, client));
+    const { result } = renderHook(() => useReinforcementOverview(null, client));
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -49,7 +49,7 @@ describe('useReinforcementOverview', () => {
         },
       }),
     });
-    const { result } = renderHook(() => useReinforcementOverview(true, client));
+    const { result } = renderHook(() => useReinforcementOverview('/packs/test', client));
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -70,7 +70,7 @@ describe('useReinforcementOverview', () => {
         error: 'Failed',
       }),
     });
-    const { result } = renderHook(() => useReinforcementOverview(true, client));
+    const { result } = renderHook(() => useReinforcementOverview('/packs/test', client));
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -89,7 +89,7 @@ describe('useReinforcementOverview', () => {
         },
       }),
     });
-    const { result } = renderHook(() => useReinforcementOverview(true, client));
+    const { result } = renderHook(() => useReinforcementOverview('/packs/test', client));
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -105,5 +105,74 @@ describe('useReinforcementOverview', () => {
       unrewardedTaskCount: 2,
       unrewardedRewardTotal: 3.0,
     });
+  });
+
+  it('resets and reloads when activeContextPackDir changes', async () => {
+    const readFn = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        response: {
+          action: 'reinforcement.readOverview',
+          mode: 'read-only',
+          message: '1 task(s), streak 1/10.',
+          overview: { ...MOCK_OVERVIEW, totalTasks: 1 },
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        response: {
+          action: 'reinforcement.readOverview',
+          mode: 'read-only',
+          message: '7 task(s), streak 3/10.',
+          overview: { ...MOCK_OVERVIEW, totalTasks: 7 },
+        },
+      });
+    const client = createMockClient({ readReinforcementOverview: readFn });
+    let packDir: string | null = '/packs/pack-a';
+    const { result, rerender } = renderHook(() => useReinforcementOverview(packDir, client));
+
+    await waitFor(() => expect(result.current.overview?.totalTasks).toBe(1));
+
+    packDir = '/packs/pack-b';
+    rerender();
+
+    await waitFor(() => expect(result.current.overview?.totalTasks).toBe(7));
+  });
+
+  it('ignores stale responses from old pack after pack change', async () => {
+    let resolveOld!: (v: unknown) => void;
+    const oldPackPromise = new Promise((resolve) => { resolveOld = resolve; });
+    const readFn = vi.fn()
+      .mockReturnValueOnce(oldPackPromise)
+      .mockResolvedValueOnce({
+        ok: true,
+        response: {
+          action: 'reinforcement.readOverview',
+          mode: 'read-only',
+          message: '2 task(s).',
+          overview: { ...MOCK_OVERVIEW, totalTasks: 2 },
+        },
+      });
+    const client = createMockClient({ readReinforcementOverview: readFn });
+    let packDir: string | null = '/packs/pack-a';
+    const { result, rerender } = renderHook(() => useReinforcementOverview(packDir, client));
+
+    packDir = '/packs/pack-b';
+    rerender();
+
+    await waitFor(() => expect(result.current.overview?.totalTasks).toBe(2));
+
+    resolveOld({
+      ok: true,
+      response: {
+        action: 'reinforcement.readOverview',
+        mode: 'read-only',
+        message: '99 task(s).',
+        overview: { ...MOCK_OVERVIEW, totalTasks: 99 },
+      },
+    });
+
+    // Old pack A response must be ignored
+    await waitFor(() => expect(result.current.overview?.totalTasks).toBe(2));
   });
 });

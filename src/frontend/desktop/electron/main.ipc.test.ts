@@ -762,6 +762,69 @@ describe('electron main bootstrap — IPC dispatch', () => {
     expect(result.ok).toBe(true);
   });
 
+  it('dispatches logExplorer.listFiles and logExplorer.readFile to injected handlers', async () => {
+    const { handleDesktopAction } = await import('./main');
+    const listLogExplorerFiles = vi.fn(async () => ({
+      ok: true as const,
+      response: {
+        action: 'logExplorer.listFiles' as const,
+        mode: 'read-only' as const,
+        message: 'Loaded log files.',
+        sourceLabel: 'TaskSail platform logs',
+        categories: { info: [], warn: [], error: [] },
+      },
+    }));
+    const readLogExplorerFile = vi.fn(async () => ({
+      ok: true as const,
+      response: {
+        action: 'logExplorer.readFile' as const,
+        mode: 'read-only' as const,
+        message: 'Loaded log file.',
+        category: 'info' as const,
+        fileName: 'tasksail.jsonl',
+        displayName: 'tasksail.jsonl',
+        sizeBytes: 0,
+        modifiedAt: '2026-06-03T00:00:00.000Z',
+        totalLines: 0,
+        totalMatchingLines: 0,
+        startLine: 0,
+        endLine: 0,
+        hasOlder: false,
+        hasNewer: false,
+        levelFilter: 'all' as const,
+        records: [],
+      },
+    }));
+
+    const listResult = await handleDesktopAction(
+      { action: 'logExplorer.listFiles' },
+      { listLogExplorerFiles, readLogExplorerFile },
+    );
+    expect(listLogExplorerFiles).toHaveBeenCalledTimes(1);
+    expect(listResult.ok).toBe(true);
+
+    const payload = { category: 'info' as const, fileName: 'tasksail.jsonl', limit: 100, levelFilter: 'debug' as const };
+    const readResult = await handleDesktopAction(
+      { action: 'logExplorer.readFile', payload },
+      { listLogExplorerFiles, readLogExplorerFile },
+    );
+    expect(readLogExplorerFile).toHaveBeenCalledWith(payload);
+    expect(readResult.ok).toBe(true);
+  });
+
+  it('rejects malformed logExplorer.readFile payloads before the handler runs', async () => {
+    const { handleDesktopAction } = await import('./main');
+    const readLogExplorerFile = vi.fn();
+
+    const result = await handleDesktopAction(
+      { action: 'logExplorer.readFile', payload: { category: 'debug', fileName: '../tasksail.jsonl' } },
+      { readLogExplorerFile },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(readLogExplorerFile).not.toHaveBeenCalled();
+  });
+
   it('drives a real app relaunch for systemSettings.restart via the default app handlers', async () => {
     const { handleDesktopAction } = await import('./main');
 

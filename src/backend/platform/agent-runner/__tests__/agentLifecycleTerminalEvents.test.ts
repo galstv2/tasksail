@@ -86,7 +86,7 @@ describe('runAgentSession lifecycle terminal projection', () => {
         eventId: 'agent.launch.terminal:ron:initial:launch-1',
         role: 'agent',
         severity: 'success',
-        message: 'Ron completed.',
+        message: 'Ron - QA completed.',
         extra: expect.objectContaining({
           outcome: 'completed',
           exitCode: 0,
@@ -110,7 +110,7 @@ describe('runAgentSession lifecycle terminal projection', () => {
         eventId: 'agent.launch.terminal:ron:initial:launch-1',
         role: 'agent',
         severity: 'error',
-        message: 'Ron failed.',
+        message: 'Ron - QA failed.',
         extra: expect.objectContaining({
           outcome: 'failed',
           exitCode: 1,
@@ -153,7 +153,9 @@ describe('roleAgent lifecycle wiring guards', () => {
     const body = source.slice(start, end);
     expect(body).not.toContain("agent.artifact_check.failed");
     expect(body).not.toContain('emitArtifactCheckResult(result.complete)');
+    expect(body).toContain("emitAgentLifecycleEvent('agent.artifact_check.started')");
     expect(body).toContain("emitAgentLifecycleEvent('agent.artifact_check.completed')");
+    expect(body).not.toContain('artifactCheckStartedLogged');
   });
 
   it('keeps final artifact-incomplete guardrail receipts visible through the terminal gate', () => {

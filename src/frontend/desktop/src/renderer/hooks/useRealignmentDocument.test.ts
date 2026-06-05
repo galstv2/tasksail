@@ -44,7 +44,7 @@ describe('useRealignmentDocument', () => {
   });
 
   it('loads document on mount when context pack is active', async () => {
-    const { result } = renderHook(() => useRealignmentDocument(true, client));
+    const { result } = renderHook(() => useRealignmentDocument('/packs/test', client));
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -56,7 +56,7 @@ describe('useRealignmentDocument', () => {
   });
 
   it('does not load when no context pack is active', async () => {
-    const { result } = renderHook(() => useRealignmentDocument(false, client));
+    const { result } = renderHook(() => useRealignmentDocument(null, client));
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -65,7 +65,7 @@ describe('useRealignmentDocument', () => {
   });
 
   it('tracks dirty state on field changes', async () => {
-    const { result } = renderHook(() => useRealignmentDocument(true, client));
+    const { result } = renderHook(() => useRealignmentDocument('/packs/test', client));
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.dirty).toBe(false);
@@ -79,7 +79,7 @@ describe('useRealignmentDocument', () => {
   });
 
   it('discards changes and resets to baseline', async () => {
-    const { result } = renderHook(() => useRealignmentDocument(true, client));
+    const { result } = renderHook(() => useRealignmentDocument('/packs/test', client));
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -96,7 +96,7 @@ describe('useRealignmentDocument', () => {
   });
 
   it('saves via client and reloads', async () => {
-    const { result } = renderHook(() => useRealignmentDocument(true, client));
+    const { result } = renderHook(() => useRealignmentDocument('/packs/test', client));
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -132,7 +132,7 @@ describe('useRealignmentDocument', () => {
       }),
     });
 
-    const { result } = renderHook(() => useRealignmentDocument(true, client));
+    const { result } = renderHook(() => useRealignmentDocument('/packs/test', client));
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -158,7 +158,7 @@ describe('useRealignmentDocument', () => {
       }),
     });
 
-    const { result } = renderHook(() => useRealignmentDocument(true, client));
+    const { result } = renderHook(() => useRealignmentDocument('/packs/test', client));
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -166,7 +166,7 @@ describe('useRealignmentDocument', () => {
   });
 
   it('splits multi-line text into array items on save', async () => {
-    const { result } = renderHook(() => useRealignmentDocument(true, client));
+    const { result } = renderHook(() => useRealignmentDocument('/packs/test', client));
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -183,7 +183,7 @@ describe('useRealignmentDocument', () => {
   });
 
   it('sends expected_version with save payload', async () => {
-    const { result } = renderHook(() => useRealignmentDocument(true, client));
+    const { result } = renderHook(() => useRealignmentDocument('/packs/test', client));
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -208,7 +208,7 @@ describe('useRealignmentDocument', () => {
       }),
     });
 
-    const { result } = renderHook(() => useRealignmentDocument(true, client));
+    const { result } = renderHook(() => useRealignmentDocument('/packs/test', client));
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -221,5 +221,103 @@ describe('useRealignmentDocument', () => {
     });
 
     expect(result.current.saveState.status).toBe('conflict');
+  });
+
+  it('resets draft and baseline when pack changes', async () => {
+    const readFn = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        response: {
+          action: 'reinforcement.readRealignmentDoc',
+          mode: 'read-only',
+          message: 'Version 1.',
+          document: {
+            standingExpectations: ['Pack A expectation'],
+            behavioralGuidance: [],
+            lessonsLearned: [],
+            fairnessFraming: [],
+            version: 1,
+            updatedAt: '2026-01-01T00:00:00Z',
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        response: {
+          action: 'reinforcement.readRealignmentDoc',
+          mode: 'read-only',
+          message: 'Version 2.',
+          document: {
+            standingExpectations: ['Pack B expectation'],
+            behavioralGuidance: [],
+            lessonsLearned: [],
+            fairnessFraming: [],
+            version: 2,
+            updatedAt: '2026-02-01T00:00:00Z',
+          },
+        },
+      });
+    client = mockClient({ readRealignmentDoc: readFn });
+    let packDir: string | null = '/packs/pack-a';
+    const { result, rerender } = renderHook(() => useRealignmentDocument(packDir, client));
+
+    await waitFor(() => expect(result.current.draft.standingExpectations).toBe('Pack A expectation'));
+
+    packDir = '/packs/pack-b';
+    rerender();
+
+    await waitFor(() => expect(result.current.draft.standingExpectations).toBe('Pack B expectation'));
+    expect(result.current.draft.standingExpectations).not.toBe('Pack A expectation');
+  });
+
+  it('ignores stale document response from old pack after pack change', async () => {
+    let resolveOld!: (v: unknown) => void;
+    const oldPackPromise = new Promise((resolve) => { resolveOld = resolve; });
+    const readFn = vi.fn()
+      .mockReturnValueOnce(oldPackPromise)
+      .mockResolvedValueOnce({
+        ok: true,
+        response: {
+          action: 'reinforcement.readRealignmentDoc',
+          mode: 'read-only',
+          message: 'Version 2.',
+          document: {
+            standingExpectations: ['Pack B data'],
+            behavioralGuidance: [],
+            lessonsLearned: [],
+            fairnessFraming: [],
+            version: 2,
+            updatedAt: '2026-02-01T00:00:00Z',
+          },
+        },
+      });
+    client = mockClient({ readRealignmentDoc: readFn });
+    let packDir: string | null = '/packs/pack-a';
+    const { result, rerender } = renderHook(() => useRealignmentDocument(packDir, client));
+
+    packDir = '/packs/pack-b';
+    rerender();
+
+    await waitFor(() => expect(result.current.draft.standingExpectations).toBe('Pack B data'));
+
+    resolveOld({
+      ok: true,
+      response: {
+        action: 'reinforcement.readRealignmentDoc',
+        mode: 'read-only',
+        message: 'Version 1.',
+        document: {
+          standingExpectations: ['Pack A stale data'],
+          behavioralGuidance: [],
+          lessonsLearned: [],
+          fairnessFraming: [],
+          version: 1,
+          updatedAt: '2026-01-01T00:00:00Z',
+        },
+      },
+    });
+
+    // Stale old pack response must be ignored
+    await waitFor(() => expect(result.current.draft.standingExpectations).toBe('Pack B data'));
   });
 });

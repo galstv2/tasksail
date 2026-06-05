@@ -1,8 +1,8 @@
 import path from 'node:path';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, unlinkSync } from 'node:fs';
 import { execFile as execFileCb } from 'node:child_process';
 import { promisify } from 'node:util';
-import { createLogger, emitTaskProgressEvent, readTextFile, writeTextFileAtomic, findRepoRoot, getErrorMessage } from '../core/index.js';
+import { createLogger, emitTaskProgressEvent, readTextFile, writeTextFileAtomic, writeTextFileAtomicSync, findRepoRoot, getErrorMessage } from '../core/index.js';
 import { resolveQueuePaths } from './paths.js';
 import { completeActiveItem, acquireDirLockOrThrow, activateNextPendingItemIfReady } from './operations.js';
 import { assertPolicyPasses } from './policyValidation.js';
@@ -11,6 +11,7 @@ import { requireAuthorizedActiveContextPack } from '../context-pack/index.js';
 import { syncRetrospectiveRequiredMetadata } from './retrospectiveFlag.js';
 import { buildAdvisoryFindingSection, ADVISORY_FINDING_HEADING } from '../agent-runner/pipeline/remediation.js';
 import { commitTaskSnapshot } from './errorItems.js';
+import { closeoutQueueLockBudget } from './closeoutLockBudget.js';
 import { transitionTask } from './taskRegistry.js';
 import { finalizeTaskWorktrees } from '../core/worktreeFinalize.js';
 import { verifyTaskBranches } from './branchVerification.js';
@@ -105,7 +106,7 @@ export function writeDeferredRetrospectiveMarker(options: {
     handoffsDir: options.handoffsDir,
     deferredAt: new Date().toISOString(),
   };
-  writeFileSync(markerPath, JSON.stringify(payload, null, 2) + '\n');
+  writeTextFileAtomicSync(markerPath, JSON.stringify(payload, null, 2) + '\n');
 }
 
 function readCompletingSentinelPayload(sentinelPath: string): CompletingSentinelPayload {
@@ -129,7 +130,7 @@ export function mergeCompletingSentinelPayload(
   patch: Partial<CompletingSentinelPayload>,
 ): void {
   const current = readCompletingSentinelPayload(sentinelPath);
-  writeFileSync(sentinelPath, JSON.stringify({ ...current, ...patch }));
+  writeTextFileAtomicSync(sentinelPath, JSON.stringify({ ...current, ...patch }));
 }
 
 async function syncRetrospectiveWithDeferral(options: {
@@ -241,10 +242,9 @@ async function buildBranchHandoffsForArchive(options: {
   }
 
   mkdirSync(options.handoffsDir, { recursive: true });
-  writeFileSync(
+  writeTextFileAtomicSync(
     path.join(options.handoffsDir, 'branch-handoffs.json'),
     JSON.stringify(handoffs, null, 2) + '\n',
-    'utf-8',
   );
   return handoffs;
 }
@@ -364,9 +364,22 @@ export async function completePendingItem(
 
   // F8 fix: acquire the queue lock FIRST — before any archival, retrospective
   // sync, snapshot, or sentinel writes. All five steps run inside this lock.
+  // R1 fix: size the lock-acquisition wait to survive max_parallel_tasks
+  // simultaneous closeouts rather than timing out under contention.
+  // Fetch platform config once and reuse it for the auto-merge policy below
+  // (getPlatformConfig is a cached singleton). The budget read must not throw
+  // when config is unavailable (per R1), so fall back to a safe cap of 10.
+  let closeoutPlatformConfig: Awaited<ReturnType<typeof getPlatformConfig>> | null = null;
+  try {
+    closeoutPlatformConfig = await getPlatformConfig(repoRoot);
+  } catch {
+    // Isolated test contexts may lack .platform-state/platform.json — use fallback.
+  }
+  const maxParallelTasks = closeoutPlatformConfig?.max_parallel_tasks ?? 10;
   const release = await acquireDirLockOrThrow(
     queuePaths.queueLockDir,
     'Completion',
+    closeoutQueueLockBudget(maxParallelTasks),
   );
   let resolvedArchiveMdPath: string | null = null;
 
@@ -482,7 +495,7 @@ export async function completePendingItem(
     });
 
     if (taskJson) {
-      const platformConfig = await getPlatformConfig(repoRoot);
+      const platformConfig = closeoutPlatformConfig ?? await getPlatformConfig(repoRoot);
       const childChainPolicy = buildChildTaskChainCloseoutPolicy({
         childChainCloseout,
         platformAutoMergeEnabled: platformConfig.auto_merge,
@@ -524,7 +537,7 @@ export async function completePendingItem(
     // Use pre-check + writeFileSync (NOT exclusive-create mode) so crash-recovery re-drives
     // can observe the sentinel without EEXIST halting recovery.
     if (!existsSync(sentinelPath)) {
-      writeFileSync(sentinelPath, JSON.stringify({ ts: Date.now() }));
+      writeTextFileAtomicSync(sentinelPath, JSON.stringify({ ts: Date.now() }));
     }
 
     // --- Step 2: archival ---

@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { readTextFile, writeTextFileAtomic } from '../core/index.js';
+import { createLogger, readTextFile, writeTextFileAtomic } from '../core/index.js';
 import { remediationHasBlockingFindings } from './pipeline/remediation.js';
 import {
   renderHandoffArtifactLabel,
@@ -47,6 +47,7 @@ const FINAL_SUMMARY_REQUIRED_CONTENT_SECTIONS = [
   'Key Design Decisions',
   'Known Limitations',
 ];
+const log = createLogger('platform/agent-runner/artifactCompletion');
 const FINAL_SUMMARY_REQUIRED_STATUS_VALUES = new Set(['passed', 'failed', 'partially-passed', 'not-run']);
 const FINAL_SUMMARY_QA_STATUS_VALUES = new Set(['passed', 'issues-found']);
 const ALLOWED_PARALLEL_DECISIONS = new Set(['simple', 'complex']);
@@ -212,14 +213,6 @@ function invalidProductManagerSliceBasenames(sliceFiles: readonly string[], form
     .map((filePath) => path.basename(filePath));
 }
 
-function parallelOkHasActiveApproval(artifact: WorkspaceArtifact): boolean {
-  const decisionText = parallelOkDecisionValue(artifact);
-  if (!decisionText) {
-    return false;
-  }
-  return decisionText.includes('complex') && !decisionText.includes('simple');
-}
-
 function parallelOkDecisionValue(artifact: WorkspaceArtifact): string {
   return normalizeText(artifact.sections.Decision ?? []).toLowerCase();
 }
@@ -227,6 +220,22 @@ function parallelOkDecisionValue(artifact: WorkspaceArtifact): string {
 function parallelOkDecisionKind(artifact: WorkspaceArtifact): 'simple' | 'complex' | null {
   const decision = parallelOkDecisionValue(artifact);
   return ALLOWED_PARALLEL_DECISIONS.has(decision) ? decision as 'simple' | 'complex' : null;
+}
+
+function warnParallelOkDecisionFallbackToSimple(
+  artifact: WorkspaceArtifact,
+  source: string,
+  taskId?: string,
+  artifactLabel = 'parallel-ok.md',
+): void {
+  const decision = parallelOkDecisionValue(artifact);
+  log.warn('parallel_ok.decision.invalid_fallback_simple', {
+    taskId,
+    source,
+    artifact: artifactLabel,
+    decision: decision.length > 0 ? decision.slice(0, 120) : '<empty>',
+    fallback: 'simple',
+  });
 }
 
 function stripBoilerplate(lines: string[]): string[] {
@@ -469,8 +478,14 @@ async function productManagerArtifactCompletionDetails(
   }
   const parallelOk = await readHandoffArtifact(options.handoffsDir, 'parallel-ok.md');
   const parallelOkDecision = parallelOk.exists ? parallelOkDecisionKind(parallelOk) : null;
-  if (!parallelOk.exists || !parallelOkDecision) {
+  if (!parallelOk.exists) {
     reasons.push('parallel-ok.md missing or Decision is not Simple or Complex');
+  } else if (!parallelOkDecision) {
+    if (!hasRealContent(parallelOk)) {
+      reasons.push('parallel-ok.md missing or Decision is not Simple or Complex');
+    } else {
+      warnParallelOkDecisionFallbackToSimple(parallelOk, 'product-manager-artifact-completion', options.taskId);
+    }
   }
   const invalidSlices = invalidProductManagerSliceBasenames(slices, format);
   if (invalidSlices.length > 0) {
@@ -573,7 +588,15 @@ export function formatIncompleteArtifactReasons(reasons: readonly string[]): str
 
 export async function detectParallelOk(handoffsDir: string): Promise<boolean> {
   const artifact = await loadWorkspaceArtifactAtPath(path.join(handoffsDir, 'parallel-ok.md'));
-  return artifact.exists && parallelOkHasActiveApproval(artifact);
+  if (!artifact.exists) {
+    return false;
+  }
+  const decision = parallelOkDecisionKind(artifact);
+  if (!decision) {
+    warnParallelOkDecisionFallbackToSimple(artifact, 'dalton-mode-selection');
+    return false;
+  }
+  return decision === 'complex';
 }
 
 export async function checkAgentArtifactCompletionDetails(

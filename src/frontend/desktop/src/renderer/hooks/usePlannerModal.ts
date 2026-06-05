@@ -114,6 +114,7 @@ export function usePlannerModal(
   currentWorkspaceScopeSummary?: PlannerWorkspaceScopeSummary | null,
 ): UsePlannerModalResult {
   const expectedSessionIdRef = useRef<string | null>(null);
+  const viewDraftSeqRef = useRef(0);
   const plannerStream = usePlannerStream({ expectedSessionIdRef });
   const parentArchivePreview = usePlannerParentArchivePreview(client);
   const [plannerModalOpen, setPlannerModalOpen] = useState(false);
@@ -179,6 +180,8 @@ export function usePlannerModal(
   }, [hasActiveContextPack, startSession]);
   const resetPlannerState = useCallback(() => {
     expectedSessionIdRef.current = null;
+    // Cancel any in-flight draft poll so it can't apply state after reset/close.
+    viewDraftSeqRef.current += 1;
     setSessionStatus('idle');
     plannerStream.clearConversation();
     setSelectedMarkdownFile(null);
@@ -870,20 +873,24 @@ export function usePlannerModal(
   );
 
   const handleViewDraft = useCallback((): void => {
+    const seq = (viewDraftSeqRef.current += 1);
     setStagedDraft(null);
     setDraftError('');
     setAwaitingDraft(true);
     plannerStream.sendMessage(PLANNER_SAVE_DRAFT_WORKFLOW.guideMessage);
 
     void (async () => {
+      const isStale = (): boolean => viewDraftSeqRef.current !== seq;
       try {
         const saveResult = await client.savePlannerDraft();
+        if (isStale()) return;
         if (!saveResult.ok) {
           setDraftError(saveResult.error);
           return;
         }
         for (let attempt = 0; attempt < DRAFT_READ_MAX_ATTEMPTS; attempt += 1) {
           const readResult = await client.readStagedDraft();
+          if (isStale()) return;
           if (!readResult.ok) {
             setDraftError(readResult.error);
             return;
@@ -904,13 +911,15 @@ export function usePlannerModal(
           }
 
           await new Promise((resolve) => setTimeout(resolve, DRAFT_READ_POLL_INTERVAL_MS));
+          if (isStale()) return;
         }
 
         setDraftError('Lily is still writing the draft. Try again shortly.');
       } catch (error: unknown) {
+        if (isStale()) return;
         setDraftError(normalizeIpcThrownError(error, 'Failed to read staged draft.'));
       } finally {
-        setAwaitingDraft(false);
+        if (!isStale()) setAwaitingDraft(false);
       }
     })();
   }, [plannerStream, client]);

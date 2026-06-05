@@ -220,6 +220,46 @@ class TaskArchiveAtomicityTests(TaskArchiveFilingTestBase):
             self.assertEqual(resumed_result["status"], "filed")
             self.assertTrue(Path(resumed_result["record_path"]).exists())
 
+    def test_resume_without_staged_archive_or_record_errors_cleanly(self) -> None:
+        """EH-3: --resume with a surviving manifest but no staged archive.json
+        and no canonical record fails with a structured error, not a raw
+        FileNotFoundError traceback."""
+        with tempfile.TemporaryDirectory() as temp_root:
+            temp_path = Path(temp_root)
+            repo_root = temp_path / "repo"
+            context_pack_dir = temp_path / "sample-org"
+            self.base_handoffs(repo_root, child_task=False)
+            context_pack_dir.mkdir(parents=True, exist_ok=True)
+
+            first = self.run_archive_script(
+                repo_root=repo_root,
+                context_pack_dir=context_pack_dir,
+            )
+            self.assertEqual(first.returncode, 0, msg=first.stderr)
+            record_path = Path(json.loads(first.stdout)["record_path"])
+
+            # Recreate staging with only a manifest (no archive.json) and remove
+            # the canonical record so rehydration is impossible. The script
+            # computes the staging dir at record_path.parent.parent (see
+            # archive_year_dir in file-task-archive.py).
+            staging_dir = record_path.parent.parent / ".staging-cap-2001"
+            staging_dir.mkdir(parents=True, exist_ok=True)
+            (staging_dir / "manifest.json").write_text(
+                json.dumps({"archive": "written"}, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            record_path.unlink()
+
+            resumed = self.run_archive_script_with_resume(
+                repo_root=repo_root,
+                context_pack_dir=context_pack_dir,
+            )
+            self.assertNotEqual(resumed.returncode, 0)
+            self.assertNotIn(
+                "Traceback (most recent call last)", resumed.stderr
+            )
+            self.assertIn("Cannot resume", resumed.stderr)
+
     def test_resume_does_not_duplicate_global_history(self) -> None:
         """Simulate crash after global history, resume, verify exactly
         one global history entry."""

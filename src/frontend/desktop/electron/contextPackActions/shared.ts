@@ -74,12 +74,29 @@ export async function runPythonScriptCommand(
     const child = spawn(REPO_CONTEXT_PYTHON_BIN, args, { cwd: REPO_ROOT, stdio: ['pipe', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
+    let settled = false;
+    const settle = (fn: () => void): void => {
+      if (settled) return;
+      settled = true;
+      fn();
+    };
     child.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
     child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
+    // The child can exit before consuming all of stdin; the resulting EPIPE is
+    // emitted on the stdin stream (not on `child`), and without a handler it
+    // becomes an uncaughtException that exits the whole app. EPIPE is expected
+    // here — the child's own close/error events decide success — so only a
+    // non-EPIPE stdin error is treated as a real failure. Mirrors the pattern
+    // in main.contextPackTree.ts.
+    child.stdin.on('error', (err) => {
+      if ((err as NodeJS.ErrnoException).code !== 'EPIPE') {
+        settle(() => reject(err));
+      }
+    });
     child.stdin.write(options.stdin!);
     child.stdin.end();
-    child.on('close', () => resolve({ stdout, stderr }));
-    child.on('error', reject);
+    child.on('close', () => settle(() => resolve({ stdout, stderr })));
+    child.on('error', (err) => settle(() => reject(err)));
   });
 }
 

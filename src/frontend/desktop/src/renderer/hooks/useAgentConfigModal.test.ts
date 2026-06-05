@@ -212,6 +212,107 @@ describe('useAgentConfigModal', () => {
     expect(result.current.agentConfigModalProps.showRestartNotice).toBe(true);
   });
 
+  it('marks dirty, sends wall_clock_timeout_s, and refreshes from the save response', async () => {
+    const saveAgentModels = vi.fn().mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'agentConfig.saveAgentModels',
+        mode: 'mutated',
+        message: 'Agent assignments saved.',
+        agents: makeAgents().map((agent) =>
+          (agent.agent_id === 'provider-builder' ? { ...agent, wall_clock_timeout_s: 1200 } : agent)),
+      },
+    });
+    const client = createMockClient({ saveAgentModels });
+
+    const { result } = renderHook(() => useAgentConfigModal(client), { wrapper });
+    act(() => { result.current.openAgentConfigModal(); });
+    await waitFor(() => expect(result.current.agentConfigModalProps.agents).toHaveLength(4));
+
+    act(() => {
+      result.current.agentConfigModalProps.onAgentWallClockTimeoutChange('provider-builder', '1200');
+    });
+
+    expect(result.current.agentConfigModalProps.isDirty).toBe(true);
+    expect(
+      result.current.agentConfigModalProps.agents.find((a) => a.agent_id === 'provider-builder')?.selected_wall_clock_timeout_s,
+    ).toBe(1200);
+
+    await act(async () => { await result.current.agentConfigModalProps.onSave(); });
+
+    expect(saveAgentModels).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ agent_id: 'provider-builder', model_id: 'claude-sonnet-4.6', wall_clock_timeout_s: 1200 }),
+      ]),
+    );
+    const refreshed = result.current.agentConfigModalProps.agents.find((a) => a.agent_id === 'provider-builder');
+    expect(refreshed?.current_wall_clock_timeout_s).toBe(1200);
+    expect(refreshed?.selected_wall_clock_timeout_s).toBe(1200);
+    expect(result.current.agentConfigModalProps.isDirty).toBe(false);
+  });
+
+  it('emits idle_timeout_s only for the descriptor planner agent', async () => {
+    const saveAgentModels = vi.fn().mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'agentConfig.saveAgentModels',
+        mode: 'mutated',
+        message: 'Agent assignments saved.',
+        agents: makeAgents(),
+      },
+    });
+    const client = createMockClient({ saveAgentModels });
+
+    const { result } = renderHook(() => useAgentConfigModal(client), { wrapper });
+    act(() => { result.current.openAgentConfigModal(); });
+    await waitFor(() => expect(result.current.agentConfigModalProps.agents).toHaveLength(4));
+
+    act(() => {
+      // Even if a non-planner row's idle is set in hook state, onSave must gate it out.
+      result.current.agentConfigModalProps.onAgentIdleTimeoutChange('provider-planner', '900');
+      result.current.agentConfigModalProps.onAgentIdleTimeoutChange('provider-builder', '300');
+    });
+
+    await act(async () => { await result.current.agentConfigModalProps.onSave(); });
+
+    const payload = saveAgentModels.mock.calls[0]?.[0] as Array<Record<string, unknown>>;
+    expect(payload.find((a) => a.agent_id === 'provider-planner')).toMatchObject({ idle_timeout_s: 900 });
+    expect(payload.find((a) => a.agent_id === 'provider-builder')).not.toHaveProperty('idle_timeout_s');
+  });
+
+  it('errors on non-empty invalid timeouts but allows blanking the field to retype', async () => {
+    const client = createMockClient();
+
+    const { result } = renderHook(() => useAgentConfigModal(client), { wrapper });
+    act(() => { result.current.openAgentConfigModal(); });
+    await waitFor(() => expect(result.current.agentConfigModalProps.agents).toHaveLength(4));
+
+    const builderTimeout = () =>
+      result.current.agentConfigModalProps.agents.find((a) => a.agent_id === 'provider-builder')?.selected_wall_clock_timeout_s;
+
+    // Non-empty invalid input sets the error and never advances to a savable value.
+    for (const bad of ['0', '-5', '1.5', 'abc', '86401']) {
+      act(() => {
+        result.current.agentConfigModalProps.onAgentWallClockTimeoutChange('provider-builder', bad);
+      });
+      expect(result.current.agentConfigModalProps.error).not.toBeNull();
+      expect(builderTimeout()).toBeUndefined();
+    }
+
+    // A valid value advances; blanking it then clears the value (renders blank) without an error,
+    // so the controlled input never snaps back when the operator clears it to retype.
+    act(() => {
+      result.current.agentConfigModalProps.onAgentWallClockTimeoutChange('provider-builder', '1200');
+    });
+    expect(builderTimeout()).toBe(1200);
+
+    act(() => {
+      result.current.agentConfigModalProps.onAgentWallClockTimeoutChange('provider-builder', '');
+    });
+    expect(result.current.agentConfigModalProps.error).toBeNull();
+    expect(builderTimeout()).toBeUndefined();
+  });
+
   it('sends effort assignments, preserves unsaved state on save error, and shows restart notice for Lily effort changes', async () => {
     const loadCapabilities = vi.fn().mockResolvedValue({
       ok: true,

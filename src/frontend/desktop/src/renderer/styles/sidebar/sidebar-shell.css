@@ -235,7 +235,7 @@
 .sidebar-meta--warn {
   color: var(--ts-warning);
   background: var(--ts-warning-tint);
-  border: 1px solid rgba(217, 119, 6, 0.1);
+  border: 1px solid color-mix(in srgb, var(--ts-warning) 10%, transparent);
   border-radius: var(--ts-radius-md);
   padding: 0.4rem 0.55rem;
   font-size: 0.7rem;
@@ -245,7 +245,7 @@
 .sidebar-meta--error {
   color: var(--ts-error);
   background: var(--ts-danger-tint);
-  border: 1px solid rgba(220, 38, 38, 0.1);
+  border: 1px solid color-mix(in srgb, var(--ts-danger) 10%, transparent);
   border-radius: var(--ts-radius-md);
   padding: 0.4rem 0.55rem;
   font-size: 0.7rem;

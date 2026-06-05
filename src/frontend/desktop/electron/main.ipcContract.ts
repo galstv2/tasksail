@@ -49,8 +49,20 @@ export class DesktopIpcContract {
       return this.router.handle(request, { webContentsId: event.sender?.id });
     });
 
-    ipcMain.handle(DESKTOP_SHELL_BYPASS_TEMPLATE_CHANNEL, async () => readBypassTemplate());
-    ipcMain.handle(PROVIDER_DESCRIBE_ACTIVE_CHANNEL, async () => getProviderFrontendDescriptor(REPO_ROOT));
+    ipcMain.handle(DESKTOP_SHELL_BYPASS_TEMPLATE_CHANNEL, async (event) => {
+      const senderError = validateDesktopInvokeSender(event);
+      if (senderError) {
+        throw new Error(senderError);
+      }
+      return readBypassTemplate();
+    });
+    ipcMain.handle(PROVIDER_DESCRIBE_ACTIVE_CHANNEL, async (event) => {
+      const senderError = validateDesktopInvokeSender(event);
+      if (senderError) {
+        throw new Error(senderError);
+      }
+      return getProviderFrontendDescriptor(REPO_ROOT);
+    });
   }
 }
 

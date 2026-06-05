@@ -27,6 +27,8 @@ export type StreamEvent = {
   taskTitle: string | null;
   severity: StreamSeverity;
   message: string;
+  /** Optional: realignment job ID. Present only on runtime.realignment events. */
+  realignmentId?: string;
   sessionContext?: {
     sessionId: string;
     instanceId: string | null;

@@ -205,7 +205,9 @@ async function removeTaskOwnedBindingHard(binding: TaskRepoBinding): Promise<voi
       error: errorMessage(err),
     });
   });
-  await execFile('git', ['-C', binding.originalRoot, 'branch', '-D', binding.worktreeBranch]).catch((err: unknown) => {
+  // SEC-TS-05: '--' terminates option parsing so an agent-authored branch name
+  // starting with '-' is treated as an operand, not a git flag.
+  await execFile('git', ['-C', binding.originalRoot, 'branch', '-D', '--', binding.worktreeBranch]).catch((err: unknown) => {
     log.warn('worktree.branch_delete.failed', {
       branch: binding.worktreeBranch,
       error: errorMessage(err),

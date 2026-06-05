@@ -54,15 +54,27 @@ export async function acquireDirLock(
   return null;
 }
 
+/** Optional retry budget forwarded to acquireDirLock. When omitted, the acquireDirLock defaults (maxRetries=30, backoffMs=50) are used unchanged. */
+export interface DirLockOpts {
+  maxRetries?: number;
+  backoffMs?: number;
+}
+
 /**
  * Acquire the queue lock or throw. Convenience wrapper for callers that
  * must hold the lock and should fail loudly if it is unavailable.
+ *
+ * @param opts - Optional retry budget. When omitted, acquireDirLock defaults
+ *   (maxRetries=30, backoffMs=50) apply, keeping all existing callers unchanged.
+ *   Pass a budget from closeoutQueueLockBudget() on closeout paths to size the
+ *   wait to exceed the worst-case serialized hold time.
  */
 export async function acquireDirLockOrThrow(
   lockDir: string,
   operationName: string,
+  opts?: DirLockOpts,
 ): Promise<() => Promise<void>> {
-  const release = await acquireDirLock(lockDir);
+  const release = await acquireDirLock(lockDir, opts?.maxRetries, opts?.backoffMs);
   if (!release) {
     throw new Error(
       `${operationName} blocked: could not acquire queue lock. Another operation may be in progress.`,
@@ -75,13 +87,19 @@ export async function acquireDirLockOrThrow(
  * Run `fn` while holding the directory lock at `lockDir`. Releases the lock
  * even if `fn` throws. Use for the standard acquire → try → finally → release
  * pattern around queue-mutating operations.
+ *
+ * @param opts - Optional retry budget. When omitted, acquireDirLock defaults
+ *   (maxRetries=30, backoffMs=50) apply, keeping all existing callers unchanged.
+ *   Pass a budget from closeoutQueueLockBudget() on closeout paths to size the
+ *   wait to exceed the worst-case serialized hold time.
  */
 export async function withDirLock<T>(
   lockDir: string,
   operationName: string,
   fn: () => Promise<T>,
+  opts?: DirLockOpts,
 ): Promise<T> {
-  const release = await acquireDirLockOrThrow(lockDir, operationName);
+  const release = await acquireDirLockOrThrow(lockDir, operationName, opts);
   try {
     return await fn();
   } finally {

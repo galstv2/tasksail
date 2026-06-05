@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { closeSync, existsSync, openSync, readFileSync, unlinkSync } from 'node:fs';
 import net from 'node:net';
+import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
@@ -8,6 +9,7 @@ import { createLogger, killWindowsProcessTree, loadEnv } from '../core/index.js'
 import { classifyPythonVersion, formatPythonVersion, resolveInterpreter, resolveRuntimePython } from '../core/pythonResolver.js';
 import { isWindowsPlatform } from '../core/platform.js';
 import { ensureDir, writeTextFileAtomic } from '../core/io.js';
+import { acquireDirLock } from '../queue/dirLock.js';
 import { checkServiceHealth } from './healthcheck.js';
 import { createSharedMcpBootstrapEnv } from './sharedMcp.js';
 
@@ -15,6 +17,51 @@ const log = createLogger('platform/container/directRuntimeProcess');
 
 const PID_REL_PATH = '.platform-state/runtime/repo-context-mcp.pid';
 const LOG_REL_PATH = '.platform-state/runtime/repo-context-mcp.log';
+const SPAWN_LOCK_REL_PATH = '.platform-state/runtime/repo-context-mcp-spawn.lock';
+
+interface PidRecord {
+  pid: number;
+  startedAt?: string;
+  host?: string;
+}
+
+/** Parse the PID file. Supports both legacy bare-numeric and new JSON formats. */
+function parsePidRecord(raw: string): PidRecord | undefined {
+  const trimmed = raw.trim();
+  // Try JSON first (new format: { pid, startedAt, host }).
+  if (trimmed.startsWith('{')) {
+    try {
+      const parsed: unknown = JSON.parse(trimmed);
+      if (
+        typeof parsed === 'object' &&
+        parsed !== null &&
+        'pid' in parsed &&
+        typeof (parsed as { pid: unknown }).pid === 'number'
+      ) {
+        const rec = parsed as { pid: number; startedAt?: unknown; host?: unknown };
+        const pid = rec.pid;
+        if (!Number.isInteger(pid) || pid <= 0) return undefined;
+        return {
+          pid,
+          startedAt: typeof rec.startedAt === 'string' ? rec.startedAt : undefined,
+          host: typeof rec.host === 'string' ? rec.host : undefined,
+        };
+      }
+    } catch {
+      return undefined;
+    }
+    return undefined;
+  }
+  // Legacy: bare numeric PID.
+  const pid = Number.parseInt(trimmed, 10);
+  return Number.isInteger(pid) && pid > 0 ? { pid } : undefined;
+}
+
+function readPidRecord(pidPath: string): PidRecord | undefined {
+  if (!existsSync(pidPath)) return undefined;
+  return parsePidRecord(readFileSync(pidPath, 'utf-8'));
+}
+
 const SHUTDOWN_GRACE_MS = 15_000;
 export const DIRECT_RUNTIME_READINESS_TIMEOUT_MS = 30_000;
 const READINESS_POLL_INTERVAL_MS = 250;
@@ -52,11 +99,42 @@ export async function spawnDirectMcp(opts: DirectProcessSpawnOptions): Promise<v
 async function spawnDirectMcpUncoalesced(opts: DirectProcessSpawnOptions): Promise<void> {
   const pidPath = path.join(opts.repoRoot, PID_REL_PATH);
   const logPath = path.join(opts.repoRoot, LOG_REL_PATH);
+  const lockDir = path.join(opts.repoRoot, SPAWN_LOCK_REL_PATH);
   await ensureDir(path.dirname(pidPath));
 
+  // Fast path: if healthy before acquiring the cross-process lock, skip everything.
   if (await isExistingProcessHealthy(pidPath, opts.port)) {
     return;
   }
+
+  // Acquire cross-process filesystem lock to serialize spawners across processes.
+  const release = await acquireDirLock(lockDir);
+  if (release === null) {
+    // Could not acquire within budget — fall back to unguarded behavior.
+    log.warn('repo_context_mcp.spawn_lock_unavailable', {
+      message: 'Could not acquire spawn lock; proceeding without cross-process serialization.',
+      lockDir,
+    });
+    await spawnDirectMcpInner(pidPath, logPath, opts);
+    return;
+  }
+
+  try {
+    // Double-checked: re-check health after lock acquisition; a peer may have spawned while we waited.
+    if (await isExistingProcessHealthy(pidPath, opts.port)) {
+      return;
+    }
+    await spawnDirectMcpInner(pidPath, logPath, opts);
+  } finally {
+    await release();
+  }
+}
+
+async function spawnDirectMcpInner(
+  pidPath: string,
+  logPath: string,
+  opts: DirectProcessSpawnOptions,
+): Promise<void> {
   await killStaleProcessIfPresent(pidPath);
   await assertPortAvailable(opts.port);
 
@@ -83,7 +161,12 @@ async function spawnDirectMcpUncoalesced(opts: DirectProcessSpawnOptions): Promi
     throw new Error('Failed to spawn repo-context-mcp: no PID returned by spawn().');
   }
 
-  await writeTextFileAtomic(pidPath, `${child.pid}\n`);
+  const pidRecord: PidRecord = {
+    pid: child.pid,
+    startedAt: new Date().toISOString(),
+    host: os.hostname(),
+  };
+  await writeTextFileAtomic(pidPath, `${JSON.stringify(pidRecord)}\n`);
 
   let exitedEarly = false;
   const onExit = (code: number | null, signal: NodeJS.Signals | null): void => {
@@ -139,11 +222,20 @@ async function killWindowsDaemonTree(pid: number): Promise<void> {
 export async function stopDirectMcp(repoRoot: string): Promise<void> {
   const pidPath = path.join(repoRoot, PID_REL_PATH);
   if (!existsSync(pidPath)) return;
-  const pid = readPid(pidPath);
-  if (pid === undefined) {
+  const record = readPidRecord(pidPath);
+  if (record === undefined) {
     unlinkMissingOk(pidPath);
     return;
   }
+  // Do not kill a process whose recorded host differs from the current host.
+  if (record.host !== undefined && record.host !== os.hostname()) {
+    log.warn('repo_context_mcp.stop_skipped_foreign_host', {
+      recordedHost: record.host,
+      currentHost: os.hostname(),
+    });
+    return;
+  }
+  const { pid } = record;
   if (isWindowsPlatform()) {
     if (isAlive(pid)) {
       await killWindowsDaemonTree(pid);
@@ -188,8 +280,8 @@ async function buildDirectRuntimeEnv(opts: DirectProcessSpawnOptions): Promise<N
 }
 
 async function isExistingProcessHealthy(pidPath: string, port: number): Promise<boolean> {
-  const pid = readPid(pidPath);
-  if (pid === undefined || !isAlive(pid)) return false;
+  const record = readPidRecord(pidPath);
+  if (record === undefined || !isAlive(record.pid)) return false;
   const result = await checkServiceHealth({
     name: 'repo-context-mcp',
     url: `http://127.0.0.1:${port}/health`,
@@ -200,11 +292,20 @@ async function isExistingProcessHealthy(pidPath: string, port: number): Promise<
 }
 
 async function killStaleProcessIfPresent(pidPath: string): Promise<void> {
-  const pid = readPid(pidPath);
-  if (pid === undefined) {
+  const record = readPidRecord(pidPath);
+  if (record === undefined) {
     if (existsSync(pidPath)) unlinkMissingOk(pidPath);
     return;
   }
+  // Do not kill a process whose recorded host differs from the current host.
+  if (record.host !== undefined && record.host !== os.hostname()) {
+    log.warn('repo_context_mcp.stale_kill_skipped_foreign_host', {
+      recordedHost: record.host,
+      currentHost: os.hostname(),
+    });
+    return;
+  }
+  const { pid } = record;
   if (isAlive(pid)) {
     if (isWindowsPlatform()) {
       await killWindowsDaemonTree(pid);
@@ -291,12 +392,6 @@ function isAlive(pid: number): boolean {
   } catch (err: unknown) {
     return (err as NodeJS.ErrnoException).code !== 'ESRCH';
   }
-}
-
-function readPid(pidPath: string): number | undefined {
-  if (!existsSync(pidPath)) return undefined;
-  const pid = Number.parseInt(readFileSync(pidPath, 'utf-8').trim(), 10);
-  return Number.isInteger(pid) && pid > 0 ? pid : undefined;
 }
 
 function unlinkMissingOk(pidPath: string): void {

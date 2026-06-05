@@ -51,7 +51,6 @@ const defaultProps = {
   onToggleCollapse: vi.fn(),
   onSelectContextPack: vi.fn(),
   onSelectWorkingFocus: vi.fn(),
-  onRefreshCatalog: vi.fn(),
   onOpenCreateModal: vi.fn(),
   onReseedContextPack: vi.fn(),
   onPreviewSwitch: vi.fn(),
@@ -218,7 +217,6 @@ describe('ContextPackSidebarExpanded', () => {
       />,
     );
     expect(screen.getByLabelText('Apply pack')).toBeDisabled();
-    expect(screen.getByLabelText('Refresh packs')).toBeDisabled();
   });
 
   it('renders Reseed and Clear toolbar buttons for an active selected pack', () => {

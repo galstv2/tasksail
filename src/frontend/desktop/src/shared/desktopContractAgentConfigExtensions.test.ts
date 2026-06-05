@@ -539,3 +539,47 @@ describe('agentConfig.reseedExtension: manual reseed contract', () => {
     expect(errors.length).toBeGreaterThan(0);
   });
 });
+
+// ── agentConfig.saveAgentModels per-agent timeout validation ───────────────────
+
+describe('agentConfig.saveAgentModels timeout validation', () => {
+  it('accepts assignments that omit timeouts or supply valid 1..86400 integers', () => {
+    expect(
+      validateDesktopActionRequest({
+        action: 'agentConfig.saveAgentModels',
+        payload: {
+          assignments: [
+            { agent_id: 'provider-planner', model_id: 'gpt-4.1' },
+            { agent_id: 'provider-builder', model_id: 'gpt-4.1', wall_clock_timeout_s: 1, idle_timeout_s: 1 },
+            { agent_id: 'provider-qa', model_id: 'gpt-4.1', wall_clock_timeout_s: 1800, idle_timeout_s: 600 },
+            { agent_id: 'provider-x', model_id: 'gpt-4.1', wall_clock_timeout_s: 86400, idle_timeout_s: 86400 },
+          ],
+        },
+      }),
+    ).toEqual([]);
+  });
+
+  it('rejects non-integer, out-of-range, null, and non-number timeouts when present', () => {
+    const invalidValues: Array<number | string | null> = [
+      0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, '600', null, 86401,
+    ];
+    for (const bad of invalidValues) {
+      expect(
+        validateDesktopActionRequest({
+          action: 'agentConfig.saveAgentModels',
+          payload: { assignments: [{ agent_id: 'provider-planner', model_id: 'gpt-4.1', wall_clock_timeout_s: bad }] },
+        }),
+      ).toEqual([
+        'payload.assignments[0].wall_clock_timeout_s must be an integer number of seconds from 1 to 86400 when provided.',
+      ]);
+      expect(
+        validateDesktopActionRequest({
+          action: 'agentConfig.saveAgentModels',
+          payload: { assignments: [{ agent_id: 'provider-planner', model_id: 'gpt-4.1', idle_timeout_s: bad }] },
+        }),
+      ).toEqual([
+        'payload.assignments[0].idle_timeout_s must be an integer number of seconds from 1 to 86400 when provided.',
+      ]);
+    }
+  });
+});

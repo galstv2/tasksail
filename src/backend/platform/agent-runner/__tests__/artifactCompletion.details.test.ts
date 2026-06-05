@@ -5,11 +5,22 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 const readTextFile = vi.fn<(_: string) => Promise<string | undefined>>();
+const logWarn = vi.fn();
 
 vi.mock('../../core/index.js', async () => {
   const actual = await vi.importActual<typeof import('../../core/index.js')>('../../core/index.js');
   return {
     ...actual,
+    createLogger: () => ({
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: logWarn,
+      error: vi.fn(),
+      progress: vi.fn(),
+      child() {
+        return this;
+      },
+    }),
     readTextFile,
   };
 });
@@ -87,6 +98,20 @@ describe('artifact completion details', () => {
     );
   };
 
+  const parallelOkTemplateShell = (): string => '# Parallel OK\n\n'
+    + 'Use this file to choose Simple single-Dalton execution or Complex Dalton fleet/orchestrator execution.\n\n'
+    + '## Task Metadata\n\n'
+    + '- Task ID:\n'
+    + '- Task Title:\n\n'
+    + '## Decision\n'
+    + '<!-- (1 word) - write "Simple" or "Complex". -->\n\n'
+    + '## Independent Slices\n'
+    + '<!-- required when Decision is "Complex" -->\n\n'
+    + '## Constraints\n'
+    + '<!-- required when Decision is "Complex" -->\n\n'
+    + '## Coordination Notes\n'
+    + '<!-- "None" if not applicable -->\n';
+
   const writeQaArtifacts = (overrides: { finalSummary?: string; issues?: string; retro?: string } = {}): void => {
     writeFileSync(
       path.join(handoffsDir, 'issues.md'),
@@ -118,21 +143,46 @@ describe('artifact completion details', () => {
     await expect(checkAgentArtifactCompletion(options('product-manager'))).resolves.toBe(true);
 
     writeFileSync(path.join(handoffsDir, 'parallel-ok.md'), '# Parallel OK\n\n## Decision\n\nMaybe\n', 'utf-8');
-    await expect(checkAgentArtifactCompletionDetails(options('product-manager'))).resolves.toMatchObject({
-      complete: false,
+    await expect(checkAgentArtifactCompletionDetails(options('product-manager'))).resolves.toEqual({
+      complete: true,
+      reasons: [],
     });
-    await expect(checkAgentArtifactCompletion(options('product-manager'))).resolves.toBe(false);
+    await expect(checkAgentArtifactCompletion(options('product-manager'))).resolves.toBe(true);
+    expect(logWarn).toHaveBeenCalledWith(
+      'parallel_ok.decision.invalid_fallback_simple',
+      expect.objectContaining({
+        taskId,
+        source: 'product-manager-artifact-completion',
+        decision: 'maybe',
+        fallback: 'simple',
+      }),
+    );
   });
 
-  it('reports product-manager missing implementation spec, invalid parallel decision, missing slices, and missing slice sections', async () => {
+  it('keeps template-only parallel-ok incomplete so product-manager remediation runs', async () => {
+    writeReadyProductManagerArtifacts();
+    writeFileSync(path.join(handoffsDir, 'parallel-ok.md'), parallelOkTemplateShell(), 'utf-8');
+
+    await expect(checkAgentArtifactCompletionDetails(options('product-manager'))).resolves.toEqual({
+      complete: false,
+      reasons: ['parallel-ok.md missing or Decision is not Simple or Complex'],
+    });
+    await expect(checkAgentArtifactCompletion(options('product-manager'))).resolves.toBe(false);
+    expect(logWarn).not.toHaveBeenCalledWith(
+      'parallel_ok.decision.invalid_fallback_simple',
+      expect.anything(),
+    );
+  });
+
+  it('reports product-manager missing implementation spec, missing slices, and missing slice sections', async () => {
     writeFileSync(path.join(handoffsDir, 'parallel-ok.md'), '# Parallel OK\n\n## Decision\n\nMaybe\n', 'utf-8');
     const missing = await checkAgentArtifactCompletionDetails(options('product-manager'));
     expect(missing.complete).toBe(false);
     expect(missing.reasons).toEqual(expect.arrayContaining([
       'implementation-spec.md missing or empty',
-      'parallel-ok.md missing or Decision is not Simple or Complex',
       'ImplementationSteps missing slice files',
     ]));
+    expect(missing.reasons).not.toContain('parallel-ok.md missing or Decision is not Simple or Complex');
 
     writeFileSync(path.join(handoffsDir, 'implementation-spec.md'), '# Implementation Spec\n\n## Goals\n\n- ship\n', 'utf-8');
     writeFileSync(path.join(implStepsDir, 'slice-1.md'), '# Slice\n\n## Purpose\n\nDo work.\n', 'utf-8');

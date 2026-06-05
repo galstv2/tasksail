@@ -20,6 +20,10 @@ from .scope import normalize_qmd_scope_root
 
 logger = logging.getLogger(__name__)
 
+# Canonical set of accepted seed plan modes. Single source for both the CLI
+# transport (argparse choices) and the HTTP transport (request validation).
+VALID_PLAN_MODES = ("prefer-plan", "require-plan", "manifest-only")
+
 
 def build_plan(
     context_pack_dir: Path,

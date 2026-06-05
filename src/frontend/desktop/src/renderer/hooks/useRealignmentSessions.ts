@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { ReinforcementRealignmentSessionEntry } from '../../shared/desktopContract';
 import { createLogger } from '../log/logger';
@@ -29,7 +29,7 @@ export type RealignmentAnalysisRunState =
 const log = createLogger('src/renderer/hooks/useRealignmentSessions');
 
 export function useRealignmentSessions(
-  hasActiveContextPack: boolean,
+  activeContextPackDir: string | null,
   client: DesktopShellClient = desktopShellClient,
 ): UseRealignmentSessionsResult {
   const [sessions, setSessions] = useState<ReinforcementRealignmentSessionEntry[]>([]);
@@ -37,31 +37,49 @@ export function useRealignmentSessions(
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [analysisRun, setAnalysisRun] = useState<RealignmentAnalysisRunState>({ status: 'idle' });
+  const requestGenerationRef = useRef(0);
+  // Pack-identity generation: bumped only on activeContextPackDir change, so a
+  // mutation continuation (runAnalysis / dismissRealignment) can detect that the
+  // modal switched packs while its IPC was in flight and skip the stale state write.
+  const packGenerationRef = useRef(0);
 
   const load = useCallback(async () => {
-    if (!hasActiveContextPack) {
+    if (!activeContextPackDir) {
       setSessions([]);
       return;
     }
+    const generation = ++requestGenerationRef.current;
     setLoading(true);
     setError(null);
     try {
       const result = await client.listRealignmentSessions();
+      if (generation !== requestGenerationRef.current) return;
       if (result.ok && result.response.action === 'reinforcement.listRealignmentSessions') {
         setSessions(result.response.sessions);
       } else if (!result.ok) {
         setError(result.error);
       }
     } catch (err: unknown) {
+      if (generation !== requestGenerationRef.current) return;
       setError(err instanceof Error ? err.message : 'Failed to load sessions.');
     } finally {
-      setLoading(false);
+      if (generation === requestGenerationRef.current) {
+        setLoading(false);
+      }
     }
-  }, [hasActiveContextPack, client]);
+  }, [activeContextPackDir, client]);
 
+  // Reset and reload on pack change
   useEffect(() => {
+    setSessions([]);
+    setSelectedSessionId(null);
+    setAnalysisRun({ status: 'idle' });
+    setError(null);
+    requestGenerationRef.current += 1;
+    packGenerationRef.current += 1;
     load().catch(() => {});
-  }, [load]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeContextPackDir]);
 
   const onSelectSession = useCallback((sessionId: string | null) => {
     setSelectedSessionId(sessionId);
@@ -69,12 +87,15 @@ export function useRealignmentSessions(
 
   const runAnalysis = useCallback(
     async (contextPackDir: string, realignmentId: string) => {
+      const packGeneration = packGenerationRef.current;
       setAnalysisRun({ status: 'starting', realignmentId });
       try {
         const result = await client.runRealignmentAnalysis({
           contextPackDir,
           realignmentId,
         });
+        // Ignore a stale continuation if the active pack changed mid-flight.
+        if (packGeneration !== packGenerationRef.current) return;
         if (result.ok && result.response.action === 'reinforcement.runRealignmentAnalysis') {
           const { job } = result.response;
           if (job.status === 'started') {
@@ -107,6 +128,7 @@ export function useRealignmentSessions(
           });
         }
       } catch (err: unknown) {
+        if (packGeneration !== packGenerationRef.current) return;
         setAnalysisRun({
           status: 'error',
           realignmentId,
@@ -119,8 +141,11 @@ export function useRealignmentSessions(
 
   const dismissRealignment = useCallback(
     async (contextPackDir: string, realignmentId: string) => {
+      const packGeneration = packGenerationRef.current;
       try {
         const result = await client.dismissRealignment({ contextPackDir, realignmentId });
+        // Ignore a stale continuation if the active pack changed mid-flight.
+        if (packGeneration !== packGenerationRef.current) return;
         if (result.ok && result.response.action === 'reinforcement.dismissRealignment') {
           setSessions((current) => current.filter((session) => session.realignmentId !== realignmentId));
           setSelectedSessionId((current) => (current === realignmentId ? null : current));
@@ -140,6 +165,7 @@ export function useRealignmentSessions(
           });
         }
       } catch (err: unknown) {
+        if (packGeneration !== packGenerationRef.current) return;
         const message = err instanceof Error ? err.message : 'Failed to dismiss realignment.';
         log.warn('realignment.dismiss.failed', {
           contextPackDir,

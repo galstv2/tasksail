@@ -2,13 +2,19 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
-import tempfile
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
 from uuid import uuid4
+
+from src.backend.scripts.python.lib.io import (
+    atomic_write_text,
+)
+from src.backend.scripts.python.lib.io import (
+    read_existing_created_at as _lib_read_existing_created_at,
+)
+from src.backend.scripts.python.lib.text import slugify as _lib_slugify
 
 from .config import ALLOWED_LAYERS, REQUEST_ID_HEADER
 
@@ -149,25 +155,12 @@ def load_json(path: Path) -> dict[str, Any]:
 
 
 def write_text_atomic(path: Path, content: str) -> None:
-    """Write *content* to *path* atomically via temp-file + replace."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(
-        dir=path.parent,
-        prefix=f".{path.name}.",
-        suffix=".tmp",
-    )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(content)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp_path, str(path))
-    except BaseException:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            logger.warning("Failed to remove temp file %s during atomic write cleanup", tmp_path)
-        raise
+    """Write *content* to *path* atomically.
+
+    Delegates to the shared ``lib/io`` implementation so the platform has a
+    single durable atomic-write code path.
+    """
+    atomic_write_text(path, content)
 
 
 def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
@@ -219,6 +212,9 @@ def unique_preserving_order(values: list[str]) -> list[str]:
 
 
 def normalize_string_list(value: Any) -> list[str]:
+    # Treats a bare string as a single element (MCP receives already-structured
+    # JSON lists). Distinct by design from lib.text.normalize_string_list, which
+    # comma-splits operator questionnaire input.
     if value is None:
         return []
     if isinstance(value, str):
@@ -236,6 +232,9 @@ def normalize_string_list(value: Any) -> list[str]:
 
 
 def compact_text(value: Any, max_length: int = 280) -> str:
+    # Read-time variant: runs on already-cleaned JSON record fields, so it does
+    # not strip HTML comments. Distinct by design from lib.text.compact_text
+    # (write-time, strips HTML).
     if not isinstance(value, str):
         return ""
     normalized = " ".join(value.split())
@@ -277,12 +276,9 @@ def parse_int(value: Any, default: int = 0) -> int:
 
 
 def slugify(value: str) -> str:
-    normalized = re.sub(
-        r"[^a-zA-Z0-9]+",
-        "-",
-        value.strip().lower(),
-    ).strip("-")
-    return normalized or "unnamed"
+    # Single source: ASCII slug logic lives in lib.text.slugify; the "unnamed"
+    # fallback is the convention for MCP estate record ids.
+    return _lib_slugify(value, fallback="unnamed")
 
 
 def titleize_segment(value: str) -> str:
@@ -318,16 +314,8 @@ def normalize_scope_mode(value: Any) -> str:
 
 
 def read_existing_created_at(path: Path, fallback: str) -> str:
-    if not path.exists():
-        return fallback
-    try:
-        existing = load_json(path)
-    except ValueError:
-        return fallback
-    created_at = existing.get("created_at")
-    if isinstance(created_at, str) and created_at.strip():
-        return created_at.strip()
-    return fallback
+    # Single source: logic lives in lib.io.read_existing_created_at.
+    return _lib_read_existing_created_at(path, fallback)
 
 
 def generate_request_id() -> str:

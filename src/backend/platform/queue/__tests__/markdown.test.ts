@@ -194,6 +194,31 @@ describe('context pack binding markdown', () => {
     });
   });
 
+  it('SEC-TS-04: returns invalid when Context Pack Dir is a relative traversal', () => {
+    expect(extractContextPackBinding(`# Task
+
+## Context Pack Binding
+
+- Context Pack Dir: ../../outside
+`)).toMatchObject({
+      kind: 'invalid',
+      reason: 'unsafe-context-pack-dir',
+    });
+    // Absolute (external pack) and contained-relative dirs are NOT rejected.
+    expect(extractContextPackBinding(`# Task
+
+## Context Pack Binding
+
+- Context Pack Dir: /packs/orders
+`)).toMatchObject({ kind: 'binding' });
+    expect(extractContextPackBinding(`# Task
+
+## Context Pack Binding
+
+- Context Pack Dir: contextpacks/mypack
+`)).toMatchObject({ kind: 'binding' });
+  });
+
   it('formats and parses Selection Roles with stable key ordering for standard mode', () => {
     const section = formatContextPackBindingSection({
       contextPackDir: '/packs/orders',

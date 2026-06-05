@@ -1,7 +1,14 @@
 import type { SystemSettingsModalProps } from '../hooks/useSystemSettingsModal';
-import type { SystemSettingsPlatformConfig } from '../../shared/desktopContract';
+import type {
+  LogExplorerCategory,
+  LogExplorerLevelFilter,
+  LogExplorerRecord,
+  LogExplorerRecordLevel,
+  SystemSettingsPlatformConfig,
+} from '../../shared/desktopContract';
 import ModalShell, { ModalShellEscHint } from './ModalShell';
 import ConfirmOverlay from './ConfirmOverlay';
+import { RefreshIcon } from './creation-steps/icons';
 
 type Field = keyof SystemSettingsPlatformConfig;
 type OnFieldChange = SystemSettingsModalProps['onFieldChange'];
@@ -21,6 +28,19 @@ const ENGINE_HOST_OPTIONS = [
   { value: 'desktop-linux', label: 'Desktop Linux' },
   { value: 'wsl', label: 'WSL' },
 ] as const;
+const LOG_CATEGORY_OPTIONS: ReadonlyArray<{ value: LogExplorerCategory; label: string }> = [
+  { value: 'info', label: 'Info' },
+  { value: 'warn', label: 'Warning' },
+  { value: 'error', label: 'Error' },
+];
+const LOG_LEVEL_OPTIONS: ReadonlyArray<{ value: LogExplorerLevelFilter; label: string }> = [
+  { value: 'all', label: 'All levels' },
+  { value: 'debug', label: 'Debug' },
+  { value: 'info', label: 'Info' },
+  { value: 'warn', label: 'Warning' },
+  { value: 'error', label: 'Error' },
+  { value: 'other', label: 'Other / malformed' },
+];
 
 function FieldError({ message }: { message?: string }): JSX.Element | null {
   return message ? (
@@ -128,9 +148,47 @@ function CheckboxRow<K extends Field>(props: {
   );
 }
 
+function levelLabel(level: LogExplorerRecordLevel): string {
+  if (level === 'warn') {
+    return 'Warning';
+  }
+  if (level === 'other') {
+    return 'Other';
+  }
+  return level.charAt(0).toUpperCase() + level.slice(1);
+}
+
+function levelFilterLabel(levelFilter: LogExplorerLevelFilter): string {
+  return LOG_LEVEL_OPTIONS.find((option) => option.value === levelFilter)?.label ?? 'All levels';
+}
+
+function formatBytes(sizeBytes: number): string {
+  if (sizeBytes >= 1024 * 1024) {
+    return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+  if (sizeBytes >= 1024) {
+    return `${Math.round(sizeBytes / 1024)} KB`;
+  }
+  return `${sizeBytes} B`;
+}
+
+function recordTimestampMs(record: LogExplorerRecord): number {
+  if (!record.summary.ts) {
+    return Number.NEGATIVE_INFINITY;
+  }
+  const parsed = Date.parse(record.summary.ts);
+  return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
+}
+
+function compareRecordsNewestFirst(a: LogExplorerRecord, b: LogExplorerRecord): number {
+  return recordTimestampMs(b) - recordTimestampMs(a) || b.lineNumber - a.lineNumber;
+}
+
 export default function SystemSettingsModal(props: SystemSettingsModalProps): JSX.Element {
   const {
     isOpen,
+    activeTab,
+    onSelectTab,
     loading,
     saving,
     error,
@@ -143,6 +201,7 @@ export default function SystemSettingsModal(props: SystemSettingsModalProps): JS
     tasksActive,
     dirty,
     saveDisabled,
+    logExplorer,
     confirmRestartOpen,
     mountRootsText,
     onClose,
@@ -153,73 +212,126 @@ export default function SystemSettingsModal(props: SystemSettingsModalProps): JS
     onCancelRestart,
     onDiscard,
   } = props;
+  const isLogTab = activeTab === 'log-explorer';
+  const logFiles = logExplorer.categories[logExplorer.selectedCategory];
+  const logFile = logExplorer.file;
+  const logControlsDisabled = logExplorer.loadingFiles || logExplorer.loadingFile;
+  const displayedLogRecords = logFile ? [...logFile.records].sort(compareRecordsNewestFirst) : [];
+  const selectedCategoryLabel =
+    LOG_CATEGORY_OPTIONS.find((option) => option.value === logExplorer.selectedCategory)?.label ?? 'Info';
 
   return (
     <ModalShell
       isOpen={isOpen}
       onClose={onClose}
       title="System Settings"
-      subtitle="config/platform.default.json"
       ariaLabel="System Settings"
       maxWidth="760px"
       footer={(
         <>
           <ModalShellEscHint />
-          <button
-            type="button"
-            className="action-button"
-            onClick={onDiscard}
-            disabled={saving || !dirty}
-          >
-            Discard
-          </button>
-          <button
-            type="button"
-            className="action-button action-button--primary"
-            onClick={onSave}
-            disabled={saveDisabled}
-          >
-            Save Changes
-          </button>
+          {isLogTab ? (
+            <button
+              type="button"
+              className="action-button system-settings__refresh-button"
+              onClick={logExplorer.onRefresh}
+              disabled={logExplorer.loadingFiles || logExplorer.loadingFile}
+              aria-label="Refresh log files"
+              title="Refresh log files"
+            >
+              <RefreshIcon />
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="action-button"
+                onClick={onDiscard}
+                disabled={saving || !dirty}
+              >
+                Discard
+              </button>
+              <button
+                type="button"
+                className="action-button action-button--primary"
+                onClick={onSave}
+                disabled={saveDisabled}
+              >
+                Save Changes
+              </button>
+            </>
+          )}
         </>
       )}
     >
       <div className="system-settings">
-        {error && (
-          <p className="system-settings__alert system-settings__alert--error" role="alert">
-            {error}
-          </p>
-        )}
-        {success && (
-          <p className="system-settings__alert system-settings__alert--success" role="status">
-            {success}
-          </p>
-        )}
-        {runtimeStatus !== null && runtimeStatus !== 'valid' && runtimeWarning && (
-          <p className="system-settings__alert system-settings__alert--warning" role="status">
-            {runtimeWarning}
-          </p>
-        )}
-        {envOverrides.length > 0 && (
-          <div className="system-settings__env" role="status">
-            {envOverrides.map((override) => (
-              <p key={override.envVar} className="system-settings__env-line">
-                Environment override active: {override.envVar} currently affects {override.field}. Saving
-                updates the config files but does not change this environment variable.
+        <div className="system-settings__tabs" role="tablist" aria-label="System Settings sections">
+          <button
+            type="button"
+            className={`system-settings__tab${activeTab === 'settings' ? ' system-settings__tab--active' : ''}`}
+            role="tab"
+            aria-selected={activeTab === 'settings'}
+            aria-controls="system-settings-panel"
+            id="system-settings-tab"
+            onClick={() => onSelectTab('settings')}
+          >
+            Settings
+          </button>
+          <button
+            type="button"
+            className={`system-settings__tab${isLogTab ? ' system-settings__tab--active' : ''}`}
+            role="tab"
+            aria-selected={isLogTab}
+            aria-controls="system-settings-log-panel"
+            id="system-settings-log-tab"
+            onClick={() => onSelectTab('log-explorer')}
+          >
+            Log Explorer
+          </button>
+        </div>
+
+        {activeTab === 'settings' ? (
+          <div
+            id="system-settings-panel"
+            role="tabpanel"
+            aria-labelledby="system-settings-tab"
+            className="system-settings__panel"
+          >
+            {error && (
+              <p className="system-settings__alert system-settings__alert--error" role="alert">
+                {error}
               </p>
-            ))}
-          </div>
-        )}
+            )}
+            {success && (
+              <p className="system-settings__alert system-settings__alert--success" role="status">
+                {success}
+              </p>
+            )}
+            {runtimeStatus !== null && runtimeStatus !== 'valid' && runtimeWarning && (
+              <p className="system-settings__alert system-settings__alert--warning" role="status">
+                {runtimeWarning}
+              </p>
+            )}
+            {envOverrides.length > 0 && (
+              <div className="system-settings__env" role="status">
+                {envOverrides.map((override) => (
+                  <p key={override.envVar} className="system-settings__env-line">
+                    Environment override active: {override.envVar} currently affects {override.field}. Saving
+                    updates the config files but does not change this environment variable.
+                  </p>
+                ))}
+              </div>
+            )}
 
-        {tasksActive && (
-          <p className="system-settings__alert system-settings__alert--warning" role="status">
-            Settings are locked while a task is running. Wait for active tasks to finish before making changes.
-          </p>
-        )}
+            {tasksActive && (
+              <p className="system-settings__alert system-settings__alert--warning" role="status">
+                Settings are locked while a task is running. Wait for active tasks to finish before making changes.
+              </p>
+            )}
 
-        {loading || !draft ? (
-          <p className="system-settings__loading">Loading platform settings…</p>
-        ) : (
+            {loading || !draft ? (
+              <p className="system-settings__loading">Loading platform settings…</p>
+            ) : (
           <div className="system-settings__groups">
             <fieldset className="system-settings__group" disabled={tasksActive}>
               <legend className="system-settings__group-title">Platform</legend>
@@ -355,6 +467,170 @@ export default function SystemSettingsModal(props: SystemSettingsModalProps): JS
                 <FieldError message={fieldErrors.repo_context_mcp_external_mount_roots} />
               </label>
             </fieldset>
+          </div>
+            )}
+          </div>
+        ) : (
+          <div
+            id="system-settings-log-panel"
+            role="tabpanel"
+            aria-labelledby="system-settings-log-tab"
+            className="system-settings__panel system-settings__log-panel"
+          >
+            {logExplorer.error && (
+              <p className="system-settings__alert system-settings__alert--error" role="alert">
+                {logExplorer.error}
+              </p>
+            )}
+            <div className="system-settings__log-controls">
+              <label className="system-settings__field">
+                <span className="system-settings__label">Category</span>
+                <select
+                  className="system-settings__input"
+                  aria-label="Category"
+                  value={logExplorer.selectedCategory}
+                  disabled={logControlsDisabled}
+                  onChange={(event) => logExplorer.onSelectCategory(event.target.value as LogExplorerCategory)}
+                >
+                  {LOG_CATEGORY_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="system-settings__field">
+                <span className="system-settings__label">Level</span>
+                <select
+                  className="system-settings__input"
+                  aria-label="Level"
+                  value={logExplorer.selectedLevelFilter}
+                  disabled={logControlsDisabled}
+                  onChange={(event) =>
+                    logExplorer.onSelectLevelFilter(event.target.value as LogExplorerLevelFilter)
+                  }
+                >
+                  {LOG_LEVEL_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="system-settings__field system-settings__log-file-field">
+                <span className="system-settings__label">Log file</span>
+                <select
+                  className="system-settings__input"
+                  aria-label="Log file"
+                  value={logExplorer.selectedFileName}
+                  disabled={logControlsDisabled || logFiles.length === 0}
+                  onChange={(event) => logExplorer.onSelectFile(event.target.value)}
+                >
+                  {logFiles.length === 0 ? (
+                    <option value="">No {selectedCategoryLabel.toLowerCase()} logs</option>
+                  ) : (
+                    logFiles.map((file) => (
+                      <option key={file.fileName} value={file.fileName}>
+                        {file.displayName} - {formatBytes(file.sizeBytes)}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </label>
+            </div>
+
+            <p className="system-settings__log-meta" role="status">
+              {logExplorer.loadingFiles
+                ? 'Loading log files…'
+                : logExplorer.loadingFile
+                  ? 'Loading log records…'
+                  : logFile
+                    ? `${logExplorer.sourceLabel ?? 'TaskSail platform logs'} · ${logFile.fileName} · ${new Date(logFile.modifiedAt).toLocaleString()} · ${formatBytes(logFile.sizeBytes)} · ${levelFilterLabel(logExplorer.selectedLevelFilter)} · lines ${logFile.startLine}-${logFile.endLine} · ${logFile.totalLines} total · ${logFile.totalMatchingLines} matching`
+                    : logExplorer.selectedFileName
+                      ? 'No log records loaded.'
+                      : 'No log file selected.'}
+            </p>
+
+            <div className="system-settings__log-viewer" aria-label="Log records">
+              {logFile?.truncatedResponse && (
+                <p className="system-settings__log-warning" role="status">
+                  Response truncated. Narrow the level filter or page through the file.
+                </p>
+              )}
+              {logFile && logFile.records.length === 0 && (
+                <p className="system-settings__loading">No matching records.</p>
+              )}
+              {displayedLogRecords.map((record) => {
+                const renderedText = record.parsed ? record.prettyJson : record.raw;
+                return (
+                  <details key={record.lineNumber} className="system-settings__log-record">
+                    <summary className="system-settings__log-record-head">
+                      <span className="system-settings__log-line">Line {record.lineNumber}</span>
+                      <span
+                        className={`system-settings__log-level system-settings__log-level--${record.summary.level}`}
+                      >
+                        {levelLabel(record.summary.level)}
+                      </span>
+                      {record.summary.ts && (
+                        <span className="system-settings__log-ts">{record.summary.ts}</span>
+                      )}
+                      {record.summary.msg && (
+                        <span className="system-settings__log-msg">{record.summary.msg}</span>
+                      )}
+                      {record.truncated && (
+                        <span className="system-settings__log-truncated">Truncated</span>
+                      )}
+                    </summary>
+                    {(record.summary.module || record.summary.rawLevel || record.summary.taskId || record.summary.agentId) && (
+                      <div className="system-settings__log-expanded-meta">
+                        {record.summary.module && (
+                          <span>module: {record.summary.module}</span>
+                        )}
+                        {record.summary.rawLevel && (
+                          <span>level: {record.summary.rawLevel}</span>
+                        )}
+                        {record.summary.taskId && (
+                          <span>task: {record.summary.taskId}</span>
+                        )}
+                        {record.summary.agentId && (
+                          <span>agent: {record.summary.agentId}</span>
+                        )}
+                      </div>
+                    )}
+                    {record.parseError && (
+                      <p className="system-settings__log-parse-error">{record.parseError}</p>
+                    )}
+                    <pre className="system-settings__log-pre">{renderedText}</pre>
+                  </details>
+                );
+              })}
+            </div>
+
+            <div className="system-settings__log-pager">
+              {logFile?.hasOlder && (
+                <button
+                  type="button"
+                  className="action-button"
+                  onClick={logExplorer.onOlder}
+                  disabled={logExplorer.loadingFile}
+                >
+                  Older
+                </button>
+              )}
+              <span className="system-settings__log-page-range">
+                {logFile ? `${logFile.startLine}-${logFile.endLine}` : '0-0'}
+              </span>
+              {logFile?.hasNewer && (
+                <button
+                  type="button"
+                  className="action-button"
+                  onClick={logExplorer.onNewer}
+                  disabled={logExplorer.loadingFile}
+                >
+                  Newer
+                </button>
+              )}
+            </div>
           </div>
         )}
 

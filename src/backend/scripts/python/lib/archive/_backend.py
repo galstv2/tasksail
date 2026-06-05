@@ -28,7 +28,14 @@ def get_qmd_index_service():
 
 
 def get_global_retrospective_root() -> str:
-    """Return the configured global retrospective root path string."""
+    """Return the configured global retrospective root path string.
+
+    Reads the environment live on every call by design: ``from_env`` is a
+    cheap ``os.getenv`` lookup, and resolving it per-call keeps per-test env
+    overrides and any mid-process configuration honest. Do not cache at module
+    scope — that would leak one test's QMD_GLOBAL_RETROSPECTIVE_ROOT into the
+    next.
+    """
     config = import_module("src.backend.mcp.repo_context_mcp.config").RepoContextConfig
     return config.from_env().global_retrospective_root
 

@@ -74,7 +74,7 @@ export function isOneOf<T extends readonly string[]>(
 
 export function isAbsolutePath(value: unknown): value is string {
   if (!isNonEmptyString(value)) return false;
-  if (value.includes('..')) return false;
+  if (value.split(/[\\/]/).some((segment) => segment === '..')) return false;
   if (value.startsWith('/')) return true;
   if (/^[A-Za-z]:[\\/]/.test(value)) return true;
   return false;
@@ -756,6 +756,21 @@ export function isValidReasoningEffort(value: unknown): value is string {
   return isNonEmptyString(value) && REASONING_EFFORT_PATTERN.test(value.trim());
 }
 
+// Editable per-agent timeouts are whole seconds in the inclusive range 1..86400 (24h).
+// Number.isInteger rejects NaN, Infinity, fractional, and non-number inputs; null/0/negatives
+// fall outside the range. There is no "clear timeout" sentinel — see resolvedDecisions.
+const TIMEOUT_SECONDS_MIN = 1;
+const TIMEOUT_SECONDS_MAX = 86400;
+
+export function isValidTimeoutSeconds(value: unknown): value is number {
+  return (
+    typeof value === 'number'
+    && Number.isInteger(value)
+    && value >= TIMEOUT_SECONDS_MIN
+    && value <= TIMEOUT_SECONDS_MAX
+  );
+}
+
 export function validateAgentConfigAssignments(value: unknown): string[] {
   if (!isRecord(value)) {
     return ['payload must be an object.'];
@@ -787,6 +802,24 @@ export function validateAgentConfigAssignments(value: unknown): string[] {
     ) {
       errors.push(
         `payload.assignments[${index}].reasoning_effort must be lowercase letters, numbers, or hyphens when provided.`,
+      );
+    }
+    // Timeouts are validated only when present. Unlike reasoning_effort, null is rejected
+    // (no clear/disable semantics): a present value must be an integer 1..86400.
+    if (
+      assignment.wall_clock_timeout_s !== undefined
+      && !isValidTimeoutSeconds(assignment.wall_clock_timeout_s)
+    ) {
+      errors.push(
+        `payload.assignments[${index}].wall_clock_timeout_s must be an integer number of seconds from 1 to 86400 when provided.`,
+      );
+    }
+    if (
+      assignment.idle_timeout_s !== undefined
+      && !isValidTimeoutSeconds(assignment.idle_timeout_s)
+    ) {
+      errors.push(
+        `payload.assignments[${index}].idle_timeout_s must be an integer number of seconds from 1 to 86400 when provided.`,
       );
     }
   }

@@ -44,29 +44,12 @@ def load_json_safe(
     return payload, None
 
 
-def write_json(path: Path, payload: dict[str, Any]) -> None:
-    """Write *payload* as pretty-printed JSON using the backend
-    ``write_text_atomic`` helper (temp-file + rename within the same
-    directory).
+def atomic_write_text(path: Path, text: str) -> None:
+    """Write *text* to *path* durably via temp file + ``os.replace``.
 
-    This variant is used by callers that already depend on the backend
-    ``src.backend.mcp.repo_context_mcp.utils`` package.
-    """
-    from importlib import import_module
-
-    _utils = import_module("src.backend.mcp.repo_context_mcp.utils")
-    _utils.write_text_atomic(
-        path,
-        json.dumps(payload, indent=2, sort_keys=False) + "\n",
-    )
-
-
-def atomic_write_json(
-    path: Path,
-    payload: Mapping[str, object],
-) -> None:
-    """Write *payload* as JSON via a temp file + ``os.replace`` for
-    atomicity.  Does **not** depend on the backend utilities package.
+    ``flush`` + ``os.fsync`` run before the rename so the data is on disk
+    before the rename becomes observable — without the fsync, a crash can
+    leave the rename durable but the file contents lost or truncated.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_path_str = tempfile.mkstemp(
@@ -76,8 +59,9 @@ def atomic_write_json(
     )
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fp:
-            json.dump(payload, fp, indent=2)
-            fp.write("\n")
+            fp.write(text)
+            fp.flush()
+            os.fsync(fp.fileno())
         os.replace(tmp_path_str, str(path))
     except BaseException:
         try:
@@ -85,3 +69,29 @@ def atomic_write_json(
         except OSError:
             logger.warning("Failed to remove temp file %s during atomic write cleanup", tmp_path_str)
         raise
+
+
+def atomic_write_json(
+    path: Path,
+    payload: Mapping[str, object],
+) -> None:
+    """Write *payload* as JSON durably via :func:`atomic_write_text`."""
+    atomic_write_text(path, json.dumps(payload, indent=2) + "\n")
+
+
+def read_existing_created_at(path: Path, fallback: str) -> str:
+    """Return the ``created_at`` string from a JSON file, or *fallback* when
+    the file is missing, unreadable, not an object, or lacks a usable value.
+    """
+    try:
+        payload, _ = load_json_safe(path)
+    except OSError:
+        # Missing file / permission error: load_json_safe only guards JSON
+        # decode errors, so the filesystem read can still raise here.
+        return fallback
+    if not payload:
+        return fallback
+    created_at = payload.get("created_at")
+    if isinstance(created_at, str) and created_at.strip():
+        return created_at.strip()
+    return fallback

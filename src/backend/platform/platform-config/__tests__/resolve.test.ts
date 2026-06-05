@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 
 import { resolveContainerEngineHost, resolveContainerRuntime } from '../resolve.js';
-import { CURRENT_PLATFORM_CONFIG_SCHEMA_VERSION } from '../types.js';
+import { CURRENT_PLATFORM_CONFIG_SCHEMA_VERSION, isValidWslDistroName } from '../types.js';
 
 let tmpDir: string;
 
@@ -43,6 +43,21 @@ function writeDefaultConfig(containerRuntime: string, containerEngineHost = 'aut
     container_engine_wsl_distro: containerEngineWslDistro,
   }), 'utf-8');
 }
+
+describe('isValidWslDistroName', () => {
+  it('SEC-TS-10: rejects leading-dash (option injection) and separators', () => {
+    expect(isValidWslDistroName('-e')).toBe(false);
+    expect(isValidWslDistroName('--exec=evil')).toBe(false);
+    expect(isValidWslDistroName('a/b')).toBe(false);
+    expect(isValidWslDistroName('a\\b')).toBe(false);
+    expect(isValidWslDistroName(null)).toBe(false);
+    expect(isValidWslDistroName('')).toBe(false);
+  });
+  it('accepts normal distro names (incl. non-leading dashes)', () => {
+    expect(isValidWslDistroName('Ubuntu')).toBe(true);
+    expect(isValidWslDistroName('Ubuntu-22.04')).toBe(true);
+  });
+});
 
 describe('resolveContainerRuntime', () => {
   it('falls back to config/platform.default.json when runtime config is missing', async () => {

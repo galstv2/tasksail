@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
   DesktopInvokeResult,
@@ -47,9 +47,34 @@ export function useTaskNotifications(client: DesktopShellClient): UseTaskNotific
   const [unseenCount, setUnseenCount] = useState(EMPTY_SNAPSHOT.unseenCount);
   const [isOpen, setIsOpen] = useState(false);
 
+  // Monotonic epoch counter: incremented on every push/mutation apply.
+  // refresh() reads the epoch before the IPC call and only applies if it
+  // hasn't advanced since then (push or mutation happened during the call).
+  // NOTE: TaskNotificationSnapshot.generatedAt is wall-clock build time only —
+  // it is NOT a monotonic ordering token and must not drive ordering decisions.
+  const notificationApplyEpochRef = useRef(0);
+  // Refresh request sequence: bumped at the start of every refresh(). A refresh
+  // response may apply only if it belongs to the latest refresh, so two overlapping
+  // refreshes that begin at the same epoch cannot resolve out of order and regress state.
+  const notificationRefreshSeqRef = useRef(0);
+
   const applySnapshot = useCallback((
     snapshot: TaskNotificationSnapshot | TaskNotificationMutationResponse,
+    isFromRefresh = false,
+    refreshEpoch = 0,
+    refreshSeq = 0,
   ) => {
+    if (isFromRefresh && (
+      refreshEpoch < notificationApplyEpochRef.current
+      || refreshSeq !== notificationRefreshSeqRef.current
+    )) {
+      // A newer push/mutation landed, or a newer refresh superseded this one; discard.
+      return;
+    }
+    if (!isFromRefresh) {
+      // Push or mutation: advance the epoch so concurrent refresh calls are discarded.
+      notificationApplyEpochRef.current += 1;
+    }
     setNotifications(snapshot.notifications);
     setUnseenCount(snapshot.unseenCount);
   }, []);
@@ -63,6 +88,12 @@ export function useTaskNotifications(client: DesktopShellClient): UseTaskNotific
       showFailureToast('Task notifications are unavailable in this desktop shell.');
       return false;
     }
+
+    // Capture the epoch and a refresh sequence before the IPC call. If a push or
+    // mutation advances the epoch, or a newer refresh supersedes this sequence while
+    // we are awaiting, we discard this (now stale) refresh response.
+    const epochAtStart = notificationApplyEpochRef.current;
+    const refreshSeq = ++notificationRefreshSeqRef.current;
 
     let result: DesktopInvokeResult;
     try {
@@ -81,7 +112,7 @@ export function useTaskNotifications(client: DesktopShellClient): UseTaskNotific
       return false;
     }
 
-    applySnapshot(result.response);
+    applySnapshot(result.response, true, epochAtStart, refreshSeq);
     return true;
   }, [client, applySnapshot, showFailureToast]);
 
@@ -94,7 +125,8 @@ export function useTaskNotifications(client: DesktopShellClient): UseTaskNotific
     try {
       return client.onTaskNotificationsUpdate((event) => {
         if (event.type === 'snapshot') {
-          applySnapshot(event.snapshot);
+          // Push is newer than any in-flight refresh; apply unconditionally.
+          applySnapshot(event.snapshot, false);
         }
       });
     } catch {
@@ -127,7 +159,8 @@ export function useTaskNotifications(client: DesktopShellClient): UseTaskNotific
       return;
     }
     if (isTaskNotificationMutationResponse(result.response)) {
-      applySnapshot(result.response);
+      // Mutation result is authoritative; advance epoch so stale refreshes are discarded.
+      applySnapshot(result.response, false);
       return;
     }
 

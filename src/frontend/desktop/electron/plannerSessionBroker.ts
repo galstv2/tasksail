@@ -382,6 +382,8 @@ export class PlannerSessionBroker {
     let emittedFailure = false;
     let observedContent = false;
     const stderrChunks: string[] = [];
+    const STDERR_CAP_BYTES = 64 * 1024;
+    let stderrLen = 0;
 
     return new Promise<boolean>((resolve) => {
       const settle = (aborted = false): void => {
@@ -538,8 +540,9 @@ export class PlannerSessionBroker {
           return;
         }
         const textChunk = chunk.toString('utf-8').trim();
-        if (textChunk.length > 0) {
+        if (textChunk.length > 0 && stderrLen < STDERR_CAP_BYTES) {
           stderrChunks.push(textChunk);
+          stderrLen += textChunk.length;
         }
       });
 

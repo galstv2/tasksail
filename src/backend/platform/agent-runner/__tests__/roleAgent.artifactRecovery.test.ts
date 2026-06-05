@@ -133,6 +133,7 @@ vi.mock('../daltonLaunchPrep.js', async () => {
 vi.mock('../../cli-provider/index.js', () => ({
   getActiveProvider: vi.fn(() => ({
     id: 'copilot',
+    platformRepoRootEnvVar: () => 'COPILOT_PLATFORM_REPO_ROOT',
     resolvePromptPath: () => '.github/copilot/prompts/start-task.prompt.md',
     promptPathEnvVars: () => ({
       handoffsDir: 'COPILOT_HANDOFFS_DIR',
@@ -143,12 +144,23 @@ vi.mock('../../cli-provider/index.js', () => ({
       inlineAgentContext: false,
     }),
     runtimeManifestEnvVars: () => [
+      { name: 'COPILOT_PLATFORM_REPO_ROOT', kind: 'path', description: 'repo root' },
       { name: 'COPILOT_HANDOFFS_DIR', kind: 'path', description: 'handoffs' },
       { name: 'COPILOT_IMPL_STEPS_DIR', kind: 'path', description: 'steps' },
     ],
     mcpConfigArgs: () => [],
     agentConfigPaths: () => ({ registry: '.github/agents/registry.json' }),
+    roleKindForAgent: (agentId: string) => (
+      agentId === 'product-manager' || agentId === 'alice'
+        ? 'pm'
+        : agentId === 'qa' || agentId === 'ron'
+          ? 'qa'
+          : null
+    ),
   })),
+  normalizeReasoningEffort: (effort?: string) => (effort && effort !== 'none' ? effort : undefined),
+  validateReasoningEffortForCapabilities: () => ({ status: 'ok' as const }),
+  isReasoningEffortRejectionOutput: () => false,
 }));
 
 vi.mock('../../core/io.js', () => ({

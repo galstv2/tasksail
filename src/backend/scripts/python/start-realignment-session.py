@@ -17,7 +17,7 @@ ROOT_DIR = Path(__file__).resolve().parents[4]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from src.backend.mcp.reinforcement.models import ROLE_MULTIPLIERS
+from src.backend.mcp.reinforcement.models import AGENT_REWARD_MULTIPLIERS
 from src.backend.mcp.reinforcement.persistence import ReinforcementStore
 from src.backend.mcp.reinforcement.realignment import RealignmentManager
 from src.backend.scripts.python.lib.logging_config import configure_logging
@@ -80,7 +80,7 @@ def main(argv: list[str] | None = None) -> int:
     session = mgr.start_session(
         trigger_task_id=args.trigger_task_id,
         trigger_feedback_id="ui-triggered",
-        participating_agents=list(ROLE_MULTIPLIERS.keys()),
+        participating_agents=list(AGENT_REWARD_MULTIPLIERS.keys()),
     )
 
     write_protocol_stdout(str(json.dumps(session.as_dict(), indent=2)) + '\n')

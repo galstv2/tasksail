@@ -1,3 +1,5 @@
+import { useCallback } from 'react';
+
 import type { ContextPackDiscoveryMode } from '../../../shared/desktopContract';
 import type {
   BuildWizardStep,
@@ -42,6 +44,9 @@ function BuildWizard({
   onRemovePart,
 }: BuildWizardProps): JSX.Element {
   const currentIndex = WIZARD_STEPS.findIndex((step) => step.key === wizardStep);
+  // Stable identity so WizardLocation's advance effect doesn't re-fire (and
+  // prematurely advance the step) on every parent render.
+  const handleContinue = useCallback(() => onStepChange('project-name'), [onStepChange]);
 
   return (
     <div className="context-pack-modal__wizard">
@@ -81,7 +86,7 @@ function BuildWizard({
             discoveryRoot={draft.discoveryRoot}
             onDiscoveryRootChange={(value) => onDraftFieldChange('discoveryRoot', value)}
             onBrowseDiscoveryRoot={onBrowseDiscoveryRoot}
-            onContinue={() => onStepChange('project-name')}
+            onContinue={handleContinue}
           />
         ) : null}
 

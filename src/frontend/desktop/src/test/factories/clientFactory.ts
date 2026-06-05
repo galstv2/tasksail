@@ -467,6 +467,37 @@ export function createMockClient(
           message: 'Restarting TaskSail to apply settings…',
         },
       }),
+    listLogFiles: vi.fn().mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'logExplorer.listFiles',
+        mode: 'read-only',
+        message: 'Loaded log files.',
+        sourceLabel: 'TaskSail platform logs',
+        categories: { info: [], warn: [], error: [] },
+      },
+    }),
+    readLogFile: vi.fn().mockResolvedValue({
+      ok: true,
+      response: {
+        action: 'logExplorer.readFile',
+        mode: 'read-only',
+        message: 'Loaded log file.',
+        category: 'info',
+        fileName: 'tasksail.jsonl',
+        displayName: 'tasksail.jsonl',
+        sizeBytes: 0,
+        modifiedAt: '2026-06-03T00:00:00.000Z',
+        totalLines: 0,
+        totalMatchingLines: 0,
+        startLine: 0,
+        endLine: 0,
+        hasOlder: false,
+        hasNewer: false,
+        levelFilter: 'all',
+        records: [],
+      },
+    }),
     loadAgentConfig: vi
       .fn()
       .mockResolvedValue({
@@ -714,6 +745,7 @@ export function createMockClient(
           action: 'taskBoard.readBoard',
           mode: 'read-only',
           message: '0 open, 0 pending, 0 failed, 0 completed.',
+          boardSnapshotSequence: 1,
           dropboxItems: [],
           pendingItems: [],
           errorItems: [],

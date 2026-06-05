@@ -124,6 +124,26 @@ jobs:
       - name: Run smoke lane and workflow policy validation
         run: pnpm run test:smoke
 
+  frontend-css-color-token-discipline:
+    name: Frontend CSS Color Token Discipline
+    runs-on: ubuntu-latest
+    needs:
+      - repository-structure
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install desktop dependencies
+        run: cd src/frontend/desktop && npm ci
+
+      - name: Run CSS color token discipline gate
+        run: cd src/frontend/desktop && npm run test:css-colors
+
   changed-domain-lane:
     name: Changed Domain Lane
     if: github.event_name == 'pull_request'

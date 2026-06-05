@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { readdir, stat } from 'node:fs/promises';
-import { readTextFile, resolvePaths, safeJsonParse, writeTextFile } from '../core/index.js';
+import { readTextFile, resolvePaths, safeJsonParse, writeTextFileAtomic } from '../core/index.js';
 import { evaluateRuntimeInference, type RuntimeAgentFacts } from '../workflow-policy/runtimeInference.js';
 
 export interface RuntimeWorkflowFacts {
@@ -104,7 +104,7 @@ export async function writeRuntimeWorkflowFacts(options: {
   }
   const facts = await computeRuntimeWorkflowFacts(options);
   facts.source_signature = sourceSignature;
-  await writeTextFile(
+  await writeTextFileAtomic(
     path.join(options.taskRuntime, 'workflow-facts.json'),
     JSON.stringify(facts, null, 2) + '\n',
   );

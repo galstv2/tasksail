@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.backend.scripts.python.lib.io import atomic_write_json
+from src.backend.scripts.python.lib.io import atomic_write_json, atomic_write_text
 from src.backend.scripts.python.lib.locking import acquire_file_lock, release_file_lock
 from src.backend.scripts.python.lib.time import current_utc_timestamp
 
@@ -49,10 +49,7 @@ class QmdRewardWriter:
         if not _dir_exists:
             self._agent_rewards_dir.mkdir(parents=True, exist_ok=True)
         md_path = self._agent_rewards_dir / f"{reward.agent_id}.md"
-        md_path.write_text(
-            _render_agent_reward_md(reward),
-            encoding="utf-8",
-        )
+        atomic_write_text(md_path, _render_agent_reward_md(reward))
         # Per-agent JSON sidecar — launch-time renderer reads this instead
         # of the shared agent-rewards.json to avoid cross-agent data exposure.
         json_path = self._agent_rewards_dir / f"{reward.agent_id}.json"
@@ -98,7 +95,7 @@ class QmdRewardWriter:
             content = _replace_managed_section(
                 content, "## Reward Received", section,
             )
-            archive_md_path.write_text(content, encoding="utf-8")
+            atomic_write_text(archive_md_path, content)
         finally:
             release_file_lock(lock_fd)
 

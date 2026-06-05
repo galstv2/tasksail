@@ -71,6 +71,7 @@ describe('runLocalChecks', () => {
     const names = result.results.map(r => r.name);
     expect(names).toContain('structure');
     expect(names).toContain('file-sizes');
+    expect(names).toContain('desktop-css-color-token-discipline');
     expect(names).not.toContain('python-lint');
     expect(names).not.toContain('python-tests');
   });
@@ -84,6 +85,7 @@ describe('runLocalChecks', () => {
     const names = result.results.map(r => r.name);
     expect(names).toContain('structure');
     expect(names).toContain('file-sizes');
+    expect(names).not.toContain('desktop-css-color-token-discipline');
     expect(names).not.toContain('desktop-tests');
     expect(names).not.toContain('desktop-build');
   });

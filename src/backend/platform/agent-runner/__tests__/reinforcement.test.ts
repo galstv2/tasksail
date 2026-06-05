@@ -94,6 +94,7 @@ describe('resolveReinforcementContext', () => {
       ],
       expect.objectContaining({
         cwd: '/fake/repo',
+        timeout: 30_000, // SEC-TS-06: the pre-launch render must be timeout-bounded.
       }),
     );
     expect(readFile).toHaveBeenCalledWith(renderedPath, 'utf-8');

@@ -266,8 +266,8 @@ function setupCommonMocks(): void {
   mockedResolveFocusedRepoRoot.mockResolvedValue(undefined);
   mockedResolveSelectedPrimaryRepoRoot.mockResolvedValue(undefined);
   mockTaskSidecarWorktrees(
-    [{ originalRoot: '/ctx/crud-app', worktreeRoot: '/wt/crud-app' }],
-    [{ originalRoot: '/ctx/shared-lib', worktreeRoot: '/wt/shared-lib' }],
+    [{ originalRoot: '/ctx/crud-app', worktreeRoot: '/repo/AgentWorkSpace/tasks/t1/worktrees/crud-app' }],
+    [{ originalRoot: '/ctx/shared-lib', worktreeRoot: '/repo/AgentWorkSpace/tasks/t1/worktrees/shared-lib' }],
   );
   mockedLoadTaskPackSnapshot.mockResolvedValue({
     schemaVersion: 2,
@@ -447,38 +447,38 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
 
     const launchCall = mockedLaunchAgent.mock.calls[0];
     const launchOpts = launchCall[1] as { cwd: string };
-    expect(launchOpts.cwd).toBe('/wt/crud-app');
+    expect(launchOpts.cwd).toBe('/repo/AgentWorkSpace/tasks/t1/worktrees/crud-app');
     expect(mockedBuildAgentArgs).toHaveBeenCalledWith(
       '/repo',
       expect.anything(),
       expect.anything(),
       expect.objectContaining({
-        launchContext: expect.objectContaining({ requestedCwd: '/wt/crud-app' }),
+        launchContext: expect.objectContaining({ requestedCwd: '/repo/AgentWorkSpace/tasks/t1/worktrees/crud-app' }),
       }),
     );
     expect(autonomyArgs.allowedDirs).toEqual([
-      '/wt/crud-app',
-      '/wt/shared-lib',
+      '/repo/AgentWorkSpace/tasks/t1/worktrees/crud-app',
+      '/repo/AgentWorkSpace/tasks/t1/worktrees/shared-lib',
     ]);
     expect(autonomyArgs.allowedDirs).not.toContain('/repo');
     expect(autonomyArgs.allowedDirs).not.toContain('/repo/AgentWorkSpace');
     expect(mockedCaptureChangedPathsSnapshot).toHaveBeenNthCalledWith(1, [
-      '/wt/crud-app',
-      '/wt/shared-lib',
+      '/repo/AgentWorkSpace/tasks/t1/worktrees/crud-app',
+      '/repo/AgentWorkSpace/tasks/t1/worktrees/shared-lib',
     ]);
     expect(mockedCaptureChangedPathsSnapshot).toHaveBeenNthCalledWith(2, [
-      '/wt/crud-app',
-      '/wt/shared-lib',
+      '/repo/AgentWorkSpace/tasks/t1/worktrees/crud-app',
+      '/repo/AgentWorkSpace/tasks/t1/worktrees/shared-lib',
     ]);
     expect(mockedBuildAutonomyEnvironment).toHaveBeenCalledWith(
       expect.anything(),
       autonomyArgs,
       expect.anything(),
-      '/wt/crud-app',
+      '/repo/AgentWorkSpace/tasks/t1/worktrees/crud-app',
       '/repo',
       expect.objectContaining({
-        primaryRepoRoot: '/wt/crud-app',
-        visibleRepoRoots: ['/wt/crud-app', '/wt/shared-lib'],
+        primaryRepoRoot: '/repo/AgentWorkSpace/tasks/t1/worktrees/crud-app',
+        visibleRepoRoots: ['/repo/AgentWorkSpace/tasks/t1/worktrees/crud-app', '/repo/AgentWorkSpace/tasks/t1/worktrees/shared-lib'],
         selectedRepoIds: ['crud-app', 'shared-lib'],
       }),
       '/ctx',
@@ -546,8 +546,8 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       '/repo/AgentWorkSpace/templates',
       '/repo/AgentWorkSpace/tasks/t1',
       '/repo/AgentWorkSpace/qmd',
-      '/wt/crud-app',
-      '/wt/shared-lib',
+      '/repo/AgentWorkSpace/tasks/t1/worktrees/crud-app',
+      '/repo/AgentWorkSpace/tasks/t1/worktrees/shared-lib',
     ]);
     // Lily must NOT have pendingitems access — only product-manager (Alice)
     // gets it via per-profile allowed_dirs in registry.json.
@@ -566,8 +566,8 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       '/repo',
       '/repo',
       expect.objectContaining({
-        primaryRepoRoot: '/wt/crud-app',
-        visibleRepoRoots: ['/wt/crud-app', '/wt/shared-lib'],
+        primaryRepoRoot: '/repo/AgentWorkSpace/tasks/t1/worktrees/crud-app',
+        visibleRepoRoots: ['/repo/AgentWorkSpace/tasks/t1/worktrees/crud-app', '/repo/AgentWorkSpace/tasks/t1/worktrees/shared-lib'],
         selectedRepoIds: ['crud-app', 'shared-lib'],
       }),
       '/ctx',
@@ -684,7 +684,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       selectedFocusIds: ['sink'],
       authoritySource: 'active-task-sidecar',
     } as never);
-    mockTaskSidecarWorktrees([{ originalRoot: '/ctx/mono', worktreeRoot: '/wt/mono' }]);
+    mockTaskSidecarWorktrees([{ originalRoot: '/ctx/mono', worktreeRoot: '/repo/AgentWorkSpace/tasks/t1/worktrees/mono' }]);
     mockedLoadTaskPackSnapshot.mockResolvedValueOnce({
       schemaVersion: 2,
       stagedAt: '2026-01-01T00:00:00Z',
@@ -710,7 +710,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
         warnings: [],
       },
     } as never);
-    mockedExistsSync.mockImplementation((candidate: string) => candidate === '/wt/mono/services/sink');
+    mockedExistsSync.mockImplementation((candidate: string) => candidate === '/repo/AgentWorkSpace/tasks/t1/worktrees/mono/services/sink');
     const fakeChild = { pid: 1234 } as never;
     mockedLaunchAgent.mockReturnValue(fakeChild);
     mockedWaitForAgentDetailed.mockResolvedValue({
@@ -730,15 +730,15 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
 
     const launchCall = mockedLaunchAgent.mock.calls[0];
     const launchOpts = launchCall[1] as { cwd: string };
-    expect(launchOpts.cwd).toBe('/wt/mono/services/sink');
+    expect(launchOpts.cwd).toBe('/repo/AgentWorkSpace/tasks/t1/worktrees/mono/services/sink');
     expect(autonomyArgs.allowedDirs).toEqual([
-      '/wt/mono',
+      '/repo/AgentWorkSpace/tasks/t1/worktrees/mono',
     ]);
     expect(mockedCaptureChangedPathsSnapshot).toHaveBeenNthCalledWith(1, [
-      '/wt/mono',
+      '/repo/AgentWorkSpace/tasks/t1/worktrees/mono',
     ]);
     expect(mockedCaptureChangedPathsSnapshot).toHaveBeenNthCalledWith(2, [
-      '/wt/mono',
+      '/repo/AgentWorkSpace/tasks/t1/worktrees/mono',
     ]);
   });
 
@@ -808,7 +808,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       contextPackBinding: {
         repoBindings: [{
           originalRoot: '/ctx/crud-app',
-          worktreeRoot: '/wt/crud-app',
+          worktreeRoot: '/repo/AgentWorkSpace/tasks/t1/worktrees/crud-app',
           worktreeBranch: 'task/t1',
           baseCommitSha: 'abc123',
         }],
@@ -832,7 +832,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
 
     await expect(runRoleAgent({
       agentId: 'dalton',
-      taskId: 'task-test-001',
+      taskId: 't1',
       contextPackDir: '/ctx',
       skipWorkflowValidation: true,
     })).rejects.toThrow('Agent artifact containment failed');
@@ -846,7 +846,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       contextPackBinding: {
         repoBindings: [{
           originalRoot: '/ctx/crud-app',
-          worktreeRoot: '/wt/crud-app',
+          worktreeRoot: '/repo/AgentWorkSpace/tasks/t1/worktrees/crud-app',
           worktreeBranch: 'task/t1',
           baseCommitSha: 'abc123',
         }],
@@ -864,7 +864,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
     } as never);
     mockedReadTextFile.mockImplementation(async (filePath: string) => {
       if (filePath.endsWith('/.github/copilot/prompts/execute-task.prompt.md')) return 'Execute.';
-      if (filePath.endsWith('/implementation-spec.md')) return 'Run validation from /wt/crud-app and edit crud-app/src/index.ts.';
+      if (filePath.endsWith('/implementation-spec.md')) return 'Run validation from /repo/AgentWorkSpace/tasks/t1/worktrees/crud-app and edit crud-app/src/index.ts.';
       return '';
     });
     mockedLaunchAgent.mockReturnValue({ pid: 1234 } as never);
@@ -878,7 +878,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
 
     await expect(runRoleAgent({
       agentId: 'dalton',
-      taskId: 'task-test-001',
+      taskId: 't1',
       contextPackDir: '/ctx',
       skipWorkflowValidation: true,
     })).resolves.toMatchObject({ exitCode: 0 });
@@ -1025,10 +1025,10 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       authoritySource: 'active-task-sidecar',
     } as never);
     mockedCaptureChangedPathsSnapshot
-      .mockResolvedValueOnce({ byRepoRoot: { '/wt/crud-app': [], '/wt/shared-lib': [] } })
-      .mockResolvedValueOnce({ byRepoRoot: { '/wt/crud-app': ['src/app.ts'], '/wt/shared-lib': ['src/leak.ts'] } });
+      .mockResolvedValueOnce({ byRepoRoot: { '/repo/AgentWorkSpace/tasks/t1/worktrees/crud-app': [], '/repo/AgentWorkSpace/tasks/t1/worktrees/shared-lib': [] } })
+      .mockResolvedValueOnce({ byRepoRoot: { '/repo/AgentWorkSpace/tasks/t1/worktrees/crud-app': ['src/app.ts'], '/repo/AgentWorkSpace/tasks/t1/worktrees/shared-lib': ['src/leak.ts'] } });
     mockedValidateDaltonBoundaryChanges.mockImplementation(() => {
-      throw new DaltonConfinementError('out-of-bound edits', ['/wt/shared-lib/src/leak.ts']);
+      throw new DaltonConfinementError('out-of-bound edits', ['/repo/AgentWorkSpace/tasks/t1/worktrees/shared-lib/src/leak.ts']);
     });
     const fakeChild = { pid: 1234 } as never;
     mockedLaunchAgent.mockReturnValue(fakeChild);
@@ -1056,16 +1056,16 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
     })).rejects.toThrow('confinement retry exited with code 1');
 
     expect(autonomyArgs.allowedDirs).toEqual([
-      '/wt/crud-app',
-      '/wt/shared-lib',
+      '/repo/AgentWorkSpace/tasks/t1/worktrees/crud-app',
+      '/repo/AgentWorkSpace/tasks/t1/worktrees/shared-lib',
     ]);
     expect(mockedCaptureChangedPathsSnapshot).toHaveBeenNthCalledWith(1, [
-      '/wt/crud-app',
-      '/wt/shared-lib',
+      '/repo/AgentWorkSpace/tasks/t1/worktrees/crud-app',
+      '/repo/AgentWorkSpace/tasks/t1/worktrees/shared-lib',
     ]);
     expect(mockedCaptureChangedPathsSnapshot).toHaveBeenNthCalledWith(2, [
-      '/wt/crud-app',
-      '/wt/shared-lib',
+      '/repo/AgentWorkSpace/tasks/t1/worktrees/crud-app',
+      '/repo/AgentWorkSpace/tasks/t1/worktrees/shared-lib',
     ]);
     expect(mockedWriteGuardrailReceipt).toHaveBeenCalledWith(
       '/repo/.platform-state/runtime/guardrails/dalton.json',
@@ -1089,8 +1089,8 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
     };
     mockedResolveAutonomyProfile.mockReturnValue(autonomyArgs);
     mockTaskSidecarWorktrees(
-      [{ originalRoot: '/ctx/crud-app', worktreeRoot: '/task/worktrees/tasksail' }],
-      [{ originalRoot: '/ctx/shared-lib', worktreeRoot: '/task/worktrees/support' }],
+      [{ originalRoot: '/ctx/crud-app', worktreeRoot: '/repo/AgentWorkSpace/tasks/t1/worktrees/tasksail' }],
+      [{ originalRoot: '/ctx/shared-lib', worktreeRoot: '/repo/AgentWorkSpace/tasks/t1/worktrees/support' }],
     );
     mockedResolveSelectedPrimaryRepoRoot.mockResolvedValue({
       primaryRepoId: 'tasksail',
@@ -1101,13 +1101,13 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       selectedRepoIds: ['tasksail'],
       selectedFocusIds: [],
       writableRoots: [{
-        repoLocalPath: '/task/worktrees/tasksail',
+        repoLocalPath: '/repo/AgentWorkSpace/tasks/t1/worktrees/tasksail',
         path: '',
         kind: 'directory',
         reason: 'selected-primary',
       }],
       readonlyContextRoots: [{
-        repoLocalPath: '/task/worktrees/support',
+        repoLocalPath: '/repo/AgentWorkSpace/tasks/t1/worktrees/support',
         path: '',
         kind: 'directory',
         reason: 'support-target',
@@ -1141,18 +1141,18 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
 
     await expect(runRoleAgent({
       agentId: 'dalton',
-      taskId: 'task-test-001',
+      taskId: 't1',
       contextPackDir: '/ctx',
       skipWorkflowValidation: true,
     })).resolves.toMatchObject({ exitCode: 0 });
 
     expect(mockedCaptureChangedPathsSnapshot).toHaveBeenNthCalledWith(1, [
-      '/task/worktrees/tasksail',
-      '/task/worktrees/support',
+      '/repo/AgentWorkSpace/tasks/t1/worktrees/tasksail',
+      '/repo/AgentWorkSpace/tasks/t1/worktrees/support',
     ]);
     expect(mockedCaptureChangedPathsSnapshot).toHaveBeenNthCalledWith(2, [
-      '/task/worktrees/tasksail',
-      '/task/worktrees/support',
+      '/repo/AgentWorkSpace/tasks/t1/worktrees/tasksail',
+      '/repo/AgentWorkSpace/tasks/t1/worktrees/support',
     ]);
     expect(mockedLaunchAgent).toHaveBeenCalledTimes(1);
     expect(testLogger.warn).not.toHaveBeenCalledWith(
@@ -1184,14 +1184,14 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       authoritySource: 'active-task-sidecar',
     } as never);
     mockedCaptureChangedPathsSnapshot
-      .mockResolvedValueOnce({ byRepoRoot: { '/wt/crud-app': [], '/wt/shared-lib': [] } })
-      .mockResolvedValueOnce({ byRepoRoot: { '/wt/crud-app': ['src/app.ts'], '/wt/shared-lib': ['src/leak.ts'] } })
-      .mockResolvedValueOnce({ byRepoRoot: { '/wt/crud-app': ['src/app.ts'], '/wt/shared-lib': [] } });
+      .mockResolvedValueOnce({ byRepoRoot: { '/repo/AgentWorkSpace/tasks/t1/worktrees/crud-app': [], '/repo/AgentWorkSpace/tasks/t1/worktrees/shared-lib': [] } })
+      .mockResolvedValueOnce({ byRepoRoot: { '/repo/AgentWorkSpace/tasks/t1/worktrees/crud-app': ['src/app.ts'], '/repo/AgentWorkSpace/tasks/t1/worktrees/shared-lib': ['src/leak.ts'] } })
+      .mockResolvedValueOnce({ byRepoRoot: { '/repo/AgentWorkSpace/tasks/t1/worktrees/crud-app': ['src/app.ts'], '/repo/AgentWorkSpace/tasks/t1/worktrees/shared-lib': [] } });
     let sidecarReadsAtFirstValidation = 0;
     mockedValidateDaltonBoundaryChanges
       .mockImplementationOnce(() => {
         sidecarReadsAtFirstValidation = mockedReadTaskJsonSafe.mock.calls.length;
-        throw new DaltonConfinementError('out-of-bound edits', ['/wt/shared-lib/src/leak.ts']);
+        throw new DaltonConfinementError('out-of-bound edits', ['/repo/AgentWorkSpace/tasks/t1/worktrees/shared-lib/src/leak.ts']);
       })
       .mockImplementationOnce(async () => undefined);
     const fakeChild = { pid: 1234 } as never;
@@ -1224,16 +1224,16 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
 
     expect(mockedLaunchAgent).toHaveBeenCalledTimes(2);
     expect(mockedCaptureChangedPathsSnapshot).toHaveBeenNthCalledWith(1, [
-      '/wt/crud-app',
-      '/wt/shared-lib',
+      '/repo/AgentWorkSpace/tasks/t1/worktrees/crud-app',
+      '/repo/AgentWorkSpace/tasks/t1/worktrees/shared-lib',
     ]);
     expect(mockedCaptureChangedPathsSnapshot).toHaveBeenNthCalledWith(2, [
-      '/wt/crud-app',
-      '/wt/shared-lib',
+      '/repo/AgentWorkSpace/tasks/t1/worktrees/crud-app',
+      '/repo/AgentWorkSpace/tasks/t1/worktrees/shared-lib',
     ]);
     expect(mockedCaptureChangedPathsSnapshot).toHaveBeenNthCalledWith(3, [
-      '/wt/crud-app',
-      '/wt/shared-lib',
+      '/repo/AgentWorkSpace/tasks/t1/worktrees/crud-app',
+      '/repo/AgentWorkSpace/tasks/t1/worktrees/shared-lib',
     ]);
     expect(mockedReadTaskJsonSafe.mock.calls.length).toBe(sidecarReadsAtFirstValidation);
     expect(mockedWriteSessionStartReceipt).toHaveBeenCalledTimes(2);
@@ -1261,7 +1261,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
     expect(mockedLaunchAgent.mock.calls[1]?.[0]).toEqual(
       expect.arrayContaining([
         '-p',
-        expect.stringContaining('/wt/shared-lib/src/leak.ts'),
+        expect.stringContaining('/repo/AgentWorkSpace/tasks/t1/worktrees/shared-lib/src/leak.ts'),
       ]),
     );
     expect(mockedLaunchAgent.mock.calls[1]?.[0]).toEqual(
@@ -1301,12 +1301,12 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       authoritySource: 'active-task-sidecar',
     } as never);
     mockedCaptureChangedPathsSnapshot
-      .mockResolvedValueOnce({ byRepoRoot: { '/wt/crud-app': [], '/wt/shared-lib': [] } })
-      .mockResolvedValueOnce({ byRepoRoot: { '/wt/crud-app': ['src/app.ts'], '/wt/shared-lib': ['src/leak.ts'] } })
-      .mockResolvedValueOnce({ byRepoRoot: { '/wt/crud-app': ['src/app.ts'], '/wt/shared-lib': [] } });
+      .mockResolvedValueOnce({ byRepoRoot: { '/repo/AgentWorkSpace/tasks/t1/worktrees/crud-app': [], '/repo/AgentWorkSpace/tasks/t1/worktrees/shared-lib': [] } })
+      .mockResolvedValueOnce({ byRepoRoot: { '/repo/AgentWorkSpace/tasks/t1/worktrees/crud-app': ['src/app.ts'], '/repo/AgentWorkSpace/tasks/t1/worktrees/shared-lib': ['src/leak.ts'] } })
+      .mockResolvedValueOnce({ byRepoRoot: { '/repo/AgentWorkSpace/tasks/t1/worktrees/crud-app': ['src/app.ts'], '/repo/AgentWorkSpace/tasks/t1/worktrees/shared-lib': [] } });
     mockedValidateDaltonBoundaryChanges
       .mockImplementationOnce(() => {
-        throw new DaltonConfinementError('out-of-bound edits', ['/wt/shared-lib/src/leak.ts']);
+        throw new DaltonConfinementError('out-of-bound edits', ['/repo/AgentWorkSpace/tasks/t1/worktrees/shared-lib/src/leak.ts']);
       })
       .mockImplementationOnce(async () => undefined);
     const fakeChild = { pid: 1234 } as never;
@@ -1369,15 +1369,15 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       authoritySource: 'active-task-sidecar',
     } as never);
     mockedCaptureChangedPathsSnapshot
-      .mockResolvedValueOnce({ byRepoRoot: { '/wt/crud-app': [], '/wt/shared-lib': [] } })
-      .mockResolvedValueOnce({ byRepoRoot: { '/wt/crud-app': ['src/app.ts'], '/wt/shared-lib': ['src/leak.ts'] } })
-      .mockResolvedValueOnce({ byRepoRoot: { '/wt/crud-app': ['src/app.ts'], '/wt/shared-lib': ['src/leak.ts'] } });
+      .mockResolvedValueOnce({ byRepoRoot: { '/repo/AgentWorkSpace/tasks/t1/worktrees/crud-app': [], '/repo/AgentWorkSpace/tasks/t1/worktrees/shared-lib': [] } })
+      .mockResolvedValueOnce({ byRepoRoot: { '/repo/AgentWorkSpace/tasks/t1/worktrees/crud-app': ['src/app.ts'], '/repo/AgentWorkSpace/tasks/t1/worktrees/shared-lib': ['src/leak.ts'] } })
+      .mockResolvedValueOnce({ byRepoRoot: { '/repo/AgentWorkSpace/tasks/t1/worktrees/crud-app': ['src/app.ts'], '/repo/AgentWorkSpace/tasks/t1/worktrees/shared-lib': ['src/leak.ts'] } });
     mockedValidateDaltonBoundaryChanges
       .mockImplementationOnce(() => {
-        throw new DaltonConfinementError('out-of-bound edits', ['/wt/shared-lib/src/leak.ts']);
+        throw new DaltonConfinementError('out-of-bound edits', ['/repo/AgentWorkSpace/tasks/t1/worktrees/shared-lib/src/leak.ts']);
       })
       .mockImplementationOnce(() => {
-        throw new DaltonConfinementError('retry still out-of-bound', ['/wt/shared-lib/src/leak.ts']);
+        throw new DaltonConfinementError('retry still out-of-bound', ['/repo/AgentWorkSpace/tasks/t1/worktrees/shared-lib/src/leak.ts']);
       });
     const fakeChild = { pid: 1234 } as never;
     mockedLaunchAgent.mockReturnValue(fakeChild);
@@ -1410,7 +1410,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
       expect.objectContaining({
         status: 'failed',
         termination_reason: 'confinement-violation',
-        violation_paths: ['/wt/shared-lib/src/leak.ts'],
+        violation_paths: ['/repo/AgentWorkSpace/tasks/t1/worktrees/shared-lib/src/leak.ts'],
         writable_roots: [],
         readonly_context_roots: [],
       }),

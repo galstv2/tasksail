@@ -1,0 +1,14 @@
+
+# Build output
+target/
+debug/
+release/
+
+# Compilation artifacts
+*.pdb
+
+# Benchmarks and test output
+criterion/
+
+# Coverage
+tarpaulin-report.html

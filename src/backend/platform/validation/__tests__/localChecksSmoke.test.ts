@@ -99,7 +99,12 @@ describe('runLocalChecks smoke profile', () => {
     const desktopCalls = execFileMock.mock.calls.filter(([command, args]) => {
       return command === 'npm' && Array.isArray(args);
     });
-    expect(desktopCalls).toHaveLength(2);
+    expect(desktopCalls).toHaveLength(3);
+    expect(desktopCalls.map(([, args]) => args)).toEqual([
+      ['run', 'test:css-colors'],
+      ['test'],
+      ['run', 'build'],
+    ]);
     for (const [, , options] of desktopCalls) {
       expect(options).toMatchObject({
         cwd: path.join(repoRoot, 'src', 'frontend', 'desktop'),

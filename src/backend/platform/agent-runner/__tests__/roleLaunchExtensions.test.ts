@@ -2,9 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import type { AgentId } from '../../core/index.js';
 
-const { createAgentExtensionStage, loadAgentLaunchExtensionAssignments, logInfo } = vi.hoisted(() => ({
+const { createAgentExtensionStage, loadAgentLaunchExtensionAssignments, logDebug, logInfo } = vi.hoisted(() => ({
   createAgentExtensionStage: vi.fn(),
   loadAgentLaunchExtensionAssignments: vi.fn(),
+  logDebug: vi.fn(),
   logInfo: vi.fn(),
 }));
 
@@ -17,7 +18,7 @@ vi.mock('../../agent-extensions/assignment.js', () => ({
 }));
 
 vi.mock('../../core/logger.js', () => ({
-  createLogger: () => ({ info: logInfo, warn: vi.fn(), debug: vi.fn(), error: vi.fn(), child() { return this; } }),
+  createLogger: () => ({ info: logInfo, warn: vi.fn(), debug: logDebug, error: vi.fn(), child() { return this; } }),
 }));
 
 // Assignment store where at least one agent owns an extension, so the lock-free
@@ -67,6 +68,7 @@ describe('resolveRoleAgentLaunchExtensions', () => {
   beforeEach(() => {
     createAgentExtensionStage.mockReset();
     loadAgentLaunchExtensionAssignments.mockReset();
+    logDebug.mockReset();
     logInfo.mockReset();
   });
 
@@ -89,7 +91,7 @@ describe('resolveRoleAgentLaunchExtensions', () => {
     // No staging lock acquired when the store is empty, but the content-safe
     // none log still fires with the mapped assignment agent id.
     expect(createAgentExtensionStage).not.toHaveBeenCalled();
-    expect(logInfo).toHaveBeenCalledWith('agent.launch_extensions.none', {
+    expect(logDebug).toHaveBeenCalledWith('agent.launch_extensions.none', {
       agentId: 'dalton',
       assignmentAgentId: 'software-engineer',
       launchId: 'L0',
@@ -125,6 +127,11 @@ describe('resolveRoleAgentLaunchExtensions', () => {
     expect(createAgentExtensionStage).toHaveBeenCalledWith({
       repoRoot: '/repo',
       agentId: 'software-engineer',
+      launchId: 'L1',
+    });
+    expect(logDebug).toHaveBeenCalledWith('agent.launch_extensions.none', {
+      agentId: 'dalton',
+      assignmentAgentId: 'software-engineer',
       launchId: 'L1',
     });
   });
@@ -168,6 +175,14 @@ describe('resolveRoleAgentLaunchExtensions', () => {
     expect(res.availabilityNote).toContain('- Plugin: Plugin One - does Y');
     expect(res.availabilityNote).toContain('Bundled skills: bundledA, bundledB');
     expect(res.cleanup).toBe(cleanup);
+    expect(logInfo).toHaveBeenCalledWith('agent.launch_extensions.resolved', expect.objectContaining({
+      agentId: 'ron',
+      assignmentAgentId: 'qa',
+      launchId: 'L2',
+      skillCount: 1,
+      pluginCount: 1,
+      extensionIds: ['sk1', 'pl1'],
+    }));
   });
 
   it('returns a no-op and does not stage when the runtime agent is out of scope (lily)', async () => {

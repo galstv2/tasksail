@@ -565,4 +565,40 @@ describe('main.stream', () => {
       }),
     ]);
   });
+
+  it('propagates optional realignmentId on emitted events when provided', async () => {
+    const { emitStreamEvent: emit } = await importStreamWithRegistry({
+      schema_version: 2,
+      tasks: {},
+    });
+
+    emit({
+      message: 'Realignment analysis archived.',
+      source: 'runtime.realignment',
+      role: 'workflow',
+      taskId: 'N/A',
+      realignmentId: 'RA-77',
+    });
+
+    expect(send).toHaveBeenCalledWith(
+      DESKTOP_SHELL_STREAM_CHANNEL,
+      expect.objectContaining({ realignmentId: 'RA-77', source: 'runtime.realignment' }),
+    );
+  });
+
+  it('omits realignmentId from emitted events when not provided', async () => {
+    const { emitStreamEvent: emit } = await importStreamWithRegistry({
+      schema_version: 2,
+      tasks: {},
+    });
+
+    emit({
+      message: 'System event without realignmentId.',
+      source: 'system.test',
+      role: 'system',
+    });
+
+    const emittedEvent = send.mock.calls[0]?.[1] as { realignmentId?: string };
+    expect(emittedEvent.realignmentId).toBeUndefined();
+  });
 });

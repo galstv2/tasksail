@@ -3,27 +3,16 @@ import type {
   PartDraft,
   RepositoryEntryDraft,
 } from '../../contextPackCreationTypes';
+import {
+  LANGUAGE_CATALOG,
+  type LanguageCatalogEntry,
+} from '../../../shared/contextPackLanguages';
 
-export type LanguageEntry = {
-  value: string;
-  label: string;
-  roles: ReadonlyArray<RepositoryEntryDraft['systemLayer']>;
-};
+export type { LanguageCatalogEntry };
+// LanguageEntry is kept as an alias for backward compatibility.
+export type LanguageEntry = LanguageCatalogEntry;
 
-export const LANGUAGE_CATALOG: readonly LanguageEntry[] = [
-  { value: 'csharp', label: 'C# / .NET', roles: ['backend', 'frontend', 'shared'] },
-  { value: 'typescript', label: 'TypeScript', roles: ['backend', 'frontend', 'shared'] },
-  { value: 'javascript', label: 'JavaScript', roles: ['backend', 'frontend', 'shared'] },
-  { value: 'python', label: 'Python', roles: ['backend', 'shared', 'infrastructure'] },
-  { value: 'java', label: 'Java', roles: ['backend', 'shared'] },
-  { value: 'go', label: 'Go', roles: ['backend', 'shared', 'infrastructure'] },
-  { value: 'rust', label: 'Rust', roles: ['backend', 'shared'] },
-  { value: 'ruby', label: 'Ruby', roles: ['backend', 'shared'] },
-  { value: 'sql', label: 'SQL', roles: ['database', 'backend', 'shared'] },
-  { value: 'hcl', label: 'HCL / Terraform', roles: ['infrastructure'] },
-  { value: 'shell', label: 'Shell / Bash', roles: ['infrastructure', 'backend', 'shared'] },
-  { value: 'powershell', label: 'PowerShell', roles: ['infrastructure', 'backend', 'shared'] },
-] as const;
+export { LANGUAGE_CATALOG };
 
 export type RoleOption = {
   value: RepositoryEntryDraft['systemLayer'];

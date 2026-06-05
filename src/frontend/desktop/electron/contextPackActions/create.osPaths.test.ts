@@ -5,10 +5,12 @@
 // (which is exported) and via the git-filter logic exposed through
 // executeContextPackCreateAction with mocked runners.
 
-import { win32 as winPath } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, win32 as winPath } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { buildContextPackBootstrapArgs } from './create';
+import { buildContextPackBootstrapArgs, resolveUniqueContextPackDir } from './create';
 
 // ── buildContextPackBootstrapArgs ─────────────────────────────────────────────
 
@@ -32,6 +34,48 @@ describe('buildContextPackBootstrapArgs', () => {
     });
     expect(args).toContain('/home/user/packs/my-pack');
     expect(args).toContain('/home/user/repos');
+  });
+});
+
+// ── resolveUniqueContextPackDir (real temp dirs) ─────────────────────────────
+
+describe('resolveUniqueContextPackDir', () => {
+  let parent: string;
+  const created: string[] = [];
+
+  beforeEach(async () => {
+    parent = await mkdtemp(join(tmpdir(), 'cp-unique-'));
+    created.push(parent);
+  });
+
+  afterEach(async () => {
+    for (const d of created.splice(0)) {
+      await rm(d, { recursive: true, force: true });
+    }
+  });
+
+  it('returns the desired path unchanged when no sibling collides', async () => {
+    const desired = join(parent, 'orders-estate');
+    expect(await resolveUniqueContextPackDir(desired)).toBe(desired);
+  });
+
+  it('appends -2 when the basename already exists', async () => {
+    await mkdir(join(parent, 'orders-estate'), { recursive: true });
+    const desired = join(parent, 'orders-estate');
+    expect(await resolveUniqueContextPackDir(desired)).toBe(join(parent, 'orders-estate-2'));
+  });
+
+  it('increments the counter past an existing chain', async () => {
+    for (const name of ['orders-estate', 'orders-estate-2', 'orders-estate-3']) {
+      await mkdir(join(parent, name), { recursive: true });
+    }
+    const desired = join(parent, 'orders-estate');
+    expect(await resolveUniqueContextPackDir(desired)).toBe(join(parent, 'orders-estate-4'));
+  });
+
+  it('returns the desired path unchanged when the parent does not exist', async () => {
+    const desired = join(parent, 'missing-sub', 'orders-estate');
+    expect(await resolveUniqueContextPackDir(desired)).toBe(desired);
   });
 });
 

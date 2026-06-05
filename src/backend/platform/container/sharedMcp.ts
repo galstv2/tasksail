@@ -9,6 +9,7 @@ import { toContainerPath, toEngineHostPath } from '../core/platform.js';
 import type { EngineHostPathOptions } from '../core/platform.js';
 import { getPlatformConfig } from '../platform-config/get.js';
 import type { PlatformConfig } from '../platform-config/types.js';
+import { acquireDirLock } from '../queue/dirLock.js';
 import { checkServiceHealth } from './healthcheck.js';
 import { createRuntimeFromConfig } from './runtime.js';
 import { resolveDefaultComposeFile } from './types.js';
@@ -17,6 +18,7 @@ import { isDirectMcpHealthy } from './directRuntimeProcess.js';
 const log = createLogger('platform/container/sharedMcp');
 
 const SHARED_MCP_COMPOSE_OVERRIDE_PATH = '.platform-state/runtime/shared-mcp-compose.override.yml';
+const SHARED_MCP_BOOTSTRAP_LOCK_REL_PATH = '.platform-state/runtime/shared-mcp-bootstrap.lock';
 const SHARED_MCP_HEALTH_SPEC = 'repo-context-mcp';
 const LEGACY_PORT_ALLOCATIONS_PATH = '.platform-state/runtime/port-allocations.json';
 const SCRUBBED_SHARED_MCP_ENV_KEYS = [
@@ -73,10 +75,29 @@ export async function ensureSharedMcpRunning(repoRoot: string): Promise<void> {
     return existing;
   }
 
-  const bootstrap = runSharedMcpBootstrap(repoRoot, config, healthUrl)
-    .finally(() => {
-      sharedMcpBootstrapInFlight.delete(resolvedRepoRoot);
-    });
+  const lockDir = path.join(resolvedRepoRoot, SHARED_MCP_BOOTSTRAP_LOCK_REL_PATH);
+  const bootstrap = (async () => {
+    const release = await acquireDirLock(lockDir);
+    if (release === null) {
+      log.warn('shared_mcp.bootstrap_lock_unavailable', {
+        message: 'Could not acquire shared-mcp bootstrap lock; proceeding without cross-process serialization.',
+        lockDir,
+      });
+      await runSharedMcpBootstrap(repoRoot, config, healthUrl);
+      return;
+    }
+    try {
+      // Double-checked: a peer may have completed bootstrap while we waited for the lock.
+      if (await isAlreadyHealthy(config, healthUrl, repoRoot)) {
+        return;
+      }
+      await runSharedMcpBootstrap(repoRoot, config, healthUrl);
+    } finally {
+      await release();
+    }
+  })().finally(() => {
+    sharedMcpBootstrapInFlight.delete(resolvedRepoRoot);
+  });
   sharedMcpBootstrapInFlight.set(resolvedRepoRoot, bootstrap);
   return bootstrap;
 }

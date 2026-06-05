@@ -111,12 +111,12 @@
 }
 
 .ts-select__status--active {
-  background: rgba(22, 163, 74, 0.1);
+  background: color-mix(in srgb, var(--ts-success) 10%, transparent);
   color: var(--ts-success);
 }
 
 .ts-select__status--blocked {
-  background: rgba(217, 119, 6, 0.1);
+  background: color-mix(in srgb, var(--ts-warning) 10%, transparent);
   color: var(--ts-warning);
 }
 
@@ -137,8 +137,8 @@
   border-radius: var(--ts-radius-md);
   background: var(--ts-surface);
   box-shadow:
-    0 4px 14px rgba(0, 0, 0, 0.07),
-    0 12px 40px rgba(0, 0, 0, 0.05);
+    0 4px 14px color-mix(in srgb, var(--ts-surface-terminal) 7%, transparent),
+    0 12px 40px color-mix(in srgb, var(--ts-surface-terminal) 5%, transparent);
   padding: 4px;
   display: flex;
   flex-direction: column;

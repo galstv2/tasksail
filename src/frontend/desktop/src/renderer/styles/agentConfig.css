@@ -109,8 +109,8 @@
   color: var(--ts-text);
   font-weight: 600;
   box-shadow:
-    0 1px 3px rgba(0, 0, 0, 0.06),
-    0 0 0 0.5px rgba(0, 0, 0, 0.03);
+    0 1px 3px color-mix(in srgb, var(--ts-surface-terminal) 6%, transparent),
+    0 0 0 0.5px color-mix(in srgb, var(--ts-surface-terminal) 3%, transparent);
 }
 
 .agent-config__loading,
@@ -313,8 +313,8 @@
 }
 
 .agent-config__ext-status--available {
-  background: color-mix(in srgb, var(--ts-success, #22c55e) 15%, transparent);
-  color: var(--ts-success, #22c55e);
+  background: color-mix(in srgb, var(--ts-success) 15%, transparent);
+  color: var(--ts-success);
 }
 
 .agent-config__ext-status--unavailable {

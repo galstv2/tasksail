@@ -6,9 +6,7 @@ import { resetProvider, resolveCliProviderId } from '../cli-provider/index.js';
 import type { PlatformConfig, PlatformConfigValidationError } from './types.js';
 import { loadPlatformConfig, validatePlatformConfig } from './load.js';
 import { resetPlatformConfigCache } from './get.js';
-
-const DEFAULT_PLATFORM_CONFIG_PATH = 'config/platform.default.json';
-const RUNTIME_PLATFORM_CONFIG_PATH = '.platform-state/platform.json';
+import { DEFAULT_PLATFORM_CONFIG_PATH, RUNTIME_PLATFORM_CONFIG_PATH } from './paths.js';
 
 const RUNTIME_REPAIR_WARNING =
   'Runtime platform config is missing or invalid. A valid save will recreate '

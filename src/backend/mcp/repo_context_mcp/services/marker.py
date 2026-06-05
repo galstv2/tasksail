@@ -21,6 +21,10 @@ from src.backend.mcp.pack_schemas.pack_seed_state import (
     PackSeedState,
     validate_pack_seed_state,
 )
+from src.backend.scripts.python.lib.locking import (
+    acquire_file_lock,
+    release_file_lock,
+)
 
 from ..record_factory import pack_seed_state_path
 from ..utils import utc_now, write_json_atomic
@@ -29,6 +33,7 @@ logger = logging.getLogger(__name__)
 
 RESEED_MARKER_FILENAME = ".reseed-in-progress.json"
 RESEED_MARKER_STALE_AFTER_SECONDS = 3600
+RESEED_RECLAIM_LOCK_TIMEOUT_SECONDS = 30.0
 RESEED_IN_PROGRESS_ERROR_CODE = "reseed_in_progress"
 
 
@@ -121,18 +126,100 @@ def write_reseed_marker(context_pack_path: Path) -> Path:
     return marker_path
 
 
+def _exclusive_create_marker(context_pack_path: Path) -> Path:
+    """Write marker via O_CREAT|O_EXCL; raises FileExistsError on contention."""
+    marker_path = context_pack_path / RESEED_MARKER_FILENAME
+    payload = json.dumps(
+        {
+            "started_at": utc_now(),
+            "pid": os.getpid(),
+            "host": socket.gethostname(),
+        }
+    ).encode()
+    fd = os.open(str(marker_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+    try:
+        os.write(fd, payload)
+    finally:
+        os.close(fd)
+    return marker_path
+
+
+def _same_marker_identity(a: dict, b: dict) -> bool:
+    return (
+        a.get("started_at") == b.get("started_at")
+        and a.get("pid") == b.get("pid")
+        and a.get("host") == b.get("host")
+    )
+
+
+def _reclaim_and_exclusive_create(
+    context_pack_path: Path,
+    marker_path: Path,
+    stale_payload: dict | None,
+    *,
+    stale_after_seconds: int,
+) -> Path:
+    """Reclaim a stale/corrupt marker exclusively so two reclaimers cannot both win.
+
+    Reclaimers serialize on a flock-based reclaim lock (fcntl.flock / Windows
+    msvcrt.locking), which the OS auto-releases on process exit so a crashed
+    reclaimer cannot wedge reclamation. Under that lock we re-read the marker
+    (compare-and-swap): if another reclaimer already replaced it with a fresh
+    marker, defer instead of unlinking theirs. Serializing closes the
+    re-read/unlink TOCTOU window; the O_EXCL create remains the final backstop
+    against a concurrent (non-reclaiming) fresh acquirer.
+    """
+    reclaim_lock_path = context_pack_path / (RESEED_MARKER_FILENAME + ".reclaim.lock")
+    fd = acquire_file_lock(
+        reclaim_lock_path, timeout_seconds=RESEED_RECLAIM_LOCK_TIMEOUT_SECONDS
+    )
+    try:
+        current = _read_marker_payload(marker_path)
+        if current is not None and (
+            stale_payload is None or not _same_marker_identity(current, stale_payload)
+        ):
+            raise ReseedAlreadyInProgressError(
+                pid=current.get("pid"),
+                host=current.get("host"),
+                started_at=current.get("started_at"),
+                same_host=current.get("host") == socket.gethostname(),
+                stale_after_seconds=stale_after_seconds,
+            )
+        try:
+            marker_path.unlink()
+        except FileNotFoundError:
+            pass
+        try:
+            return _exclusive_create_marker(context_pack_path)
+        except FileExistsError:
+            winner = _read_marker_payload(marker_path) or {}
+            raise ReseedAlreadyInProgressError(
+                pid=winner.get("pid"),
+                host=winner.get("host"),
+                started_at=winner.get("started_at"),
+                same_host=winner.get("host") == socket.gethostname(),
+                stale_after_seconds=stale_after_seconds,
+            )
+    finally:
+        release_file_lock(fd)
+
+
 def acquire_reseed_marker(
     context_pack_path: Path,
     *,
     stale_after_seconds: int = RESEED_MARKER_STALE_AFTER_SECONDS,
 ) -> Path:
     marker_path = context_pack_path / RESEED_MARKER_FILENAME
-    if not marker_path.exists():
-        return write_reseed_marker(context_pack_path)
+    try:
+        return _exclusive_create_marker(context_pack_path)
+    except FileExistsError:
+        pass
 
     payload = _read_marker_payload(marker_path)
     if payload is None:
-        return write_reseed_marker(context_pack_path)
+        return _reclaim_and_exclusive_create(
+            context_pack_path, marker_path, None, stale_after_seconds=stale_after_seconds
+        )
 
     pid = payload["pid"]
     host = payload["host"]
@@ -152,7 +239,9 @@ def acquire_reseed_marker(
             pid,
             started_at,
         )
-        return write_reseed_marker(context_pack_path)
+        return _reclaim_and_exclusive_create(
+            context_pack_path, marker_path, payload, stale_after_seconds=stale_after_seconds
+        )
 
     if _marker_is_stale(started_at, stale_after_seconds=stale_after_seconds):
         logger.warning(
@@ -160,7 +249,9 @@ def acquire_reseed_marker(
             host,
             started_at,
         )
-        return write_reseed_marker(context_pack_path)
+        return _reclaim_and_exclusive_create(
+            context_pack_path, marker_path, payload, stale_after_seconds=stale_after_seconds
+        )
 
     raise ReseedAlreadyInProgressError(
         pid=pid,
@@ -172,7 +263,21 @@ def acquire_reseed_marker(
 
 
 def clear_reseed_marker(marker_path: Path) -> None:
-    """Remove the reseed marker, swallowing expected OS errors."""
+    """Remove the reseed marker only if the current process owns it."""
+    payload = _read_marker_payload(marker_path)
+    if payload is None:
+        logger.warning(
+            "reseed_marker: clear skipped — marker at %s is missing or unreadable",
+            marker_path,
+        )
+        return
+    if payload.get("pid") != os.getpid() or payload.get("host") != socket.gethostname():
+        logger.warning(
+            "reseed_marker: clear skipped — marker owned by pid=%s host=%s, not this process",
+            payload.get("pid"),
+            payload.get("host"),
+        )
+        return
     try:
         marker_path.unlink()
     except FileNotFoundError:

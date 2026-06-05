@@ -34,14 +34,14 @@
 
 .terminal-select-menu__trigger:hover,
 .terminal-select-menu__trigger--open {
-  background-color: rgba(255, 255, 255, 0.06);
+  background-color: color-mix(in srgb, var(--ts-text-inverse) 6%, transparent);
   border-color: var(--terminal-border);
 }
 
 .terminal-select-menu__trigger:focus-visible {
   outline: none;
   border-color: var(--ts-brand-cloudblue);
-  box-shadow: 0 0 0 2px rgba(137, 184, 240, 0.25);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ts-brand-cloudblue) 25%, transparent);
 }
 
 .terminal-select-menu__trigger-label {
@@ -80,8 +80,8 @@
   padding: 3px;
   background-color: var(--terminal-chrome);
   box-shadow:
-    0 6px 18px rgba(0, 0, 0, 0.24),
-    0 16px 44px rgba(0, 0, 0, 0.18);
+    0 6px 18px color-mix(in srgb, var(--ts-surface-terminal) 24%, transparent),
+    0 16px 44px color-mix(in srgb, var(--ts-surface-terminal) 18%, transparent);
   animation: terminal-select-menu-enter 150ms var(--ts-ease) both;
 }
 
@@ -109,21 +109,24 @@
 }
 
 .terminal-select-menu__option:hover {
-  background-color: rgba(255, 255, 255, 0.06);
+  background-color: color-mix(in srgb, var(--ts-text-inverse) 6%, transparent);
 }
 
 .terminal-select-menu__option--active {
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: color-mix(in srgb, var(--ts-text-inverse) 10%, transparent);
 }
 
 .terminal-select-menu__option--selected {
-  background-color: rgba(137, 184, 240, 0.16);
+  background-color: color-mix(in srgb, var(--ts-brand-cloudblue) 16%, transparent);
 }
 
 .terminal-select-menu__option--selected.terminal-select-menu__option--active {
   background:
-    linear-gradient(rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.04)),
-    rgba(137, 184, 240, 0.16);
+    linear-gradient(
+      color-mix(in srgb, var(--ts-text-inverse) 4%, transparent),
+      color-mix(in srgb, var(--ts-text-inverse) 4%, transparent)
+    ),
+    color-mix(in srgb, var(--ts-brand-cloudblue) 16%, transparent);
 }
 
 .terminal-select-menu__option-primary {

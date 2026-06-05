@@ -276,7 +276,7 @@
   margin: 0;
   background: var(--ts-surface);
   box-shadow:
-    0 14px 34px -14px rgba(15, 23, 42, 0.48),
+    0 14px 34px -14px color-mix(in srgb, var(--ts-surface-terminal) 48%, transparent),
     0 0 0 1px var(--ts-border);
 }
 

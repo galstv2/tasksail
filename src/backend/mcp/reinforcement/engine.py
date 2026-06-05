@@ -8,8 +8,8 @@ from src.backend.scripts.python.lib.time import current_utc_timestamp
 
 from .feedback import FeedbackInterpreter
 from .models import (
+    AGENT_REWARD_MULTIPLIERS,
     AGENT_ROLES,
-    ROLE_MULTIPLIERS,
     SETTLEMENT_STREAK_THRESHOLD,
     AgentRewardMemory,
     FeedbackEvent,
@@ -130,7 +130,7 @@ class ReinforcementEngine:
         trigger: str,
     ) -> SettlementRecord:
         """Execute settlement. Caller holds ledger_lock."""
-        agent_ids = list(ROLE_MULTIPLIERS.keys())
+        agent_ids = list(AGENT_REWARD_MULTIPLIERS.keys())
         settlement = RewardCalculator.settle_tasks(unrewarded, agent_ids, trigger)
         task_id_set = set(settlement.tasks_included)
         self._store.mark_tasks_rewarded_held(task_id_set, settlement.settlement_id)
@@ -150,13 +150,13 @@ class ReinforcementEngine:
             if agent_id in existing:
                 mem = existing[agent_id]
                 mem.role = AGENT_ROLES.get(agent_id, agent_id)
-                mem.multiplier = ROLE_MULTIPLIERS.get(agent_id, 0.0)
+                mem.multiplier = AGENT_REWARD_MULTIPLIERS.get(agent_id, 0.0)
                 mem.lifetime_reward += reward_amount
             else:
                 mem = AgentRewardMemory(
                     agent_id=agent_id,
                     role=AGENT_ROLES.get(agent_id, agent_id),
-                    multiplier=ROLE_MULTIPLIERS.get(agent_id, 0.0),
+                    multiplier=AGENT_REWARD_MULTIPLIERS.get(agent_id, 0.0),
                     lifetime_reward=reward_amount,
                     unrewarded_task_count=0,
                     unrewarded_reward_total=0,

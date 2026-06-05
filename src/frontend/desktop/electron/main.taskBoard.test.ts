@@ -182,6 +182,8 @@ import {
   reorderPending,
   requeueErrorItem,
   killTask,
+  broadcastTaskBoardUpdate,
+  resetBroadcastState,
 } from './main.taskBoard';
 import type {
   ArchivedTaskEntry,
@@ -1235,6 +1237,53 @@ describe('main.taskBoard', () => {
       '/repo/.platform-state/queue/queue-order.json',
       ['HIDDEN-B.md', 'VISIBLE-D.md', 'HIDDEN-C.md', 'VISIBLE-A.md'],
     );
+  });
+
+  it('broadcastTaskBoardUpdate coalesces overlapping triggers and emits the final snapshot', async () => {
+    const { BrowserWindow } = await import('electron');
+    const sendMock = vi.fn();
+    vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([
+      { isDestroyed: () => false, webContents: { send: sendMock } } as unknown as import('electron').BrowserWindow,
+    ]);
+
+    // Arrange: loadTaskRegistry stalls once, then succeeds.
+    let resolveFirstRead!: () => void;
+    const firstReadStall = new Promise<void>((resolve) => { resolveFirstRead = resolve; });
+    let firstReadDone = false;
+    loadTaskRegistry
+      .mockImplementationOnce(async () => {
+        await firstReadStall;
+        firstReadDone = true;
+        return { schema_version: 2, tasks: {} };
+      })
+      .mockResolvedValue({ schema_version: 2, tasks: {} });
+
+    resetBroadcastState();
+
+    // Start first broadcast (in-flight).
+    const firstBroadcast = broadcastTaskBoardUpdate();
+
+    // Trigger a second broadcast while first is in-flight — should be coalesced.
+    void broadcastTaskBoardUpdate();
+    // Trigger a third broadcast — replaces the pending slot.
+    void broadcastTaskBoardUpdate();
+
+    // Resolve the first read.
+    resolveFirstRead();
+    await firstBroadcast;
+
+    // After the first broadcast resolves, the pending trigger should have fired.
+    // Wait for the second round.
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(firstReadDone).toBe(true);
+    // At least two sends: one for the in-flight read, one for the coalesced follow-up.
+    expect(sendMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+
+    // All sent responses must carry boardSnapshotSequence.
+    for (const [, data] of sendMock.mock.calls) {
+      expect(typeof (data as { boardSnapshotSequence: number }).boardSnapshotSequence).toBe('number');
+    }
   });
 
   it('formats completed task branch handoff text for manual operator review', () => {

@@ -12,6 +12,7 @@
  */
 import path from 'node:path';
 import { existsSync, readdirSync, rmSync, writeFileSync, readFileSync, mkdirSync } from 'node:fs';
+import { writeTextFileAtomicSync } from './io.js';
 import { promisify } from 'node:util';
 import { execFile as execFileCb } from 'node:child_process';
 import { getPlatformConfig } from '../platform-config/get.js';
@@ -123,7 +124,7 @@ function persistTaskJson(taskId: string, repoRoot: string, state: FinalizeOutcom
   }
   json['state'] = state;
   json['finalizedAt'] = finalizedAt;
-  writeFileSync(sidecarPath, JSON.stringify(json, null, 2) + '\n', 'utf-8');
+  writeTextFileAtomicSync(sidecarPath, JSON.stringify(json, null, 2) + '\n');
 }
 
 // ---------------------------------------------------------------------------

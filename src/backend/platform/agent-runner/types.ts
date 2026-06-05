@@ -55,8 +55,6 @@ export interface PipelineOptions {
 /** Raw registry JSON shape as found in the active provider registry. */
 export interface RegistryJson {
   schema_version: number;
-  default_wall_clock_timeout_s: number;
-  parallel_wall_clock_timeout_s: number;
   agents: RegistryAgentEntry[];
 }
 

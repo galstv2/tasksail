@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ObservabilityProvider } from '../contexts/ObservabilityContext';
@@ -174,6 +174,7 @@ function AppShellContent({ client }: { client: DesktopShellClient }): JSX.Elemen
   return (
     <section>
       <div data-testid="active-context-pack-dir">{result.contextPackSidebarProps.activeContextPackDir ?? 'none'}</div>
+      <button data-testid="trigger-refresh-repo-state" onClick={() => void result.onRefreshRepoState()}>refresh</button>
       <div data-testid="context-pack-count">{result.contextPackSidebarProps.contextPacks.length}</div>
       <div data-testid="delete-blocked-by-active-task">
         {String(result.contextPackSidebarProps.deleteBlockedByActiveTask)}
@@ -349,6 +350,26 @@ describe('useAppShell', () => {
     expect(screen.getByTestId('active-context-pack-label')).toHaveTextContent('Orders Estate Context Pack');
     expect(client.readTaskBoard).toHaveBeenCalled();
     expect(notificationCenterProps.openPanel).not.toHaveBeenCalled();
+  });
+
+  it('merges the context-pack catalog refresh into the top-bar refresh handler', async () => {
+    const client = createClient();
+
+    render(<AppShellHarness client={client} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('active-context-pack-dir')).not.toHaveTextContent('none');
+    });
+
+    const listCallsBefore = (client.listContextPacks as ReturnType<typeof vi.fn>).mock.calls.length;
+    const boardCallsBefore = (client.readTaskBoard as ReturnType<typeof vi.fn>).mock.calls.length;
+
+    fireEvent.click(screen.getByTestId('trigger-refresh-repo-state'));
+
+    await waitFor(() => {
+      expect((client.listContextPacks as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(listCallsBefore);
+    });
+    expect((client.readTaskBoard as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(boardCallsBefore);
   });
 
   it('locks the planner when no active context pack is applied', async () => {

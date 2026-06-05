@@ -26,8 +26,7 @@ import type {
   TaskNotificationSnapshot,
   AgentConfigLoadCapabilitiesResponse,
 } from './desktopContract';
-import { isFiniteNumber, isNonEmptyString } from './desktopContractValidationCore';
-import { isRecord } from './desktopContractValidators';
+import { isFiniteNumber, isNonEmptyString, isRecord } from './desktopContractValidationCore';
 
 export function isContextPackCatalogChangedEvent(
   event: unknown,
@@ -221,16 +220,91 @@ function isTaskBoardPendingItem(value: unknown): boolean {
   return true;
 }
 
+function isTaskBoardItem(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  if (typeof value.fileName !== 'string' || !value.fileName) return false;
+  if (value.taskId !== null && typeof value.taskId !== 'string') return false;
+  if (value.title !== null && typeof value.title !== 'string') return false;
+  return true;
+}
+
+function assertUniqueTaskBoardIdentities(
+  dropboxItems: unknown[],
+  pendingItems: unknown[],
+  errorItems: unknown[],
+  completedItems: unknown[],
+): boolean {
+  const seenFileName = new Set<string>();
+  const seenTaskId = new Set<string>();
+
+  const checkItem = (item: unknown): boolean => {
+    if (!isRecord(item)) return true;
+    if (typeof item.fileName === 'string' && item.fileName) {
+      if (seenFileName.has(item.fileName)) return false;
+      seenFileName.add(item.fileName);
+    }
+    if (typeof item.taskId === 'string' && item.taskId) {
+      if (seenTaskId.has(item.taskId)) return false;
+      seenTaskId.add(item.taskId);
+    }
+    return true;
+  };
+
+  for (const items of [dropboxItems, pendingItems, errorItems]) {
+    for (const item of items) {
+      if (!checkItem(item)) return false;
+    }
+  }
+  // completedItems key by taskId only
+  for (const item of completedItems) {
+    if (!isRecord(item)) continue;
+    if (typeof item.taskId === 'string' && item.taskId) {
+      if (seenTaskId.has(item.taskId)) return false;
+      seenTaskId.add(item.taskId);
+    }
+  }
+  return true;
+}
+
+// Shape guard for completed board rows (ArchivedTaskEntry). Validates the required
+// fields the renderer relies on; optional child-chain / branch-handoff metadata is
+// left to the callers that consume it, per the contract's "do not over-tighten".
+function isArchivedTaskEntry(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  if (typeof value.taskId !== 'string' || !value.taskId) return false;
+  if (value.title !== null && typeof value.title !== 'string') return false;
+  if (typeof value.summary !== 'string') return false;
+  if (typeof value.rootTaskId !== 'string') return false;
+  if (typeof value.qmdRecordId !== 'string') return false;
+  if (typeof value.followupReason !== 'string') return false;
+  if (typeof value.year !== 'string') return false;
+  if (typeof value.archivePath !== 'string') return false;
+  if (value.archivedAt !== null && typeof value.archivedAt !== 'string') return false;
+  if (typeof value.contextPackName !== 'string') return false;
+  return true;
+}
+
 export function isTaskBoardReadBoardResponse(
   response: unknown,
 ): response is TaskBoardReadBoardResponse {
   if (!isRecord(response)) return false;
   if (response.action !== 'taskBoard.readBoard') return false;
+  if (typeof response.boardSnapshotSequence !== 'number' || !Number.isFinite(response.boardSnapshotSequence)) return false;
   if (!Array.isArray(response.dropboxItems)) return false;
   if (!Array.isArray(response.pendingItems)) return false;
   if (!Array.isArray(response.errorItems)) return false;
   if (!Array.isArray(response.completedItems)) return false;
-  return response.pendingItems.every(isTaskBoardPendingItem);
+  if (!response.dropboxItems.every(isTaskBoardItem)) return false;
+  if (!response.errorItems.every(isTaskBoardItem)) return false;
+  if (!response.pendingItems.every(isTaskBoardPendingItem)) return false;
+  if (!response.completedItems.every(isArchivedTaskEntry)) return false;
+  if (!assertUniqueTaskBoardIdentities(
+    response.dropboxItems as unknown[],
+    response.pendingItems as unknown[],
+    response.errorItems as unknown[],
+    response.completedItems as unknown[],
+  )) return false;
+  return true;
 }
 
 export function isTaskBoardKillTaskResponse(

@@ -13,6 +13,9 @@ const {
   brokerStartSession,
   info,
   getPlanningAgentAllowedRoots,
+  getPlanningAgentReasoningEffort,
+  getPlanningAgentRequiredModel,
+  resolveLilyPlannerLaunchExtensions,
   initializeStagedPlanningDraft,
   clearStagingArtifacts,
 } = vi.hoisted(() => ({
@@ -23,6 +26,17 @@ const {
   brokerStartSession: vi.fn(),
   info: vi.fn(),
   getPlanningAgentAllowedRoots: vi.fn(() => ['/repo/platform', '/repo/platform/AgentWorkSpace/templates']),
+  getPlanningAgentReasoningEffort: vi.fn(() => undefined),
+  getPlanningAgentRequiredModel: vi.fn(() => 'gpt-4.1'),
+  resolveLilyPlannerLaunchExtensions: vi.fn((args: { plannerSessionId: string }) => Promise.resolve({
+    plannerSessionId: args.plannerSessionId,
+    launchExtensions: undefined,
+    availabilityNote: undefined,
+    skillCount: 0,
+    pluginCount: 0,
+    extensionIds: [],
+    cleanup: vi.fn(),
+  })),
   initializeStagedPlanningDraft: vi.fn(),
   clearStagingArtifacts: vi.fn(),
 }));
@@ -31,8 +45,19 @@ vi.mock('electron', () => ({ BrowserWindow: { getAllWindows: vi.fn(() => []) } }
 vi.mock('./log/logger', () => ({
   createLogger: vi.fn(() => ({ info, warn: vi.fn(), error: vi.fn(), debug: vi.fn() })),
 }));
-vi.mock('./plannerCliProcess', () => ({ getPlanningAgentAllowedRoots }));
+vi.mock('./plannerCliProcess', () => ({
+  getPlanningAgentAllowedRoots,
+  getPlanningAgentReasoningEffort,
+  getPlanningAgentRequiredModel,
+}));
 vi.mock('./main.staging', () => ({ initializeStagedPlanningDraft, clearStagingArtifacts }));
+vi.mock('./plannerLaunchExtensions', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./plannerLaunchExtensions')>();
+  return {
+    ...actual,
+    resolveLilyPlannerLaunchExtensions,
+  };
+});
 vi.mock('./plannerParentBranchView', () => ({
   createPlannerParentBranchViewSession,
   cleanupPlannerParentBranchViewSession: vi.fn(),
@@ -41,6 +66,22 @@ vi.mock('./plannerSessionBroker', () => ({
   PlannerSessionBroker: class {
     isSessionActive = brokerIsSessionActive;
     startSession = brokerStartSession;
+    getObservability = vi.fn(() => ({
+      sessionId: null,
+      brokerStatus: 'idle',
+      activeTurnId: null,
+      queuedTurnCount: 0,
+      cliSessionId: null,
+      usage: null,
+      error: null,
+      contextPackDir: null,
+      contextPackRoots: null,
+      workingDirectory: null,
+      reasoningEffort: null,
+      launchedAt: null,
+      lastEventAt: null,
+      exitCode: null,
+    }));
     endSession = vi.fn();
     sendMessage = vi.fn();
   },
@@ -147,7 +188,7 @@ describe('planner launch allowed-root classification', () => {
     await startSession('/packs/orders');
 
     expect(info).toHaveBeenCalledWith('planner.session.launch.allowedRoots.classification', {
-      sessionId: undefined,
+      sessionId: expect.stringMatching(/^planner-2200-\d+-0$/),
       contextPackDir: '/packs/orders',
       rootCount: 3,
       parentBranchView: 'none',

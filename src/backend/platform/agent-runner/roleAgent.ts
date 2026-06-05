@@ -541,7 +541,7 @@ async function runRoleAgentInner(
     const overrideLaunchId = createRoleLaunchId();
     const overrideManifest = { ...agentRuntimePathManifest, ...(overrideLaunchPhase !== undefined ? { launchPhase: overrideLaunchPhase } : {}), includeRoleArtifactChecklist: false };
     const overridePromptResult = materializePrompt(overridePrompt, null, 'override', overrideManifest);
-    const overrideArgs = [...argsResult.args, '-p', overridePromptResult.effectivePrompt];
+    const overrideArgs = [...baseArgsWithMcp, '-p', overridePromptResult.effectivePrompt];
     const overridePromptAudit = buildPromptAudit({
       promptPath: null,
       promptSource: 'override',
@@ -714,6 +714,10 @@ async function runRoleAgentInner(
       launchLog.warn('external_mcp.config_path.missing');
     }
   }
+  // Capture the augmented base args (after MCP injection, before the -p prompt arg) so that
+  // follow-up sessions (denied-action continuation, cleanup/remediation, confinement retry)
+  // carry the same --additional-mcp-config args as the initial session.
+  const baseArgsWithMcp = [...cliArgs];
   const mcpLaunch = summarizeExternalMcpLaunchContext(externalMcpLaunchContext);
   const mcpEventType = mcpLaunch.status === 'degraded' || mcpLaunch.status === 'unavailable'
     ? 'mcp.degraded'
@@ -942,6 +946,7 @@ async function runRoleAgentInner(
         completionCheck: artifactCompletionCheck,
       }
       : undefined,
+    launchDir: externalMcpLaunchContext?.launchDir,
   });
   let runSummary = initialSession.runSummary;
   let exitCode = runSummary.exitCode;
@@ -1027,7 +1032,7 @@ async function runRoleAgentInner(
       await correctSessionReceipt(initialSession.sessionReceiptFile, options.agentId);
     } else {
       const continuationArgs = [
-        ...argsResult.args,
+        ...baseArgsWithMcp,
         '-p',
       ];
       const continuationPromptResult = materializePrompt(
@@ -1118,7 +1123,7 @@ async function runRoleAgentInner(
       buildRetryArgs: (prompt: string) => {
         const retryPromptResult = materializePrompt(prompt, null, 'override');
         const retryEffectivePrompt = retryPromptResult.effectivePrompt;
-        const cliArgs = [...argsResult.args, '-p', retryEffectivePrompt];
+        const cliArgs = [...baseArgsWithMcp, '-p', retryEffectivePrompt];
         const promptAudit = buildPromptAudit({
           promptPath: null,
           promptSource: 'override',

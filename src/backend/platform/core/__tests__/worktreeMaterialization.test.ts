@@ -501,8 +501,9 @@ describe('worktree materialization fast-copy observability', () => {
   });
 
   it('keeps effective strategy metadata log-only', async () => {
+    const debug = vi.fn();
     const info = vi.fn();
-    const child = vi.fn(() => ({ info }));
+    const child = vi.fn(() => ({ debug, info }));
     const copyTree = vi.fn().mockResolvedValue({
       selectedStrategy: 'copy',
       effectiveStrategy: 'native-copy',
@@ -530,10 +531,60 @@ describe('worktree materialization fast-copy observability', () => {
       expect(result).toEqual({ strategy: 'copy', cloned: ['deps'], skipped: [] });
       expect(result).not.toHaveProperty('effectiveStrategies');
       expect(result).not.toHaveProperty('fallbackReasons');
-      expect(info).toHaveBeenCalledWith(
+      expect(debug).toHaveBeenCalledWith(
         'worktree.materialization.copy.completed',
         expect.objectContaining({ effectiveStrategies: ['native-copy'] }),
       );
+      expect(info).not.toHaveBeenCalled();
+    } finally {
+      rmSync(tmpBase, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps slow clean copy completion elevated at info', async () => {
+    const debug = vi.fn();
+    const info = vi.fn();
+    const child = vi.fn(() => ({ debug, info }));
+    const copyTree = vi.fn().mockResolvedValue({
+      selectedStrategy: 'copy',
+      effectiveStrategy: 'native-copy',
+      reflinkAttempted: false,
+      reflinkUsed: false,
+      fallbackReason: null,
+      durationMs: 30_000,
+    });
+    Object.defineProperty(process, 'platform', { value: 'freebsd', configurable: true });
+    const tmpBase = mkdtempSync(path.join(tmpdir(), 'wt-slow-log-'));
+    const originalRoot = path.join(tmpBase, 'origin');
+    const worktreeRoot = path.join(tmpBase, 'worktree');
+    mkdirSync(path.join(originalRoot, 'deps'), { recursive: true });
+    mkdirSync(worktreeRoot, { recursive: true });
+
+    try {
+      await materializeWorktreeDeps(
+        originalRoot,
+        worktreeRoot,
+        ['deps'],
+        {},
+        {
+          copyTree,
+          logger: { child },
+          now: (() => {
+            const values = [0, 30_000];
+            return () => values.shift() ?? 30_000;
+          })(),
+        },
+      );
+
+      expect(info).toHaveBeenCalledWith(
+        'worktree.materialization.copy.completed',
+        expect.objectContaining({
+          fallback: false,
+          skippedCount: 0,
+          durationMs: 30_000,
+        }),
+      );
+      expect(debug).not.toHaveBeenCalled();
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }

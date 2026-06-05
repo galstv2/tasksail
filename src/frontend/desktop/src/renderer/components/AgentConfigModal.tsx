@@ -328,6 +328,8 @@ function AgentConfigModal(props: AgentConfigModalProps): JSX.Element | null {
     onSelectTab,
     onAgentModelChange,
     onAgentEffortChange,
+    onAgentWallClockTimeoutChange,
+    onAgentIdleTimeoutChange,
     onConfirmModelChange,
     onCancelModelChange,
     onNewModelDisplayNameChange,
@@ -494,6 +496,37 @@ function AgentConfigModal(props: AgentConfigModalProps): JSX.Element | null {
                         ))}
                       </select>
                     </label>
+                    <label className="agent-config__field">
+                      <span className="agent-config__sr-only">{agent.human_name} wall clock timeout in seconds</span>
+                      <span className="mcp-form__label" aria-hidden="true">Wall clock timeout (s)</span>
+                      <input
+                        type="number"
+                        className="mcp-form__input"
+                        min="1"
+                        max="86400"
+                        step="1"
+                        value={agent.selected_wall_clock_timeout_s ?? ''}
+                        onChange={(event) => onAgentWallClockTimeoutChange(agent.agent_id, event.target.value)}
+                        aria-label={`${agent.human_name} wall clock timeout (s)`}
+                      />
+                    </label>
+                    {descriptor?.plannerAgentId === agent.agent_id && (
+                      <label className="agent-config__field">
+                        <span className="agent-config__sr-only">{agent.human_name} idle timeout in seconds</span>
+                        <span className="mcp-form__label" aria-hidden="true">Idle timeout (s)</span>
+                        <input
+                          type="number"
+                          className="mcp-form__input"
+                          min="1"
+                          max="86400"
+                          step="1"
+                          value={agent.selected_idle_timeout_s ?? ''}
+                          onChange={(event) => onAgentIdleTimeoutChange(agent.agent_id, event.target.value)}
+                          aria-label={`${agent.human_name} idle timeout (s)`}
+                          title="Controls TaskSail's platform-level idle kill deadline in seconds."
+                        />
+                      </label>
+                    )}
                     {agent.currentModelMissing && (
                       <div className="agent-config__warning" role="status">
                         Current assignment "{agent.current_model}" is missing from the catalog.

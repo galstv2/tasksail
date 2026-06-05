@@ -13,7 +13,9 @@ Category values (from ALLOWED_REPO_CATEGORIES):
 """
 from __future__ import annotations
 
+import fnmatch
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -81,11 +83,47 @@ def _glob_any(root: Path, pattern: str) -> bool:
         return False
 
 
-def _rglob_any(root: Path, pattern: str) -> bool:
-    try:
-        return any(True for _ in root.rglob(pattern))
-    except OSError:
-        return False
+# Heavy directories that never hold project changelog files; descending into
+# them is what makes an unbounded recursive scan pathological on large repos.
+_RGLOB_SKIP_DIRS = frozenset(
+    {
+        "node_modules", ".git", ".hg", ".svn", ".venv", "venv",
+        "__pycache__", "dist", "build", "target", ".next", ".cache",
+        "vendor",
+    }
+)
+
+
+def _rglob_any(root: Path, pattern: str, *, scan_limit: int = 5000) -> bool:
+    """Bounded recursive filename match.
+
+    Unlike ``Path.rglob`` this skips heavy build/dependency directories and
+    stops after ``scan_limit`` entries, so a pattern with no match cannot
+    trigger a full-tree walk on a large repository.
+    """
+    examined = 0
+    stack = [root]
+    while stack:
+        try:
+            entries = list(os.scandir(stack.pop()))
+        except OSError:
+            continue
+        for entry in entries:
+            examined += 1
+            if examined > scan_limit:
+                return False
+            try:
+                if entry.is_dir(follow_symlinks=False):
+                    if (
+                        entry.name not in _RGLOB_SKIP_DIRS
+                        and not entry.name.startswith(".")
+                    ):
+                        stack.append(Path(entry.path))
+                elif fnmatch.fnmatch(entry.name, pattern):
+                    return True
+            except OSError:
+                continue
+    return False
 
 
 def _read_text_safe(path: Path, max_bytes: int = 4096) -> str:

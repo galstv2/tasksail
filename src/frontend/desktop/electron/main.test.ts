@@ -632,16 +632,51 @@ describe('electron main bootstrap', () => {
     registerAppLifecycle();
 
     const beforeQuitHandler = appMock.on.mock.calls.find(([event]) => event === 'before-quit')?.[1] as
-      | (() => void)
+      | ((event: { preventDefault: () => void }) => void)
       | undefined;
     expect(beforeQuitHandler).toBeTypeOf('function');
 
-    beforeQuitHandler?.();
+    const preventDefault = vi.fn();
+    beforeQuitHandler?.({ preventDefault });
     await vi.waitFor(() => {
       expect(endSession).toHaveBeenCalledOnce();
     });
+    // Quit is deferred (preventDefault) until staging cleanup completes, then dispatched.
+    expect(preventDefault).toHaveBeenCalledOnce();
+    await vi.waitFor(() => {
+      expect(appMock.quit).toHaveBeenCalled();
+    });
     expect(cleanupWorkspaceOnQuitMock).toHaveBeenCalledOnce();
     expect(stopBackendServicesDetachedMock).toHaveBeenCalledWith(expect.any(String));
+  });
+
+  it('still dispatches the quit when planner-session cleanup fails during before-quit', async () => {
+    vi.resetModules();
+    const endSession = vi.fn(async () => {
+      throw new Error('cleanup boom');
+    });
+    vi.doMock('./plannerSession', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./plannerSession')>();
+      return {
+        ...actual,
+        endSession,
+      };
+    });
+
+    const { registerAppLifecycle } = await import('./main');
+    registerAppLifecycle();
+
+    const beforeQuitHandler = appMock.on.mock.calls.find(([event]) => event === 'before-quit')?.[1] as
+      | ((event: { preventDefault: () => void }) => void)
+      | undefined;
+    expect(beforeQuitHandler).toBeTypeOf('function');
+
+    beforeQuitHandler?.({ preventDefault: vi.fn() });
+    // A rejected cleanup must not block shutdown — the quit is still dispatched.
+    await vi.waitFor(() => {
+      expect(appMock.quit).toHaveBeenCalled();
+    });
+    expect(endSession).toHaveBeenCalledOnce();
   });
 
   it('handles dev graceful restart without full workspace cleanup', async () => {

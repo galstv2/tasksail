@@ -362,7 +362,10 @@ async function readImplementationStepFiles(
 ): Promise<ArchivedTaskParentContextFile[]> {
   const entries = await safeReadDir(implementationStepsDir);
   const files: ArchivedTaskParentContextFile[] = [];
-  for (const entry of entries.filter((item) => item.isFile() && item.name.endsWith('.md')).sort((a, b) => a.name.localeCompare(b.name))) {
+  const stepEntries = entries
+    .filter((item) => item.isFile() && isReadableImplementationStepArtifact(item.name))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  for (const entry of stepEntries) {
     const contextFile = await buildParentContextFile(
       'implementation-step',
       archiveArtifactDir,
@@ -371,6 +374,10 @@ async function readImplementationStepFiles(
     if (contextFile) files.push(contextFile);
   }
   return files;
+}
+
+function isReadableImplementationStepArtifact(fileName: string): boolean {
+  return fileName.endsWith('.md') || fileName.endsWith('.xml');
 }
 
 async function safeReadDir(dirPath: string): Promise<Dirent[]> {
@@ -394,6 +401,7 @@ async function buildParentContextFile(
     path: filePath,
     relativePath: relative(archiveArtifactDir, filePath).split('\\').join('/'),
     sizeBytes: meta.size,
+    contentType: filePath.endsWith('.xml') ? 'xml' : 'markdown',
   };
 }
 

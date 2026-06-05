@@ -310,6 +310,15 @@ def main(argv: list[str] | None = None) -> int:
                 # completes. Rehydrate staging so --resume can finish the same
                 # archive instead of stranding the operator.
                 write_json_via_backend(staged_archive_path, load_json(record_path))
+            if not staged_archive_path.exists():
+                # Without this guard load_json would raise FileNotFoundError,
+                # which the outer handler (except ValueError) does not catch,
+                # producing a raw traceback instead of a structured error.
+                raise ValueError(
+                    "Cannot resume task archival: staged archive.json is "
+                    "missing and no canonical record exists to rehydrate it "
+                    f"({staged_archive_path}). Re-run without --resume."
+                )
             payload = load_json(staged_archive_path)
             if "handoff_artifacts" not in manifest and "task_summary_md" in manifest:
                 manifest.pop("task_summary_md", None)
@@ -435,8 +444,6 @@ def main(argv: list[str] | None = None) -> int:
                     payload,
                     parent_record_path=parent_record_path,
                 )
-
-            _step("archive_indexes", _write_archive_indexes)
 
             def _write_handoff_artifacts() -> None:
                 nonlocal payload
@@ -575,8 +582,11 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 counter_state = counter.increment(payload["task_id"])
                 retrospective_completed = (
-                    counter_state["completed_count"] == 0
-                    and counter_state["cycle_count"] > 0
+                    (
+                        counter_state["completed_count"] == 0
+                        and counter_state["cycle_count"] > 0
+                    )
+                    or counter_state.get("last_retrospective_task_id") == payload["task_id"]
                 )
 
             _step("completion_counter", _write_completion_counter)
@@ -644,18 +654,29 @@ def main(argv: list[str] | None = None) -> int:
         )
         staged_md = staging_dir / "archive.md"
         if staged_md.exists():
-            shutil.copy2(str(staged_md), str(record_md_path))
+            # Atomic promotion (temp + fsync + replace) so a crash mid-write
+            # cannot leave a truncated canonical archive.md, matching the
+            # os.replace used for archive.json above.
+            write_text_via_backend(
+                record_md_path, staged_md.read_text(encoding="utf-8")
+            )
         staged_terminal_events = staging_dir / "terminal-events.json"
         if staged_terminal_events.exists():
-            shutil.copy2(
-                str(staged_terminal_events),
-                str(task_archive_terminal_events_path(
+            write_text_via_backend(
+                task_archive_terminal_events_path(
                     context_pack_dir,
                     qmd_scope,
                     payload["indexed_at"][:4],
                     payload["task_id"],
-                )),
+                ),
+                staged_terminal_events.read_text(encoding="utf-8"),
             )
+        # Build the QMD task index after canonical promotion (os.replace above
+        # moved archive.json to its canonical path) so the scanner finds the
+        # record at the canonical path.  staging_dir still exists at this point
+        # so the _step manifest write is valid; rmtree follows below.
+        _step("archive_indexes", _write_archive_indexes)
+
         _promote_handoff_artifacts(staging_dir, record_path.parent)
         shutil.rmtree(staging_dir, ignore_errors=True)
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { ReinforcementTaskEntry } from '../../shared/desktopContract';
 import type { DesktopShellClient } from '../services/desktopShellClient';
@@ -15,7 +15,7 @@ export type UseReinforcementTasksResult = {
 };
 
 export function useReinforcementTasks(
-  hasActiveContextPack: boolean,
+  activeContextPackDir: string | null,
   client: DesktopShellClient = desktopShellClient,
 ): UseReinforcementTasksResult {
   const [tasks, setTasks] = useState<ReinforcementTaskEntry[]>([]);
@@ -23,18 +23,22 @@ export function useReinforcementTasks(
   const [selectedYear, setSelectedYear] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const requestGenerationRef = useRef(0);
 
   const load = useCallback(
     async (year?: string) => {
-      if (!hasActiveContextPack) {
+      if (!activeContextPackDir) {
         setTasks([]);
         setAvailableYears([]);
+        setError(null);
         return;
       }
+      const generation = ++requestGenerationRef.current;
       setLoading(true);
       setError(null);
       try {
         const result = await client.listReinforcementTasks(year);
+        if (generation !== requestGenerationRef.current) return;
         if (result.ok && result.response.action === 'reinforcement.listTasks') {
           setTasks(result.response.tasks);
           setAvailableYears(result.response.availableYears);
@@ -42,21 +46,32 @@ export function useReinforcementTasks(
           setError(result.error);
         }
       } catch (err: unknown) {
+        if (generation !== requestGenerationRef.current) return;
         setError(err instanceof Error ? err.message : 'Failed to load tasks.');
       } finally {
-        setLoading(false);
+        if (generation === requestGenerationRef.current) {
+          setLoading(false);
+        }
       }
     },
-    [hasActiveContextPack, client],
+    [activeContextPackDir, client],
   );
 
+  // Reset on pack change
   useEffect(() => {
-    load(selectedYear ?? undefined).catch(() => {});
-  }, [load, selectedYear]);
+    setTasks([]);
+    setAvailableYears([]);
+    setSelectedYear(null);
+    setError(null);
+    requestGenerationRef.current += 1;
+    load(undefined).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeContextPackDir]);
 
   const onSelectYear = useCallback((year: string | null) => {
     setSelectedYear(year);
-  }, []);
+    load(year ?? undefined).catch(() => {});
+  }, [load]);
 
   const reload = useCallback(() => {
     load(selectedYear ?? undefined).catch(() => {});

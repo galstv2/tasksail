@@ -48,6 +48,7 @@ export function parseWorktreePorcelainBlocks(porcelain: string): string[][] {
     .filter((lines) => lines.length > 0);
 }
 const log = createLogger('platform/core/worktreeMaterialization');
+const SLOW_COPY_LOG_THRESHOLD_MS = 30_000;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -441,7 +442,7 @@ export async function materializeWorktreeDeps(
   );
   const reflinkAttempted = strategy === 'apfs-clonefile' || strategy === 'reflink' || strategy === 'win-refs';
   const reflinkUsed = outcomes.some((outcome) => outcome.reflinkUsed);
-  logger.child({ taskId: logContext.taskId }).info('worktree.materialization.copy.completed', {
+  const logPayload = {
     repoLabel: logContext.repoLabel,
     originalRoot: originalRepo,
     worktreeRoot,
@@ -454,7 +455,16 @@ export async function materializeWorktreeDeps(
     clonedCount: cloned.length,
     skippedCount: skipped.length,
     durationMs,
-  });
+  };
+  const copyLog = logger.child({ taskId: logContext.taskId });
+  const cleanFastCopy = !logPayload.fallback &&
+    logPayload.skippedCount === 0 &&
+    logPayload.durationMs < SLOW_COPY_LOG_THRESHOLD_MS;
+  if (cleanFastCopy) {
+    copyLog.debug('worktree.materialization.copy.completed', logPayload);
+  } else {
+    copyLog.info('worktree.materialization.copy.completed', logPayload);
+  }
 
   return { strategy, cloned, skipped };
 }

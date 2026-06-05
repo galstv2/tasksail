@@ -9,6 +9,7 @@ import {
   resolveAgentExtensionStageRoot,
   resolveAgentExtensionStageDir,
 } from '../index.js';
+import { flushLoggers } from '../../core/logger.js';
 import type { AgentExtensionAgentId } from '../types.js';
 
 const NOW = '2026-03-03T00:00:00.000Z';
@@ -22,9 +23,18 @@ const ALL_AGENTS: AgentExtensionAgentId[] = [
 ];
 
 let repo: string;
+let logDir: string;
+let previousLogDir: string | undefined;
+let previousLogLevel: string | undefined;
 
 beforeEach(() => {
   repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ext-stage-recover-'));
+  logDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ext-stage-recover-logs-'));
+  previousLogDir = process.env.LOG_DIR;
+  previousLogLevel = process.env.LOG_LEVEL;
+  process.env.LOG_DIR = logDir;
+  process.env.LOG_LEVEL = 'debug';
+  flushLoggers();
   fs.mkdirSync(path.join(repo, '.platform-state'), { recursive: true });
   fs.mkdirSync(path.join(repo, 'config'), { recursive: true });
   writeProviderRegistry();
@@ -51,7 +61,13 @@ function writeProviderRegistry(): void {
 }
 
 afterEach(() => {
+  flushLoggers();
   fs.rmSync(repo, { recursive: true, force: true });
+  fs.rmSync(logDir, { recursive: true, force: true });
+  if (previousLogDir === undefined) delete process.env.LOG_DIR;
+  else process.env.LOG_DIR = previousLogDir;
+  if (previousLogLevel === undefined) delete process.env.LOG_LEVEL;
+  else process.env.LOG_LEVEL = previousLogLevel;
 });
 
 function delay(ms: number): Promise<void> {
@@ -70,6 +86,17 @@ describe('recoverAgentExtensionStagesOnStartup', () => {
   it('returns zero counts when the stage root does not exist', async () => {
     const result = await recoverAgentExtensionStagesOnStartup(repo);
     expect(result).toEqual({ removedStageCount: 0, skippedEntryCount: 0 });
+    expect(readLogRecords()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        level: 'debug',
+        msg: '[agent-extensions] stage.recovery.completed',
+        extra: {
+          event: 'agent_extensions.stage.recovery.completed',
+          removedStageCount: 0,
+          skippedEntryCount: 0,
+        },
+      }),
+    ]));
   });
 
   it('removes created, creating, manifestless, and partially copied stage directories', async () => {
@@ -92,6 +119,17 @@ describe('recoverAgentExtensionStagesOnStartup', () => {
     expect(result.removedStageCount).toBe(4);
     expect(result.skippedEntryCount).toBe(0);
     expect(fs.readdirSync(root)).toHaveLength(0);
+    expect(readLogRecords()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        level: 'info',
+        msg: '[agent-extensions] stage.recovery.completed',
+        extra: expect.objectContaining({
+          event: 'agent_extensions.stage.recovery.completed',
+          removedStageCount: 4,
+          skippedEntryCount: 0,
+        }),
+      }),
+    ]));
   });
 
   it('skips non-directory entries and reports skippedEntryCount, never following symlinks', async () => {
@@ -113,6 +151,17 @@ describe('recoverAgentExtensionStagesOnStartup', () => {
     expect(fs.existsSync(path.join(root, 'a-dir'))).toBe(false);
     expect(fs.existsSync(path.join(root, 'loose-file.txt'))).toBe(true);
     expect(fs.existsSync(path.join(externalDir, 'keep.txt'))).toBe(true); // target untouched
+    expect(readLogRecords()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        level: 'info',
+        msg: '[agent-extensions] stage.recovery.completed',
+        extra: expect.objectContaining({
+          event: 'agent_extensions.stage.recovery.completed',
+          removedStageCount: 1,
+          skippedEntryCount: 2,
+        }),
+      }),
+    ]));
 
     fs.rmSync(externalDir, { recursive: true, force: true });
   });
@@ -181,3 +230,24 @@ describe('recoverAgentExtensionStagesOnStartup', () => {
     expect(fs.existsSync(stageDir)).toBe(false);
   }, 20000);
 });
+
+function readLogRecords(): Array<Record<string, unknown>> {
+  const records: Array<Record<string, unknown>> = [];
+  const visit = (dir: string): void => {
+    if (!fs.existsSync(dir)) return;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const entryPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        visit(entryPath);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      records.push(...fs.readFileSync(entryPath, 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as Record<string, unknown>));
+    }
+  };
+  visit(logDir);
+  return records;
+}

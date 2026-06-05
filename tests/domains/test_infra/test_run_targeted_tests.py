@@ -250,7 +250,6 @@ class RunTargetedTestsTests(unittest.TestCase):
         )
 
         forbidden_prefixes = (
-            "tests.domains.e2e.",
             "tests.domains.queue.test_queue_runtime_",
         )
         forbidden_modules = {

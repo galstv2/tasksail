@@ -228,7 +228,7 @@
   margin: 0;
   max-height: 20rem;
   box-shadow:
-    0 12px 30px -10px rgba(0, 0, 0, 0.5),
+    0 12px 30px -10px color-mix(in srgb, var(--ts-surface-terminal) 50%, transparent),
     0 0 0 1px var(--df-border-hairline, var(--ts-border));
 }
 

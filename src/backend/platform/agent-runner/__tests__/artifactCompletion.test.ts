@@ -602,17 +602,27 @@ describe('artifactCompletion', () => {
     expect(prompt).toBe('');
   });
 
-  it('detects active complex authorization from the Decision section only', async () => {
+  it('detects active complex authorization only on an exact Decision value (SEC-TS-03)', async () => {
+    // The bare enum 'Complex' unlocks fleet execution.
+    writeFileSync(
+      path.join(handoffsDir, 'parallel-ok.md'),
+      '# Parallel OK\n\n## Decision\n\nComplex\n',
+      'utf-8',
+    );
+    await expect(detectParallelOk(handoffsDir)).resolves.toBe(true);
+
+    // SEC-TS-03: agent-authored prose that merely CONTAINS 'complex' must NOT
+    // unlock fleet execution (the old substring match did).
     writeFileSync(
       path.join(handoffsDir, 'parallel-ok.md'),
       '# Parallel OK\n\n## Decision\n\nComplex execution authorized.\n',
       'utf-8',
     );
-    await expect(detectParallelOk(handoffsDir)).resolves.toBe(true);
+    await expect(detectParallelOk(handoffsDir)).resolves.toBe(false);
 
     writeFileSync(
       path.join(handoffsDir, 'parallel-ok.md'),
-      '# Parallel OK\n\n## Decision\n\nSimple execution required.\n',
+      '# Parallel OK\n\n## Decision\n\nSimple\n',
       'utf-8',
     );
     await expect(detectParallelOk(handoffsDir)).resolves.toBe(false);

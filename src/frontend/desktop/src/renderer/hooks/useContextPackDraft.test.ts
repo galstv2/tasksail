@@ -85,9 +85,13 @@ describe('pure helpers', () => {
   });
 
   describe('generateContextPackId', () => {
-    it('returns a stable four-digit suffix for the same display name', () => {
+    it('returns a clean slug with no numeric suffix and is deterministic', () => {
+      expect(generateContextPackId('Orders Estate')).toBe('orders-estate');
       expect(generateContextPackId('Orders Estate')).toBe(generateContextPackId('Orders Estate'));
-      expect(generateContextPackId('Orders Estate')).toMatch(/^orders-estate-\d{4}$/);
+    });
+
+    it('falls back to context-pack for empty/whitespace input', () => {
+      expect(generateContextPackId('   ')).toBe('context-pack');
     });
   });
 

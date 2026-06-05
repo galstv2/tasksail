@@ -1,0 +1,22 @@
+
+# Node.js dependencies
+node_modules/
+
+# Build output
+dist/
+dist-cjs/
+dist-esm/
+dist-types/
+build/
+out/
+lib/
+
+# TypeScript compiler output
+*.tsbuildinfo
+
+# Test coverage
+coverage/
+
+# Temporary runtime artifacts
+tmp/
+temp/

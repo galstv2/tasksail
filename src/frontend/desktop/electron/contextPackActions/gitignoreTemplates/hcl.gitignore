@@ -1,0 +1,22 @@
+
+# Terraform local state and plan files
+.terraform/
+terraform.tfstate
+terraform.tfstate.*
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+*.tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# OpenTofu state files (same layout as Terraform)
+.terraform.lock.hcl.bak
+
+# Terragrunt cache
+.terragrunt-cache/

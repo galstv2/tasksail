@@ -23,6 +23,7 @@ def _empty_state(context_pack_id: str) -> dict[str, Any]:
         "last_archived_task_id": "",
         "last_archived_at": "",
         "last_retrospective_at": "",
+        "last_retrospective_task_id": "",
         "cycle_task_ids": [],
     }
 
@@ -74,11 +75,10 @@ class TaskCompletionCounter:
     def increment(self, task_id: str) -> dict[str, Any]:
         """Atomically increment the counter and reset at cycle boundary.
 
-        Cycle-wrap guard: if ``completed_count`` is already 0 and
-        ``task_id`` matches ``last_archived_task_id`` the task is being
-        re-archived after a prior cycle wrap that already captured it.
-        In that case the write is skipped to prevent a spurious second
-        wrap (and a double retrospective trigger) on retry.
+        Idempotency guard: if ``task_id`` was already counted in the
+        current cycle window, the write is skipped. This prevents a
+        retrospective winner that was claimed before Ron launched from being
+        counted again if another task closes out before the winner archives.
         """
         import json
 
@@ -89,18 +89,18 @@ class TaskCompletionCounter:
             state = self.read()
             completed_count = int(state.get("completed_count", 0))
             last_archived_task_id = str(state.get("last_archived_task_id", ""))
+            cycle_task_ids = [
+                item for item in list(state.get("cycle_task_ids") or [])
+                if isinstance(item, str)
+            ]
 
-            # Cycle-wrap guard: a previous increment for this task_id already
-            # wrapped the cycle (completed_count reset to 0).  Re-incrementing
-            # would incorrectly advance the counter a second time.
-            if completed_count == 0 and task_id == last_archived_task_id:
+            if task_id == last_archived_task_id or task_id in cycle_task_ids:
                 return state
 
             state["completed_count"] = completed_count + 1
             state["last_archived_task_id"] = task_id
             state["last_archived_at"] = current_utc_timestamp()
 
-            cycle_task_ids = list(state.get("cycle_task_ids") or [])
             cycle_task_ids.append(task_id)
             if len(cycle_task_ids) > self.CYCLE_LENGTH:
                 cycle_task_ids = cycle_task_ids[-self.CYCLE_LENGTH :]
@@ -110,6 +110,7 @@ class TaskCompletionCounter:
                 state["completed_count"] = 0
                 state["cycle_count"] = int(state.get("cycle_count", 0)) + 1
                 state["last_retrospective_at"] = current_utc_timestamp()
+                state["last_retrospective_task_id"] = task_id
 
             state["schema_version"] = SCHEMA_VERSION
             state["context_pack_id"] = self._context_pack_id

@@ -29,13 +29,18 @@ describe('agent sprites', () => {
     ['LilySprite', LilySprite, 'L'],
     ['AliceSprite', AliceSprite, 'A'],
     ['DaltonSprite', DaltonSprite, 'D'],
-    ['DaltonVerifySprite', DaltonVerifySprite, 'DV'],
     ['RonSprite', RonSprite, 'R'],
   ])('%s renders its capital identity letter', (_name, Sprite, letter) => {
     const { container } = render(<Sprite size={36} />);
     const letters = Array.from(container.querySelectorAll('text')).map((node) => node.textContent);
     expect(letters.length).toBeGreaterThan(0);
     expect(letters.every((value) => value === letter)).toBe(true);
+  });
+
+  it('DaltonVerifySprite renders overlapping D and V glyphs with D in the foreground', () => {
+    const { container } = render(<DaltonVerifySprite size={36} />);
+    const letters = Array.from(container.querySelectorAll('text')).map((node) => node.textContent);
+    expect(letters).toEqual(['V', 'D', 'V', 'D']);
   });
 
   it('roleKindSpriteMap covers all role kinds', () => {

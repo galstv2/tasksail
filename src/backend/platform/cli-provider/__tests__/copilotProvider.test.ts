@@ -420,6 +420,20 @@ describe('copilotProvider', () => {
     });
   });
 
+  it('SEC-TS-02: writes mcp-config.json + launch dir with owner-only permissions', () => {
+    if (process.platform === 'win32') return; // POSIX mode bits only
+    const launchDir = path.join(repoRoot, 'launch-perms');
+    const configPath = copilotProvider.renderMcpConfig(launchDir, [{
+      id: 'repo-context',
+      transport: 'sse',
+      url: 'http://localhost:8811/sse',
+      headers: { Authorization: 'Bearer secret-token' },
+    }]);
+    // Resolved Bearer token in the config must not be group/world readable.
+    expect(fs.statSync(configPath).mode & 0o777).toBe(0o600);
+    expect(fs.statSync(launchDir).mode & 0o777).toBe(0o700);
+  });
+
   it('renders local, url-with-tools, and url-without-tools MCP entries with correct shapes', () => {
     const configPath = copilotProvider.renderMcpConfig(path.join(repoRoot, 'launch-mixed'), [
       {

@@ -22,7 +22,7 @@ import type {
 } from '../src/shared/desktopContract';
 import type { TaskRegistry } from '../../../backend/platform/queue/taskRegistry.js';
 
-const emitStreamEvent = vi.fn();
+const emitStreamEvent = vi.fn(() => ({ emitAccepted: true }));
 const refreshStreamTaskMetadataForScope = vi.fn(async () => undefined);
 
 vi.mock('./main.stream', () => ({
@@ -142,6 +142,7 @@ function makeGuardrail(
 describe('main.runtimeStream', () => {
   beforeEach(() => {
     emitStreamEvent.mockReset();
+    emitStreamEvent.mockReturnValue({ emitAccepted: true });
     refreshStreamTaskMetadataForScope.mockClear();
     loadTaskRegistry.mockImplementation(async () => makeDefaultTaskRegistry());
     vi.useFakeTimers();
@@ -1197,101 +1198,24 @@ describe('main.runtimeStream', () => {
           return JSON.stringify({ phase: 'test-capture-skipped' });
         }
         if (path.endsWith('.platform-state/runtime/tasks/TASK-D/terminal-events.json')) {
-          return JSON.stringify({
-            events: [
-              {
-                eventId: 'archive.started',
-                source: 'runtime.pipeline',
-                role: 'pipeline',
-                severity: 'info',
-                message: 'Archiving task.',
-              },
-              {
-                eventId: 'archive.started',
-                source: 'runtime.pipeline',
-                role: 'pipeline',
-                severity: 'info',
-                message: 'Archiving task.',
-              },
-              {
-                eventId: 'archive.completed',
-                source: 'runtime.pipeline',
-                role: 'pipeline',
-                severity: 'success',
-                message: 'Task archived.',
-              },
-              {
-                eventId: 'archive.failed',
-                source: 'runtime.pipeline',
-                role: 'pipeline',
-                severity: 'error',
-                message: 'Task archival failed.',
-              },
-              {
-                eventId: 'queue.branch.created:api:task/TASK-D:/tmp/worktrees/api',
-                source: 'runtime.branch',
-                role: 'pipeline',
-                severity: 'info',
-                message: 'Created worktree for api on branch task/TASK-D.',
-              },
-              {
-                eventId: 'runtime.guardrail:legacy',
-                source: 'runtime.guardrail',
-                role: 'pipeline',
-                severity: 'info',
-                message: 'Guardrail receipt recorded an allowed launch.',
-              },
-            ],
-          });
+          return JSON.stringify({ events: [
+            { eventId: 'archive.started', source: 'runtime.pipeline', role: 'pipeline', severity: 'info', message: 'Archiving task.' },
+            { eventId: 'archive.started', source: 'runtime.pipeline', role: 'pipeline', severity: 'info', message: 'Archiving task.' },
+            { eventId: 'archive.completed', source: 'runtime.pipeline', role: 'pipeline', severity: 'success', message: 'Task archived.' },
+            { eventId: 'archive.failed', source: 'runtime.pipeline', role: 'pipeline', severity: 'error', message: 'Task archival failed.' },
+            { eventId: 'queue.branch.created:api:task/TASK-D:/tmp/worktrees/api', source: 'runtime.branch', role: 'pipeline', severity: 'info', message: 'Created worktree for api on branch task/TASK-D.' },
+            { eventId: 'runtime.guardrail:legacy', source: 'runtime.guardrail', role: 'pipeline', severity: 'info', message: 'Guardrail receipt recorded an allowed launch.' },
+          ] });
         }
         if (path.endsWith('.platform-state/runtime/tasks/TASK-E/terminal-events.json')) {
-          return JSON.stringify({
-            events: [
-              {
-                eventId: 'auto_merge.applied',
-                source: 'runtime.closeout',
-                role: 'pipeline',
-                severity: 'success',
-                visible: false,
-                message: 'Auto-merge applied api:task/TASK-G->main.',
-              },
-              {
-                eventId: 'closeout.target_branch_update:api:task/TASK-G:applied:main',
-                source: 'runtime.closeout',
-                role: 'pipeline',
-                severity: 'success',
-                message: 'Code changes from task branch task/TASK-G were successfully staged on target branch main in target repo api at /repos/api.',
-              },
-              {
-                eventId: 'queue.error_items.moved',
-                source: 'runtime.queue',
-                role: 'queue',
-                severity: 'error',
-                message: 'Moved to error-items: task-failed.',
-              },
-              {
-                eventId: 'closeout.stranded.resumed',
-                source: 'runtime.closeout',
-                role: 'pipeline',
-                severity: 'warning',
-                message: 'Resumed stranded closeout.',
-              },
-              {
-                eventId: 'closeout_remediation.launching',
-                source: 'runtime.pipeline',
-                role: 'pipeline',
-                severity: 'warning',
-                message: 'Closeout remediation launching.',
-              },
-              {
-                eventId: 'closeout.finalized',
-                source: 'runtime.closeout',
-                role: 'pipeline',
-                severity: 'success',
-                message: 'Closeout finalized.',
-              },
-            ],
-          });
+          return JSON.stringify({ events: [
+            { eventId: 'auto_merge.applied', source: 'runtime.closeout', role: 'pipeline', severity: 'success', visible: false, message: 'Auto-merge applied api:task/TASK-G->main.' },
+            { eventId: 'closeout.target_branch_update:api:task/TASK-G:applied:main', source: 'runtime.closeout', role: 'pipeline', severity: 'success', message: 'Code changes from task branch task/TASK-G were successfully staged on target branch main in target repo api at /repos/api.' },
+            { eventId: 'queue.error_items.moved', source: 'runtime.queue', role: 'queue', severity: 'error', message: 'Moved to error-items: task-failed.' },
+            { eventId: 'closeout.stranded.resumed', source: 'runtime.closeout', role: 'pipeline', severity: 'warning', message: 'Resumed stranded closeout.' },
+            { eventId: 'closeout_remediation.launching', source: 'runtime.pipeline', role: 'pipeline', severity: 'warning', message: 'Closeout remediation launching.' },
+            { eventId: 'closeout.finalized', source: 'runtime.closeout', role: 'pipeline', severity: 'success', message: 'Closeout finalized.' },
+          ] });
         }
         if (path.endsWith('terminal-events.json')) {
           throw Object.assign(new Error(`Missing transcript: ${path}`), { code: 'ENOENT' });
@@ -1474,12 +1398,36 @@ describe('main.runtimeStream', () => {
 
     stop();
   });
+
+  it('realignment stream events carry realignmentId from the job observation', async () => {
+    const { diffRuntimeStreamEvents } = await import('./main.runtimeStream');
+    const empty = { agentTerminalSessions: [], guardrails: [], realignmentJobs: [] };
+
+    // Single job: realignmentId propagates from the observation.
+    const single = diffRuntimeStreamEvents(empty, {
+      ...empty,
+      realignmentJobs: [{ jobId: 'realignment:RA-99', realignmentId: 'RA-99', status: 'archived' }],
+    });
+    expect(single).toHaveLength(1);
+    expect(single[0]).toMatchObject({ source: 'runtime.realignment', realignmentId: 'RA-99', message: 'Realignment analysis archived.' });
+
+    // Multiple jobs: each carries its own realignmentId independently.
+    const multi = diffRuntimeStreamEvents(empty, {
+      ...empty,
+      realignmentJobs: [
+        { jobId: 'realignment:RA-1', realignmentId: 'RA-1', status: 'archived' },
+        { jobId: 'realignment:RA-2', realignmentId: 'RA-2', status: 'error' },
+      ],
+    });
+    expect(multi).toHaveLength(2);
+    expect(multi.find((e) => e.realignmentId === 'RA-1')).toMatchObject({ realignmentId: 'RA-1' });
+    expect(multi.find((e) => e.realignmentId === 'RA-2')).toMatchObject({ realignmentId: 'RA-2' });
+  });
 });
 
 function countEmitted(message: string, taskId: string): number {
-  return emitStreamEvent.mock.calls.filter(([event]) => (
-    event.message === message && event.taskId === taskId
-  )).length;
+  const calls = emitStreamEvent.mock.calls as unknown as Array<[{ message: string; taskId?: string }]>;
+  return calls.filter((c) => c[0].message === message && c[0].taskId === taskId).length;
 }
 
 function readTranscriptEvents(

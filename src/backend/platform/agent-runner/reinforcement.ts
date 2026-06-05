@@ -158,6 +158,11 @@ export async function resolveReinforcementContext(
       ],
       {
         cwd: repoRoot,
+        // SEC-TS-06: bound the pre-launch render so a hung helper (e.g. blocked
+        // on a corrupt/locked QMD file written by a prior run) cannot stall the
+        // agent pipeline indefinitely. Matches reinforcementWrite.ts. The catch
+        // below degrades to an 'unavailable' status rather than crashing.
+        timeout: 30_000,
         env: {
           TASKSAIL_CLI_HOME_DIR_NAME: provider.homeDirName(),
           TASKSAIL_AGENT_REGISTRY_PATH: path.join(

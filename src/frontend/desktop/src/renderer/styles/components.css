@@ -162,12 +162,12 @@ select {
 }
 
 .status-chip--blocked {
-  background: rgba(217, 119, 6, 0.08);
+  background: color-mix(in srgb, var(--ts-warning) 8%, transparent);
   color: var(--ts-warning);
 }
 
 .status-chip--completed {
-  background: rgba(22, 163, 74, 0.08);
+  background: color-mix(in srgb, var(--ts-success) 8%, transparent);
   color: var(--ts-success);
 }
 
@@ -453,7 +453,7 @@ select {
 
 .observability-drawer__toggle:hover {
   color: var(--terminal-text);
-  background: rgba(255, 255, 255, 0.04);
+  background: color-mix(in srgb, var(--ts-text-inverse) 4%, transparent);
 }
 
 .observability-drawer__clear {
@@ -475,12 +475,12 @@ select {
 }
 
 .observability-drawer__clear:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--ts-text-inverse) 6%, transparent);
   color: var(--terminal-text);
 }
 
 .observability-drawer__clear:active:not(:disabled) {
-  background: rgba(255, 255, 255, 0.1);
+  background: color-mix(in srgb, var(--ts-text-inverse) 10%, transparent);
 }
 
 .observability-drawer__clear:disabled {
@@ -569,10 +569,10 @@ select {
   white-space: nowrap;
 }
 
-.obs-badge--ok    { background: rgba(90, 173, 112, 0.15);  color: var(--ts-brand-green-light); }
-.obs-badge--warn  { background: rgba(212, 166, 69, 0.15); color: var(--ts-brand-gold-light); }
-.obs-badge--error { background: rgba(196, 90, 104, 0.15);  color: var(--ts-brand-burgundy-light); }
-.obs-badge--idle  { background: rgba(107, 122, 141, 0.12); color: var(--ts-brand-gray); }
+.obs-badge--ok    { background: color-mix(in srgb, var(--ts-success) 15%, transparent);  color: var(--ts-success); }
+.obs-badge--warn  { background: color-mix(in srgb, var(--ts-warning) 15%, transparent); color: var(--ts-warning); }
+.obs-badge--error { background: color-mix(in srgb, var(--ts-danger) 15%, transparent);  color: var(--ts-danger); }
+.obs-badge--idle  { background: color-mix(in srgb, var(--ts-brand-gray) 12%, transparent); color: var(--ts-brand-gray); }
 
 /* ── Observability stat row ──────────────────────────────────────────── */
 
@@ -589,12 +589,12 @@ select {
   color: var(--ts-brand-gray);
   padding: 0.1rem 0.35rem;
   border-radius: var(--ts-radius-sm);
-  background: rgba(107, 122, 141, 0.1);
+  background: color-mix(in srgb, var(--ts-brand-gray) 10%, transparent);
 }
 
-.obs-stat--ok    { color: var(--ts-brand-green-light); background: rgba(90, 173, 112, 0.1); }
-.obs-stat--warn  { color: var(--ts-brand-gold-light); background: rgba(212, 166, 69, 0.1); }
-.obs-stat--error { color: var(--ts-brand-burgundy-light);   background: rgba(196, 90, 104, 0.1); }
+.obs-stat--ok    { color: var(--ts-success); background: color-mix(in srgb, var(--ts-success) 10%, transparent); }
+.obs-stat--warn  { color: var(--ts-warning); background: color-mix(in srgb, var(--ts-warning) 10%, transparent); }
+.obs-stat--error { color: var(--ts-danger);   background: color-mix(in srgb, var(--ts-danger) 10%, transparent); }
 
 /* ── Observability timeline ──────────────────────────────────────────── */
 
@@ -658,7 +658,7 @@ select {
 }
 
 .obs-file-row:nth-child(even) {
-  background: rgba(255, 255, 255, 0.02);
+  background: color-mix(in srgb, var(--ts-text-inverse) 2%, transparent);
 }
 
 .obs-file-row__header {
@@ -687,9 +687,9 @@ select {
   flex-shrink: 0;
 }
 
-.obs-file-row__status--ok      { color: var(--ts-brand-green-light); background: rgba(90, 173, 112, 0.12); }
-.obs-file-row__status--warn    { color: var(--ts-brand-gold-light); background: rgba(212, 166, 69, 0.12); }
-.obs-file-row__status--missing { color: var(--ts-brand-burgundy-light);   background: rgba(196, 90, 104, 0.12); }
+.obs-file-row__status--ok      { color: var(--ts-success); background: color-mix(in srgb, var(--ts-success) 12%, transparent); }
+.obs-file-row__status--warn    { color: var(--ts-warning); background: color-mix(in srgb, var(--ts-warning) 12%, transparent); }
+.obs-file-row__status--missing { color: var(--ts-danger);   background: color-mix(in srgb, var(--ts-danger) 12%, transparent); }
 
 .obs-file-row__detail {
   display: block;
@@ -722,7 +722,7 @@ select {
 }
 
 .obs-kv:nth-child(even) {
-  background: rgba(255, 255, 255, 0.02);
+  background: color-mix(in srgb, var(--ts-text-inverse) 2%, transparent);
 }
 
 .obs-kv__label {
@@ -768,20 +768,20 @@ select {
 
 .operator-queue__status--ok,
 .operator-queue__pill--active {
-  color: var(--ts-brand-green-light);
-  background: rgba(90, 173, 112, 0.12);
+  color: var(--ts-success);
+  background: color-mix(in srgb, var(--ts-success) 12%, transparent);
 }
 
 .operator-queue__status--warn,
 .operator-queue__pill--pending {
-  color: var(--ts-brand-gold-light);
-  background: rgba(212, 166, 69, 0.12);
+  color: var(--ts-warning);
+  background: color-mix(in srgb, var(--ts-warning) 12%, transparent);
 }
 
 .operator-queue__status--error,
 .operator-queue__pill--failed {
-  color: var(--ts-brand-burgundy-light);
-  background: rgba(196, 90, 104, 0.12);
+  color: var(--ts-danger);
+  background: color-mix(in srgb, var(--ts-danger) 12%, transparent);
 }
 
 .operator-queue__failure,
@@ -790,10 +790,10 @@ select {
 }
 
 .operator-queue__failure {
-  border: 1px solid rgba(196, 90, 104, 0.3);
+  border: 1px solid color-mix(in srgb, var(--ts-danger) 30%, transparent);
   border-radius: var(--ts-radius-md);
   padding: 0.6rem;
-  background: rgba(196, 90, 104, 0.06);
+  background: color-mix(in srgb, var(--ts-danger) 6%, transparent);
 }
 
 .operator-queue__failure-title {
@@ -824,7 +824,7 @@ select {
 
 .obs-action-btn {
   border: 1px solid var(--terminal-border);
-  background: rgba(255, 255, 255, 0.04);
+  background: color-mix(in srgb, var(--ts-text-inverse) 4%, transparent);
   color: var(--terminal-text);
   border-radius: var(--ts-radius-sm);
   padding: 0.3rem 0.55rem;
@@ -838,8 +838,8 @@ select {
 }
 
 .obs-action-btn--danger {
-  border-color: rgba(196, 90, 104, 0.4);
-  color: var(--ts-brand-burgundy-light);
+  border-color: color-mix(in srgb, var(--ts-danger) 40%, transparent);
+  color: var(--ts-danger);
 }
 
 .obs-action-btn--ghost {
@@ -887,9 +887,9 @@ select {
 
 /* ── Dark mode status chip overrides ─────────────────────────────────── */
 
-:root.theme-dark .status-chip { background: rgba(180, 200, 240, 0.06); }
+:root.theme-dark .status-chip { background: var(--ts-bg-hover); }
 :root.theme-dark .status-chip--active { background: var(--ts-accent-subtle); color: var(--ts-accent); }
-:root.theme-dark .status-chip--blocked { background: rgba(212, 166, 69, 0.10); color: var(--ts-brand-gold-light); }
-:root.theme-dark .status-chip--completed { background: rgba(90, 173, 112, 0.08); color: var(--ts-brand-green-light); }
+:root.theme-dark .status-chip--blocked { background: color-mix(in srgb, var(--ts-warning) 10%, transparent); color: var(--ts-warning); }
+:root.theme-dark .status-chip--completed { background: color-mix(in srgb, var(--ts-success) 8%, transparent); color: var(--ts-success); }
 :root.theme-dark .status-chip--idle,
-:root.theme-dark .status-chip--owner { background: rgba(180, 200, 240, 0.04); color: var(--ts-brand-gray); }
+:root.theme-dark .status-chip--owner { background: color-mix(in srgb, var(--ts-text) 4%, transparent); color: var(--ts-brand-gray); }

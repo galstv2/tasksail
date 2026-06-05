@@ -2,7 +2,8 @@ import path from 'node:path';
 import { readTextFile, resolvePaths } from '../core/index.js';
 import { checkAgentArtifactCompletion, detectParallelOk } from '../agent-runner/artifactCompletion.js';
 import { parseSemanticSections } from './artifacts.js';
-import { markdownSectionsHaveContent, normalizeAgentId, normalizeText } from './matching.js';
+import { issuesHaveBlockingFindings, markdownSectionsHaveContent, normalizeAgentId, normalizeText } from './matching.js';
+import { softwareEngineerGuardrailPassed } from './softwareEngineerEvidence.js';
 import { CONTENT_SECTION_EXCLUSIONS } from './models.js';
 import { getActiveProvider } from '../cli-provider/index.js';
 
@@ -42,11 +43,6 @@ async function loadArtifact(absolutePath: string): Promise<RuntimeInferenceArtif
   };
 }
 
-function issuesHaveBlockingFindings(artifact: RuntimeInferenceArtifact): boolean {
-  const severityText = normalizeText(artifact.sections.Severity ?? []).toLowerCase();
-  return severityText.includes('blocking');
-}
-
 async function remediationNextAgent(
   handoffsDir: string,
   runtimeToProviderAgentId: (agentId: string) => string,
@@ -55,7 +51,7 @@ async function remediationNextAgent(
   if (!artifact.exists || !artifact.hasSubstantiveContent) {
     return null;
   }
-  if (!issuesHaveBlockingFindings(artifact)) {
+  if (!issuesHaveBlockingFindings(artifact.sections)) {
     return null;
   }
   const owner = normalizeAgentId(normalizeText(artifact.sections['Remediation Owner Agent ID'] ?? []), runtimeToProviderAgentId);
@@ -82,13 +78,15 @@ async function closeoutNextAgent(
 
 async function softwareEngineerCompleted(repoRoot: string, taskId: string): Promise<boolean> {
   const taskRuntime = resolvePaths({ repoRoot, taskId }).taskRuntime;
+  // Runtime completion accepts a finished session (terminal.status === 'completed')
+  // OR a passing guardrail receipt. This is distinct from the remediation-loop
+  // guardrail (rules/transition.ts), which intentionally requires only the
+  // authoritative guardrail receipt.
   const roleSessionPath = path.join(taskRuntime, 'role-sessions', 'software-engineer.json');
   const roleSessionRaw = await readTextFile(roleSessionPath);
   if (roleSessionRaw) {
     try {
-      const parsed = JSON.parse(roleSessionRaw) as {
-        terminal?: { status?: string };
-      };
+      const parsed = JSON.parse(roleSessionRaw) as { terminal?: { status?: string } };
       if (parsed.terminal?.status === 'completed') {
         return true;
       }
@@ -96,22 +94,7 @@ async function softwareEngineerCompleted(repoRoot: string, taskId: string): Prom
       // Fall through to the guardrail receipt.
     }
   }
-
-  const guardrailPath = path.join(taskRuntime, 'guardrails', 'software-engineer.json');
-  const guardrailRaw = await readTextFile(guardrailPath);
-  if (!guardrailRaw) {
-    return false;
-  }
-
-  try {
-    const parsed = JSON.parse(guardrailRaw) as {
-      status?: string;
-    };
-    const status = parsed.status ?? '';
-    return status === 'passed' || status === 'internal-bypass';
-  } catch {
-    return false;
-  }
+  return softwareEngineerGuardrailPassed(taskRuntime);
 }
 
 export async function computeRuntimeCompletionFacts(options: {

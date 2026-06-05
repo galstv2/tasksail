@@ -183,12 +183,15 @@ export const copilotProvider: CliProvider = {
   mcpConfigArgs,
 
   renderMcpConfig(launchDir: string, servers: ResolvedMcpServer[]): string {
-    mkdirSync(launchDir, { recursive: true });
+    // SEC-TS-02: mcp-config.json embeds resolved Bearer tokens / env secrets.
+    // Restrict the launch dir (0o700) and file (0o600) so a second local OS
+    // user cannot read them. Owner-only bits are not reduced by typical umasks.
+    mkdirSync(launchDir, { recursive: true, mode: 0o700 });
     const configPath = path.join(launchDir, 'mcp-config.json');
     const mcpServers = Object.fromEntries(
       servers.map((server) => [server.id, renderMcpServerEntry(server)]),
     );
-    writeFileSync(configPath, JSON.stringify({ mcpServers }, null, 2), 'utf-8');
+    writeFileSync(configPath, JSON.stringify({ mcpServers }, null, 2), { encoding: 'utf-8', mode: 0o600 });
     return configPath;
   },
 

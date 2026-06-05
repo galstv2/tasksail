@@ -17,6 +17,10 @@ import {
   validateSystemSettingsSavePayload,
 } from './desktopContractSystemSettingsValidators';
 import {
+  validateLogExplorerListFilesPayload,
+  validateLogExplorerReadFilePayload,
+} from './desktopContractLogExplorerValidators';
+import {
   PLANNER_FOCUS_FALLBACK_MESSAGE,
   PLANNER_FOCUS_VALID_MESSAGE,
 } from './desktopContractPlanner';
@@ -654,6 +658,10 @@ export function validateDesktopActionRequest(request: unknown): string[] {
       return validateSystemSettingsReadPayload(request.payload);
     case 'systemSettings.save':
       return validateSystemSettingsSavePayload(request.payload);
+    case 'logExplorer.listFiles':
+      return validateLogExplorerListFilesPayload(request.payload);
+    case 'logExplorer.readFile':
+      return validateLogExplorerReadFilePayload(request.payload);
     case 'agentConfig.addModel': {
       if (!isRecord(request.payload)) {
         return ['payload must be an object.'];
@@ -736,7 +744,9 @@ export function validateDesktopActionRequest(request: unknown): string[] {
     }
     case 'externalMcp.validateConnection': {
       if (!isRecord(request.payload)) return ['payload must be an object.'];
-      if (!isNonEmptyString(request.payload.transport)) return ['payload.transport must be a non-empty string.'];
+      if (!isOneOf(request.payload.transport, ['http', 'sse'] as const)) {
+        return ["payload.transport must be one of: 'http', 'sse'."];
+      }
       if (!isNonEmptyString(request.payload.url)) return ['payload.url must be a non-empty string.'];
       return [];
     }

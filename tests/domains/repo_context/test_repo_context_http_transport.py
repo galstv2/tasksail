@@ -270,7 +270,7 @@ class RepoContextHttpTransportTests(unittest.TestCase):
                     "context_pack_dir": "/workspace/context-pack",
                     "manifest": "qmd/custom-manifest.json",
                     "plan_file": "qmd/custom-plan.json",
-                    "plan_mode": "write-plan",
+                    "plan_mode": "require-plan",
                     "write_report": False,
                 }
             ).encode("utf-8"),
@@ -286,7 +286,7 @@ class RepoContextHttpTransportTests(unittest.TestCase):
         )
         self.assertEqual(observed["manifest"], "qmd/custom-manifest.json")
         self.assertEqual(observed["plan_file"], "qmd/custom-plan.json")
-        self.assertEqual(observed["plan_mode"], "write-plan")
+        self.assertEqual(observed["plan_mode"], "require-plan")
         self.assertFalse(observed["write_report"])
         self.assertEqual(
             self._runtime.latest_run,

@@ -1,0 +1,19 @@
+
+# Compiled binaries and packages
+pkg/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary and profiling output
+*.test
+*.out
+*.prof
+
+# Build output
+bin/
+
+# Vendor directory (managed by go mod)
+vendor/
