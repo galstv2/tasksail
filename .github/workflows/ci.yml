@@ -12,6 +12,7 @@ permissions:
   contents: read
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
   TASKSAIL_AGENT_REGISTRY_PATH: .github/agents/registry.json
 
 jobs:
@@ -116,11 +117,19 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dev dependencies
+        run: pip install -r requirements-dev.txt
+
       - name: TypeScript type check
         run: pnpm run lint
 
       - name: Run backend platform tests
-        run: pnpm run test -- --reporter=dot
+        run: pnpm exec vitest run --config src/backend/platform/vitest.config.ts --reporter=dot
 
       - name: Run smoke lane and workflow policy validation
         run: pnpm run test:smoke
@@ -192,6 +201,9 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Install Python dev dependencies
+        run: pip install -r requirements-dev.txt
 
       - name: Run manifest-targeted domain lane for changed files
         run: pnpm exec tsx src/backend/platform/validation/changedDomainFiles.ts --base-sha "${{ github.event.pull_request.base.sha }}" --head-sha "${{ github.sha }}" --manifest ./tests/test_manifest.json

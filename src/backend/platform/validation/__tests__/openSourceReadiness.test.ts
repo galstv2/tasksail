@@ -49,9 +49,10 @@ describe('checkOpenSourceReadiness', () => {
   });
 
   it('fails tracked runtime, generated, and private workstation artifacts', async () => {
+    const privateWorkstationPath = path.posix.join('/Users', 'private-user', 'Desktop', 'TaskSail');
     writeFile('.platform-state/runtime/tasks/terminal-events.json', '{}\n');
     writeFile('dist/bundle.js', 'console.log("built");\n');
-    writeFile('private-path.txt', '/Users/private-user/Desktop/TaskSail\n');
+    writeFile('private-path.txt', `${privateWorkstationPath}\n`);
     gitAddAll();
 
     const result = await checkOpenSourceReadiness({ repoRoot });
@@ -122,14 +123,15 @@ describe('checkOpenSourceReadiness', () => {
   });
 
   it('reports high-confidence secrets without echoing the secret value', async () => {
-    writeFile('token.txt', 'OPENAI_API_KEY="sk-proj-aaaaaaaaaaaaaaaaaaaaaaaa"\n');
+    const fakeOpenAiKey = `sk-proj-${'a'.repeat(24)}`;
+    writeFile('token.txt', `OPENAI_API_KEY="${fakeOpenAiKey}"\n`);
     gitAddAll();
 
     const result = await checkOpenSourceReadiness({ repoRoot });
 
     expect(result.valid).toBe(false);
     expect(result.errors).toContain('token.txt:1 contains a high-confidence OpenAI API key.');
-    expect(result.errors.join('\n')).not.toContain('sk-proj-aaaaaaaaaaaaaaaaaaaaaaaa');
+    expect(result.errors.join('\n')).not.toContain(fakeOpenAiKey);
   });
 
   function writeValidFixtureRepo(root: string): void {

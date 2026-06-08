@@ -1,11 +1,26 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { afterEach } from 'vitest';
 
-function childPids(): string[] {
+export function parseProcChildPids(raw: string): string[] {
+  return raw.trim().split(/\s+/).filter(Boolean);
+}
+
+export function childPids(): string[] {
   if (process.platform === 'win32') return [];
 
+  if (process.platform === 'linux') {
+    try {
+      return parseProcChildPids(
+        readFileSync(`/proc/${process.pid}/task/${process.pid}/children`, 'utf8'),
+      );
+    } catch {
+      // Fall back to pgrep below on non-standard Linux hosts without /proc.
+    }
+  }
+
   try {
-    const raw = execSync(`pgrep -P ${process.pid}`, { encoding: 'utf8' }).trim();
+    const raw = execFileSync('pgrep', ['-P', String(process.pid)], { encoding: 'utf8' }).trim();
     return raw ? raw.split('\n').filter(Boolean) : [];
   } catch {
     return [];
@@ -22,7 +37,7 @@ afterEach(async () => {
 
   const details = pids.map((pid) => {
     try {
-      return execSync(`ps -p ${pid} -o pid=,command=`, {
+      return execFileSync('ps', ['-p', pid, '-o', 'pid=,command='], {
         encoding: 'utf8',
       }).trim();
     } catch {

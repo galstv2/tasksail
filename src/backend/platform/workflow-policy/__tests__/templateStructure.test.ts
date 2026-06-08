@@ -210,7 +210,7 @@ describe('implementation-spec template structure', () => {
     );
     const headings = [...markdown.matchAll(/^## (.+)$/gm)].map((match) => match[1]);
 
-    expect(markdown).toContain('Complex Dalton fleet/orchestrator execution');
+    expect(markdown).toContain('Complex fleet/orchestrator execution');
     expect(markdown).toContain('Complex does not mean every slice must run simultaneously');
     expect(headings).toEqual([
       'Task Metadata',
