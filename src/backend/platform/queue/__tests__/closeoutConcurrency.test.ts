@@ -370,8 +370,8 @@ describe('R1 bounded-wait budget: held-lock barrier (§6.4b)', () => {
     // (mkdir failed with EEXIST) before we release the held lock. Only then do we
     // resolve the sleep barrier, at which point the retry mkdir succeeds.
     //
-    // Together with D2 (maxRetries=1 → throws), this proves the budget size —
-    // not timing — is what determines whether the closeout survives a contested lock.
+    // Together with the maxRetries=1 failure case, this proves the budget size,
+    // not timing, determines whether closeout survives a contested lock.
     const taskId = '20260101t000010z_budget-d1';
     const packDir = path.join(repoRoot, 'contextpacks', 'budget-pack');
     await mkdir(packDir, { recursive: true });

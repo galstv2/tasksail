@@ -1,6 +1,6 @@
-import { slugifyValue } from '../../hooks/useContextPackDraft';
-import type { ContextPackCreationDraft, PartDraft } from '../../contextPackCreationTypes';
-import { isMonolithEstateMode } from '../../contextPackModeUtils';
+import { slugifyValue } from '../../hooks/context-pack/useContextPackDraft';
+import type { ContextPackCreationDraft, PartDraft } from '../../contextPack/contextPackCreationTypes';
+import { isMonolithEstateMode } from '../../contextPack/contextPackModeUtils';
 import { classNames } from '../../utils/classNames';
 import LanguageSelector from './LanguageSelector';
 import RoleSelector from './RoleSelector';
@@ -9,7 +9,7 @@ import {
   getRoleOption,
   isWizardPartConfigured,
 } from './buildWizardConstants';
-import { CloseIcon, CollapseIcon, EditIcon, PlusIcon, PrimaryToggleLabel } from './icons';
+import { CloseIcon, CollapseIcon, EditIcon, PlusIcon } from '../icons';
 
 type WizardBuildPartsProps = {
   busy: boolean;
@@ -96,7 +96,6 @@ function WizardBuildParts({
               className={classNames(
                 'context-pack-modal__editor-card',
                 'context-pack-modal__wizard-part-card',
-                part.primary && 'context-pack-modal__editor-card--primary',
               )}
             >
               <div className="context-pack-modal__part-summary">
@@ -112,11 +111,6 @@ function WizardBuildParts({
                 </div>
 
                 <div className="context-pack-modal__wizard-part-actions">
-                  {part.primary ? (
-                    <span className="context-pack-modal__repo-chip context-pack-modal__repo-chip--primary">
-                      Primary
-                    </span>
-                  ) : null}
                   <button
                     type="button"
                     className="context-pack-modal__icon-btn"
@@ -232,17 +226,6 @@ function WizardBuildParts({
                   ) : null}
 
                   <div className="context-pack-modal__part-editor-footer">
-                    <button
-                      type="button"
-                      className={classNames(
-                        'context-pack-modal__toggle-pill',
-                        part.primary && 'context-pack-modal__toggle-pill--active',
-                      )}
-                      onClick={() => onUpdatePart(part.key, 'primary', !part.primary)}
-                      aria-pressed={part.primary}
-                    >
-                      <PrimaryToggleLabel primary={part.primary} />
-                    </button>
                     <button
                       type="button"
                       className="context-pack-modal__text-btn context-pack-modal__text-btn--accent"

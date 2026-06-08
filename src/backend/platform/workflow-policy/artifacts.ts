@@ -284,7 +284,7 @@ export async function parallelOkHasActiveApproval(
     return authoritative;
   }
 
-  // SEC-TS-03: exact 'complex' only — a substring match let agent-authored
+  // Match exact 'complex' only; a substring match let agent-authored
   // prose trip the fleet-execution gate. Current runtime facts are derived from
   // detectParallelOk, which now uses the same strict matcher; stale or unsigned
   // facts fall back to parsing the live artifact.

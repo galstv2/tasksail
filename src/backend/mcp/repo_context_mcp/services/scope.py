@@ -1,7 +1,6 @@
 """Scope-root resolution helpers for SeedingService.
 
-Extracted from seeding_service.py (Phase 6 Gate G1).  These are pure
-path-manipulation functions — no I/O, no instance state.
+Pure path-manipulation functions: no I/O, no instance state.
 """
 from __future__ import annotations
 

@@ -1,8 +1,8 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { ContextPackCreationDraft } from '../../contextPackCreationTypes';
-import { INITIAL_DRAFT, createRepositoryEntry, createFocusAreaEntry } from '../../hooks/useContextPackDraft';
+import type { ContextPackCreationDraft } from '../../contextPack/contextPackCreationTypes';
+import { INITIAL_DRAFT, createRepositoryEntry, createFocusAreaEntry } from '../../hooks/context-pack/useContextPackDraft';
 import ShapeStep from './ShapeStep';
 
 afterEach(() => {
@@ -69,6 +69,10 @@ describe('ShapeStep', () => {
   it('renders monolith heading and focus areas section', () => {
     render(<ShapeStep {...defaultProps} draft={monolithDraft} />);
     expect(screen.getByText('Monolith focus definition')).toBeInTheDocument();
+    expect(
+      screen.getByText('Define the main monolith repo, optional infrastructure repositories, and focus areas.'),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add infrastructure repo' })).toBeInTheDocument();
     expect(screen.getByText('Focus areas')).toBeInTheDocument();
     expect(screen.getByText('Focus area 1')).toBeInTheDocument();
   });

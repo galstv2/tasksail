@@ -1,9 +1,6 @@
 import type { RunRoleAgentOptions } from './types.js';
 import { isDaltonFamilyAgent } from './daltonLaunchPrep.js';
 
-// ---------------------------------------------------------------------------
-// Pure helpers (no I/O)
-// ---------------------------------------------------------------------------
 
 export function formatOutputSection(label: string, content: string): string {
   return `--- ${label} ---\n${content || '<no output>'}`;

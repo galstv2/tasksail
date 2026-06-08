@@ -5,13 +5,13 @@ from pathlib import Path
 from typing import Any, Callable
 
 from src.backend.mcp.context_estate.workspace_analysis import analyze_workspace_counts
-from src.backend.mcp.git_roots import enrich_manifest_missing_git_roots
-from src.backend.mcp.pack_io import (
+from src.backend.mcp.pack.io import (
     NoExistingPathError,
     resolve_first_existing,
     write_text_atomic,
 )
 from src.backend.mcp.pack_schemas import canonicalize
+from src.backend.mcp.probes.git_roots import enrich_manifest_missing_git_roots
 
 from ..models import RepoSeedResult
 from ..utils import (

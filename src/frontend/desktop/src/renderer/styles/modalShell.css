@@ -1,4 +1,4 @@
-/* ── ModalShell — Shared Modal Chrome ────────────────────────────────── */
+/* ModalShell shared modal chrome */
 
 .modal-shell__overlay {
   position: fixed;
@@ -30,7 +30,7 @@
   to   { background: color-mix(in srgb, var(--ts-surface-terminal) 0%, transparent); opacity: 0; }
 }
 
-/* ── Container ───────────────────────────────────────────────────────── */
+/* Container */
 
 .modal-shell {
   display: flex;
@@ -75,7 +75,7 @@
 }
 
 
-/* ── Header ───────���─────────────────────────────��────────────────────── */
+/* Header */
 
 .modal-shell__header {
   display: flex;
@@ -166,7 +166,7 @@
   border-color: var(--terminal-border);
 }
 
-/* ── Body ────────────────────────────────────────────────────────────── */
+/* Body */
 
 .modal-shell__body {
   flex: 1;
@@ -192,7 +192,7 @@
   background: var(--terminal-chrome);
 }
 
-/* ── Footer ───���──��─────────────────────────────────���─────────────────── */
+/* Footer */
 
 .modal-shell__footer {
   display: flex;

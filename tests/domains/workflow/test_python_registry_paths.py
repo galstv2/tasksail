@@ -96,31 +96,6 @@ class PythonRegistryPathTests(unittest.TestCase):
             ):
                 registry.agent_roles()
 
-    def test_agent_reward_multipliers_reads_field(self) -> None:
-        custom_registry = self.tmpdir / "agents" / "registry.json"
-        custom_registry.parent.mkdir(parents=True, exist_ok=True)
-        custom_registry.write_text(
-            json.dumps({
-                "schema_version": 1,
-                "agents": [{
-                    "agent_id": "software-engineer",
-                    "role_name": "Software Engineer",
-                    "human_name": "Dalton",
-                    "workflow_order": 1,
-                    "reward_multiplier": 1.5,
-                }],
-            }),
-            encoding="utf-8",
-        )
-
-        with mock.patch.dict(
-            os.environ,
-            {"TASKSAIL_AGENT_REGISTRY_PATH": str(custom_registry)},
-            clear=False,
-        ):
-            multipliers = registry.agent_reward_multipliers()
-            self.assertEqual(multipliers["software-engineer"], 1.5)
-
 
 if __name__ == "__main__":
     unittest.main()

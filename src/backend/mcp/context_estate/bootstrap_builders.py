@@ -14,19 +14,12 @@ from src.backend.mcp.context_estate.bootstrap_normalization import (
     _repo_role_for_layer,
 )
 from src.backend.mcp.context_estate.constants import DEFAULT_SCOPE_MODE
-from src.backend.mcp.context_estate.discovery import (
-    classify_focus_area_repository_type,
-)
 from src.backend.mcp.context_estate.helpers import (
     FOCUS_KEY_FIELDS,
     build_candidate_map,
     resolve_candidate,
 )
-from src.backend.mcp.context_estate_discovery import (
-    collect_repo_high_signal_paths,
-    discover_candidate_focus_areas,
-)
-from src.backend.mcp.repo_category_probe import (
+from src.backend.mcp.probes.repo_category_probe import (
     classify_repo_category,
     repo_category_for_wizard_role,
 )
@@ -36,7 +29,12 @@ from src.backend.mcp.repo_context_mcp.utils import (
     slugify,
     titleize_segment,
 )
-from src.backend.mcp.repo_type_probe import classify_repository_type
+
+from .discovery import (
+    classify_focus_area_repo_category,
+    collect_repo_high_signal_paths,
+    discover_candidate_focus_areas,
+)
 
 
 def _authoritative_answer_category(repository: dict[str, Any]) -> tuple[str, bool] | None:
@@ -166,7 +164,10 @@ def _synthesize_candidate_focus_area(
         "focus_type": focus_type,
         "path": str(resolved_path),
         "relative_path": relative_path,
-        "repository_type": classify_focus_area_repository_type(focus_type),
+        "focus_category": (
+            normalize_optional_string(override.get("focus_category"))
+            or classify_focus_area_repo_category(focus_type)
+        ),
     }
     group = normalize_optional_string(override.get("group"))
     if group:
@@ -282,25 +283,9 @@ def _build_distributed_review_payload(
             if repository.get(v2_field) is not None:
                 review_entry[v2_field] = repository[v2_field]
 
-        if repository.get("repository_type"):
-            review_entry["repository_type"] = repository["repository_type"]
-            review_entry["repository_type_authored"] = True
-        elif candidate.get("repository_type"):
-            # Reuse the classification from the discovery phase to avoid
-            # re-probing the same repo's filesystem.
-            review_entry["repository_type"] = candidate["repository_type"]
-            review_entry["repository_type_authored"] = False
-            if candidate.get("classification_confidence"):
-                review_entry["classification_confidence"] = candidate["classification_confidence"]
-        else:
-            probe = classify_repository_type(
-                repo_path,
-                languages=languages,
-                repo_name=repository["repo_name"],
-            )
-            review_entry["repository_type"] = probe["repository_type"]
-            review_entry["repository_type_authored"] = False
-            review_entry["classification_confidence"] = probe["classification_confidence"]
+        # Focus (repository_type / repo_focus) is owned by build_approved_manifest,
+        # which derives it from primary_working_repo_ids. Creation discovery
+        # classifies only repo_category (kind) here, never focus.
         for field_name in (
             "owner",
             "bounded_context",
@@ -359,6 +344,8 @@ def _build_monolith_focusable_areas(
                     "path": normalize_optional_string(candidate.get("path")),
                     "focus_name": override["focus_name"] or normalize_optional_string(candidate.get("focus_name")),
                     "focus_type": override["focus_type"] or normalize_optional_string(candidate.get("focus_type")),
+                    "focus_category": normalize_optional_string(override.get("focus_category")) or normalize_optional_string(candidate.get("focus_category")),
+                    "focus_category_authored": bool(override.get("focus_category_authored")),
                     "group": override["group"] or normalize_optional_string(candidate.get("group")),
                     "default_focusable": override["default_focusable"],
                     "activation_priority": override["activation_priority"],
@@ -405,6 +392,7 @@ def _build_monolith_focusable_areas(
                 "path": normalize_optional_string(candidate.get("path")),
                 "focus_name": normalize_optional_string(candidate.get("focus_name")) or focus_id,
                 "focus_type": normalize_optional_string(candidate.get("focus_type")) or "general",
+                "focus_category": normalize_optional_string(candidate.get("focus_category")),
                 "group": normalize_optional_string(candidate.get("group")),
                 "default_focusable": len(normalized) == 0,
                 "activation_priority": max(0, 100 - (len(normalized) * 10)),
@@ -536,7 +524,6 @@ def _build_monolith_review_payload(
                 if repository.get("repository_type")
                 else {}
             ),
-            # Forward v2 category fields when provided
             **(
                 {"repo_focus": repository["repo_focus"]}
                 if repository.get("repo_focus")

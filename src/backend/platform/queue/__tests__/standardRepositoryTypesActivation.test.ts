@@ -197,6 +197,66 @@ describe('standard Selection Roles activation', () => {
     expect(git(platformRepo, ['branch', '--list', `task/${taskId}`])).toBe('');
   });
 
+  it('creates a task branch for standard monolith primary focus selections', async () => {
+    const monolithRepo = path.join(repoRoot, 'monolith-repo');
+    initGitRepo(repoRoot);
+    initGitRepo(monolithRepo);
+    mkdirSync(path.join(monolithRepo, 'platform'), { recursive: true });
+    mkdirSync(path.join(monolithRepo, 'tools'), { recursive: true });
+    writeFileSync(path.join(monolithRepo, 'platform', 'index.ts'), 'export const platform = true;\n', 'utf-8');
+    writeFileSync(path.join(monolithRepo, 'tools', 'tool.ts'), 'export const tool = true;\n', 'utf-8');
+    git(monolithRepo, ['add', 'platform/index.ts', 'tools/tool.ts']);
+    git(monolithRepo, ['commit', '-m', 'add focus areas']);
+    const baseSha = git(monolithRepo, ['rev-parse', 'HEAD']);
+    const packDir = path.join(repoRoot, 'contextpacks', 'monolith');
+    mkdirSync(path.join(packDir, 'qmd'), { recursive: true });
+    writeFileSync(path.join(packDir, 'qmd', 'repo-sources.json'), JSON.stringify({
+      manifest_version: 2,
+      manifest_status: 'active',
+      context_pack_id: 'monolith',
+      estate_type: 'monolith',
+      qmd_scope_root: 'qmd/context-packs/monolith',
+      repository: { repo_id: 'monolith', local_paths: [monolithRepo] },
+      primary_working_repo_ids: ['monolith'],
+      primary_focus_area_ids: ['platform'],
+      focusable_areas: [
+        { focus_id: 'platform', relative_path: 'platform', repository_type: 'primary' },
+        { focus_id: 'tools', relative_path: 'tools', repository_type: 'support' },
+      ],
+    }, null, 2));
+    const taskId = 'monolith-focus';
+    await seedPending(repoRoot, taskId, taskMarkdown(formatContextPackBindingSection({
+      contextPackDir: packDir,
+      contextPackId: 'monolith',
+      scopeMode: 'focus-selection',
+      selectedRepoIds: [],
+      selectedFocusIds: ['platform', 'tools'],
+      repositoryTypes: { platform: 'primary', tools: 'support' },
+    })));
+
+    const { activateNextPendingItemIfReady } = await import('../operations.js');
+    await expect(activateNextPendingItemIfReady({ paths: resolveQueuePaths(repoRoot), repoRoot }))
+      .resolves.toEqual({ activated: true, activatedTaskId: taskId });
+
+    const taskJson = JSON.parse(readFileSync(path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, '.task.json'), 'utf-8'));
+    expect(taskJson.contextPackBinding.repoBindings).toEqual([
+      expect.objectContaining({
+        originalRoot: realpathSync(monolithRepo),
+        baseCommitSha: baseSha,
+        branchOwnership: 'task-owned',
+      }),
+    ]);
+    expect(taskJson.contextPackBinding.readonlyContextBindings).toEqual([]);
+    const snapshot = JSON.parse(readFileSync(path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, 'pack-snapshot.json'), 'utf-8'));
+    expect(snapshot.deepFocus.writableRoots).toEqual([
+      { repoLocalPath: realpathSync(monolithRepo), path: 'platform', kind: 'directory', reason: 'selected-primary' },
+    ]);
+    expect(snapshot.deepFocus.readonlyContextRoots).toEqual([
+      { repoLocalPath: realpathSync(monolithRepo), path: 'tools', kind: 'directory', reason: 'support-target' },
+    ]);
+    expect(git(monolithRepo, ['branch', '--list', `task/${taskId}`])).toContain(`task/${taskId}`);
+  });
+
   it('rejects malformed present Selection Roles before runtime sidecars are written', async () => {
     initGitRepo(repoRoot);
     const taskId = 'malformed-types';

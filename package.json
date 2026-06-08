@@ -2,9 +2,10 @@
   "name": "tasksail",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "engines": {
-    "node": ">=18.0.0",
+    "node": ">=24.0.0 <25.0.0",
     "pnpm": ">=9.0.0"
   },
   "scripts": {
@@ -14,7 +15,7 @@
     "test:parallel": "vitest run --config src/backend/platform/vitest.config.ts --testTimeout=30000 src/backend/platform/__tests__/parallelEndToEnd.test.ts src/backend/platform/__tests__/parallelChaos.test.ts src/backend/platform/queue/__tests__/lifecycle.test.ts",
     "lint": "tsc --noEmit -p src/backend/platform/tsconfig.json",
     "clean": "node -e \"require('node:fs').rmSync('src/backend/platform/dist',{recursive:true,force:true})\"",
-    "clean:all": "node -e \"const fs=require('node:fs');['node_modules','src/frontend/desktop/node_modules','src/backend/platform/dist','src/frontend/desktop/dist','src/frontend/desktop/dist-electron','.vite'].forEach(p=>fs.rmSync(p,{recursive:true,force:true}));\" && pnpm store prune && pnpm install",
+    "clean:all": "node -e \"const fs=require('node:fs');['node_modules','src/frontend/desktop/node_modules','src/backend/platform/dist','src/frontend/desktop/dist','src/frontend/desktop/dist-electron','.vite'].forEach(p=>fs.rmSync(p,{recursive:true,force:true}));\" && pnpm store prune && pnpm install && npm --prefix src/frontend/desktop install",
     "setup": "tsx src/backend/platform/setup/cli.ts",
     "validate": "tsx src/backend/platform/validation/cli.ts validate",
     "local-checks": "tsx src/backend/platform/validation/cli.ts local-checks",
@@ -23,6 +24,9 @@
     "test:integration": "tsx src/backend/platform/validation/cli.ts local-checks --profile integration",
     "test:contracts": "tsx src/backend/platform/validation/cli.ts local-checks --profile contracts",
     "check-sizes": "tsx src/backend/platform/validation/cli.ts check-sizes",
+    "check-comments": "tsx src/backend/platform/validation/cli.ts check-comments",
+    "check-open-source-readiness": "tsx src/backend/platform/validation/cli.ts check-open-source-readiness",
+    "check-test-floor": "tsx src/backend/platform/validation/cli.ts check-test-floor",
     "lint:python": "tsx src/backend/platform/core/pythonCli.ts -m ruff check .",
     "new-task": "tsx src/backend/platform/queue/cli.ts init",
     "plan-dropbox-task": "tsx src/backend/platform/queue/cli.ts create-task",

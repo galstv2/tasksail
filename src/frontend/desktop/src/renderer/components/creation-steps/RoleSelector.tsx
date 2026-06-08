@@ -1,4 +1,4 @@
-import type { RepositoryEntryDraft } from '../../contextPackCreationTypes';
+import type { RepositoryEntryDraft } from '../../contextPack/contextPackCreationTypes';
 import { ROLE_OPTIONS } from './buildWizardConstants';
 
 type RoleSelectorProps = {

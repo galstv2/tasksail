@@ -5,14 +5,14 @@ if (!HAS_SINGLE_INSTANCE_LOCK) {
   app.exit?.(0);
 }
 
-import { schedulePipelineAutoStart } from './main.startupRecovery';
-import { createDefaultDesktopActionHandlers } from './main.desktopActionHandlers';
-import { restartTaskSailApp } from './appRestart';
+import { schedulePipelineAutoStart } from './app/startupRecovery';
+import { createDefaultDesktopActionHandlers } from './ipc/desktopActionHandlers';
+import { restartTaskSailApp } from './app/restart';
 import {
   handleDesktopAction as handleDesktopActionImpl,
   type DesktopActionContext,
-} from './main.desktopActionRouter';
-import { registerAppLifecycle as registerAppLifecycleImpl } from './main.appController';
+} from './ipc/desktopActionRouter';
+import { registerAppLifecycle as registerAppLifecycleImpl } from './app/appController';
 
 export function registerAppLifecycle(): void {
   registerAppLifecycleImpl({ hasSingleInstanceLock: HAS_SINGLE_INSTANCE_LOCK });
@@ -38,15 +38,15 @@ export function handleDesktopAction(
   );
 }
 
-export { createWindow, loadDevServerUrlWithRetry } from './main.windowManager';
-export { registerDesktopContract } from './main.ipcContract';
+export { createWindow, loadDevServerUrlWithRetry } from './app/windowManager';
+export { registerDesktopContract } from './ipc/contract';
 export {
   readQueueStatusSnapshot,
   readEnvironmentStatus,
   readObservabilitySnapshot,
-} from './main.environmentStatus';
+} from './app/environmentStatus';
 
-export { listArchivedTasksAction } from './main.archivedTasks';
+export { listArchivedTasksAction } from './archive/archivedTasks';
 
 export {
   validatePlannerDraftForSubmission,
@@ -56,7 +56,7 @@ export {
   submitUploadedSpecHelper,
   runDropboxTaskScript,
   runFollowUpTaskScript,
-} from './main.taskQueue';
+} from './tasks/queue';
 
 export {
   getDefaultContextPackSearchRoots,
@@ -80,18 +80,18 @@ export {
   executeContextPackReseedAction,
   executeContextPackWorkspaceAction,
   pickMarkdownFileAction,
-} from './main.contextPack';
+} from './contextPack';
 
 export {
   getPackageOutputDir,
   getPackageArtifactName,
   getPackageCommand,
-} from './main.packaging';
+} from './app/packaging';
 
 export {
   validateDesktopInvokeSender,
   validateDevServerUrl,
-} from './main.senderAuth';
+} from './app/senderAuth';
 
 if (!process.env['VITEST']) {
   registerAppLifecycle();

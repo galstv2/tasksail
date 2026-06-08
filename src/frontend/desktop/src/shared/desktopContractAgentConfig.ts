@@ -1,8 +1,5 @@
-// Agent configuration contract types — extracted from desktopContract.ts for file-size compliance.
-
-// ── Renderer-safe extension catalog types ─────────────────────────────────────
-// These are re-declared here (structurally identical to backend types) so the
-// renderer never imports the node-side backend module directly.
+// Agent configuration contract types extracted from desktopContract.ts for size compliance.
+// Renderer-safe catalog shapes avoid importing node-side backend modules.
 
 export type AgentExtensionKind = 'skill' | 'plugin';
 export type AgentExtensionSourceType = 'git' | 'local' | 'direct-attachment';
@@ -39,8 +36,6 @@ export type AgentLaunchExtensionAssignments = {
   }>;
 };
 
-// ── IPC request / response types ──────────────────────────────────────────────
-
 export type AgentConfigListExtensionsRequest = {
   action: 'agentConfig.listExtensions';
   payload?: undefined;
@@ -58,7 +53,7 @@ export type AgentConfigListExtensionsResponse = {
  * - git:   carries source fields directly (url, ref, optional commit_sha/source_subpath)
  * - local: carries source fields directly (path, optional source_subpath)
  * - direct-attachment (skill only): carries skill_markdown. The backend
- *   writes config/skill-authored/<id>/SKILL.md atomically inside the lock-held
+ *   writes the authored skill document atomically inside the lock-held
  *   addAgentExtension transaction; the handler never writes it directly.
  *   Plugin + direct-attachment is rejected early in the validator.
  */
@@ -151,9 +146,7 @@ export type AgentConfigSaveExtensionAssignmentsResponse = {
   assignments: AgentLaunchExtensionAssignments['assignments'];
 };
 
-// ── External MCP agent assignments ─────────────────────────────────────────────
-// Durable per-agent assignment of external MCP servers, keyed by provider
-// registry agent ID. Stored in .platform-state/external-mcp-agent-assignments.json.
+// Durable external MCP assignments keyed by provider registry agent ID.
 
 export type ExternalMcpAgentAssignments = {
   schema_version: 1;
@@ -188,8 +181,6 @@ export type AgentConfigSaveExternalMcpAssignmentsResponse = {
   message: string;
   assignments: ExternalMcpAgentAssignments['assignments'];
 };
-
-// ── Existing agent config types ────────────────────────────────────────────────
 
 export type AgentConfigAgentEntry = {
   agent_id: string;

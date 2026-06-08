@@ -466,6 +466,9 @@ class TaskArchiveRetrospectiveTests(TaskArchiveFilingTestBase):
 
             _env_refile = os.environ.copy()
             _env_refile["TASKSAIL_TASK_ID"] = "CAP-2001"
+            _env_refile["TASKSAIL_AGENT_REGISTRY_PATH"] = str(
+                repo_root / ".github" / "agents" / "registry.json"
+            )
             first_run = subprocess.run(
                 [
                     sys.executable,

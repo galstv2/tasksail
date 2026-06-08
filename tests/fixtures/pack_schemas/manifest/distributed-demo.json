@@ -10,14 +10,14 @@
   "approval_source": {
     "artifact_type": "discovery-structure-draft",
     "draft_discovered_at": "2026-04-17T01:12:18Z",
-    "draft_root_path": "/Users/victorgalstyan2/Desktop/AgenticHarness/crud-app-repo-dotnet-distributed-demo"
+    "draft_root_path": "/tmp/tasksail-fixtures/crud-app-repo-dotnet-distributed-demo"
   },
   "repositories": [
     {
       "repo_id": "platform",
       "repo_name": "Platform",
       "local_paths": [
-        "/Users/victorgalstyan2/Desktop/AgenticHarness/crud-app-repo-dotnet-distributed-demo/platform"
+        "/tmp/tasksail-fixtures/crud-app-repo-dotnet-distributed-demo/platform"
       ],
       "system_layer": "backend",
       "languages": [
@@ -40,7 +40,7 @@
       "repo_id": "tools",
       "repo_name": "Tools",
       "local_paths": [
-        "/Users/victorgalstyan2/Desktop/AgenticHarness/crud-app-repo-dotnet-distributed-demo/tools"
+        "/tmp/tasksail-fixtures/crud-app-repo-dotnet-distributed-demo/tools"
       ],
       "system_layer": "backend",
       "languages": [

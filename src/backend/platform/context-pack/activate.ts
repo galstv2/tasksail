@@ -27,7 +27,7 @@ export const ACTIVE_CONTEXT_PACK_DIR_KEY = 'ACTIVE_CONTEXT_PACK_DIR';
  *
  * @ui-only This function writes UI state (`.env` + `workspace-context-sync.json`)
  * and MUST NOT be called from task activation. Task activation writes the
- * per-task `.task.json` sidecar instead (§3.1). Callers in the `queue/` module
+ * per-task `.task.json` sidecar instead. Callers in the `queue/` module
  * MUST NOT invoke this function.
  */
 export async function setActiveContextPackEnv(

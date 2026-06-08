@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from src.backend.mcp.context_estate_discovery import discover_estate
+from src.backend.mcp.context_estate.discovery import discover_estate
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SCRIPT_PATH = REPO_ROOT / "src" / "backend" / "scripts" / "python" / "discover-context-estate.py"
@@ -150,16 +150,14 @@ class DiscoverContextEstateTests(unittest.TestCase):
                 area["relative_path"]: area["focus_type"]
                 for area in payload["candidate_focus_areas"]
             }
-            repository_types = {
-                area["relative_path"]: area["repository_type"]
-                for area in payload["candidate_focus_areas"]
-            }
             self.assertEqual(focus_types["services/billing"], "service")
             self.assertEqual(focus_types["packages/shared-ui"], "package")
             self.assertEqual(focus_types["docs"], "docs")
-            self.assertEqual(repository_types["services/billing"], "primary")
-            self.assertEqual(repository_types["packages/shared-ui"], "support")
-            self.assertEqual(repository_types["docs"], "support")
+            # Discovery classifies focus-area KIND via focus_category; it must not
+            # assign primary/support (focus) from focus_type at scan time.
+            for area in payload["candidate_focus_areas"]:
+                self.assertNotIn("repository_type", area)
+                self.assertIn("focus_category", area)
 
     def test_auto_mode_infers_monolith_for_git_root(self) -> None:
         with tempfile.TemporaryDirectory() as temp_root:
@@ -276,8 +274,7 @@ class DiscoverContextEstateTests(unittest.TestCase):
 
 class CollectRepoHighSignalPathsTests(unittest.TestCase):
     def test_survives_permission_error_and_records_warning(self) -> None:
-        """EH-1: an unreadable repo directory is skipped with a warning rather
-        than aborting the whole estate scan with a PermissionError."""
+        """Unreadable repo directories warn instead of aborting the estate scan."""
         from src.backend.mcp.context_estate.discovery import (
             collect_repo_high_signal_paths,
         )

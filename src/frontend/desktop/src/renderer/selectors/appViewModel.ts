@@ -1,5 +1,5 @@
 import type { LifecycleState } from '../../shared/desktopContract';
-import type { ComposerStage, FollowUpDraftContext, PlannerDraftModel } from '../plannerComposer';
+import type { ComposerStage, FollowUpDraftContext, PlannerDraftModel } from '../planner/plannerComposer';
 
 export type CompletedTaskEntry = {
   id: string;
@@ -222,7 +222,7 @@ export function deriveStageCopy(args: {
   }
 
   const standardStageCopy: Record<ComposerStage, string> = {
-    compose: 'Plan your task with Lily, then send it to the queue.',
+    compose: 'Plan your task with the planner, then send it to the queue.',
     preview: 'Review the queue-ready markdown shape without calling repo helper scripts.',
     confirm: 'Confirm the draft and submit it through the approved dropbox helper path.',
   };

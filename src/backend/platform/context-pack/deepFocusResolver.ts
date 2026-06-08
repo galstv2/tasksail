@@ -113,7 +113,9 @@ function resolvePrimaryDeepFocusTargets(options: {
   normalizedTargets: PrimaryFocusTarget[];
 }): PrimaryFocusTarget[] {
   const declaredRootSet = createDeclaredRepoRootSet(options.declaredRepoRoots);
-  if (options.normalizedTargets.length > 1) {
+  const isMonolith = isMonolithEstateType(options.estateType);
+  const constrainToLegacyFocus = isMonolith && options.normalizedTargets.length <= 1;
+  if (!isMonolith && options.normalizedTargets.length > 1) {
     const missingRepoLocalPath = options.normalizedTargets.find((target) => !target.repoLocalPath);
     if (missingRepoLocalPath) {
       throw new Error(
@@ -137,7 +139,7 @@ function resolvePrimaryDeepFocusTargets(options: {
       targetRepoRoot.canonicalRoot,
     );
     if (
-      isMonolithEstateType(options.estateType)
+      constrainToLegacyFocus
       && options.legacyPrimaryFocusRelativePath
       && resolved.path
       && !doesTargetCover(options.legacyPrimaryFocusRelativePath, 'directory', resolved.path)
@@ -158,7 +160,9 @@ function resolvePrimaryDeepFocusTargets(options: {
         ownerTarget: resolved,
         target,
         estateType: options.estateType,
-        legacyPrimaryFocusRelativePath: options.legacyPrimaryFocusRelativePath,
+        legacyPrimaryFocusRelativePath: constrainToLegacyFocus
+          ? options.legacyPrimaryFocusRelativePath
+          : undefined,
         canonicalRoot: targetRepoRoot.canonicalRoot,
         declaredRepoRoots: options.declaredRepoRoots,
       }),

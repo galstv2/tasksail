@@ -38,9 +38,7 @@ def pytest_sessionfinish() -> None:
     if _test_log_dir is not None:
         shutil.rmtree(_test_log_dir, ignore_errors=True)
 
-# ---------------------------------------------------------------------------
-# Keep a reference to the real bind so we can restore it when needed.
-# ---------------------------------------------------------------------------
+# Keep the real bind for the real_socket fixture.
 _real_socket_bind = socket.socket.bind
 
 
@@ -53,11 +51,8 @@ def _guarded_bind(self: socket.socket, address: object) -> None:
     )
 
 
-# ---------------------------------------------------------------------------
-# Install the guard at import time so it covers the entire test session.
-# Honour RUN_SLOW_TESTS — when set, integration tests are expected to use
-# real sockets, so skip the glopml patch entirely.
-# ---------------------------------------------------------------------------
+# Install at import time so the guard covers the full session. RUN_SLOW_TESTS
+# opts into real sockets, so skip the global bind patch.
 if not os.environ.get("RUN_SLOW_TESTS"):
     socket.socket.bind = _guarded_bind  # type: ignore[assignment]
 

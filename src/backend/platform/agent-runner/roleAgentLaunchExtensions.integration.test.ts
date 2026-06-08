@@ -143,9 +143,6 @@ function cleanupEnv() {
   delete process.env['RUN_ROLE_AGENT_ORCHESTRATOR_ID'];
 }
 
-// ---------------------------------------------------------------------------
-// Scenario A: Normal Dalton launch with assignments
-// ---------------------------------------------------------------------------
 describe('A: Normal Dalton launch — skill/plugin injection', () => {
   beforeEach(() => { setupAssignedStage('dalton'); });
   afterEach(cleanupEnv);
@@ -175,9 +172,6 @@ describe('A: Normal Dalton launch — skill/plugin injection', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Scenario B: Stage reuse across cleanup pass (Alice)
-// ---------------------------------------------------------------------------
 describe('B: Stage reuse across artifact cleanup pass', () => {
   beforeEach(() => {
     setupAssignedStage('alice');
@@ -205,9 +199,6 @@ describe('B: Stage reuse across artifact cleanup pass', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Scenario C: Denied-action continuation reuse
-// ---------------------------------------------------------------------------
 describe('C: Denied-action continuation reuse (via runAgentSession args identity)', () => {
   beforeEach(() => {
     setupAssignedStage('alice');
@@ -236,9 +227,6 @@ describe('C: Denied-action continuation reuse (via runAgentSession args identity
   });
 });
 
-// ---------------------------------------------------------------------------
-// Scenario D: Dry-run side-effect freedom + guard split
-// ---------------------------------------------------------------------------
 describe('D: Dry-run side-effect freedom + guard split', () => {
   beforeEach(() => { setupAssignedStage('dalton'); });
   afterEach(cleanupEnv);
@@ -259,9 +247,6 @@ describe('D: Dry-run side-effect freedom + guard split', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Scenario E: Staging failure before spawn
-// ---------------------------------------------------------------------------
 describe('E: Staging failure before spawn', () => {
   beforeEach(() => { setupAssignedStage('dalton'); mocks.createAgentExtensionStage.mockRejectedValue(new Error('stage-failure')); });
   afterEach(cleanupEnv);
@@ -272,9 +257,6 @@ describe('E: Staging failure before spawn', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Scenario F: No-assignments no-op
-// ---------------------------------------------------------------------------
 describe('F: No-assignments no-op', () => {
   beforeEach(() => {
     setupAssignedStage('dalton');
@@ -290,9 +272,6 @@ describe('F: No-assignments no-op', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Scenario G: Cross-role isolation — agentId passed to createAgentExtensionStage
-// ---------------------------------------------------------------------------
 describe('G: Cross-role isolation', () => {
   beforeEach(() => {
     setupAssignedStage('dalton');
@@ -333,9 +312,6 @@ describe('G: Cross-role isolation', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// H-T1: workflow-policy failure does NOT stage
-// ---------------------------------------------------------------------------
 describe('H-T1: workflow-policy failure does not stage', () => {
   beforeEach(() => { setupAssignedStage('dalton'); mocks.runRuntimePolicyCheck.mockResolvedValue({ stdout: 'x', stderr: 'blocked', exitCode: 1 }); });
   afterEach(cleanupEnv);
@@ -348,9 +324,6 @@ describe('H-T1: workflow-policy failure does not stage', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// H-T2: unauthorized skipWorkflowValidation does NOT stage
-// ---------------------------------------------------------------------------
 describe('H-T2: unauthorized skipWorkflowValidation does not stage', () => {
   beforeEach(() => { setupAssignedStage('dalton'); delete process.env['RUN_ROLE_AGENT_ALLOW_INTERNAL_BYPASS']; });
   afterEach(cleanupEnv);
@@ -363,9 +336,6 @@ describe('H-T2: unauthorized skipWorkflowValidation does not stage', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// H-T3: denied-action continuation reuse for ron
-// ---------------------------------------------------------------------------
 describe('H-T3: denied-action continuation reuse for ron', () => {
   beforeEach(() => {
     setupAssignedStage('ron');
@@ -389,9 +359,6 @@ describe('H-T3: denied-action continuation reuse for ron', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// H-T4: ron artifact cleanup reuse
-// ---------------------------------------------------------------------------
 describe('H-T4: ron artifact cleanup reuse', () => {
   beforeEach(() => {
     setupAssignedStage('ron');
@@ -410,9 +377,6 @@ describe('H-T4: ron artifact cleanup reuse', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// H-T5: policy remediation reuse for dalton (no skipWorkflowValidation)
-// ---------------------------------------------------------------------------
 describe('H-T5: policy remediation reuse for dalton', () => {
   beforeEach(() => {
     // No bypass env — skipWorkflowValidation is NOT passed, so initial policy gate runs.
@@ -441,9 +405,6 @@ describe('H-T5: policy remediation reuse for dalton', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// H-T6: dalton confinement retry reuse
-// ---------------------------------------------------------------------------
 describe('H-T6: dalton confinement retry reuse', () => {
   beforeEach(() => {
     setupAssignedStage('dalton');

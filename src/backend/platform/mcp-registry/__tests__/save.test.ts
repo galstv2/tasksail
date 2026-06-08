@@ -63,7 +63,6 @@ describe('saveMcpRegistry', () => {
     expect(written.schema_version).toBe(1);
     expect(written.services[0].id).toBe('test-svc');
 
-    // Temp file should be cleaned up
     expect(fs.existsSync(`${filePath}.tmp`)).toBe(false);
   });
 

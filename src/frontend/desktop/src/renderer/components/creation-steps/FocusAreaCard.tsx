@@ -1,16 +1,15 @@
 import type {
   ContextPackCreationModalProps,
   FocusAreaEntryDraft,
-} from '../../contextPackCreationTypes';
-import { classNames } from '../../utils/classNames';
-import { CloseIcon, PrimaryToggleLabel } from './icons';
+} from '../../contextPack/contextPackCreationTypes';
+import { CloseIcon } from '../icons';
+import { toTitleCase } from '../../utils/toTitleCase';
 
 type FocusAreaCardProps = {
   focusArea: FocusAreaEntryDraft;
   index: number;
   busy: boolean;
   onFocusAreaFieldChange: ContextPackCreationModalProps['onFocusAreaFieldChange'];
-  onSetPrimaryFocusArea: ContextPackCreationModalProps['onSetPrimaryFocusArea'];
   onRemoveFocusArea: ContextPackCreationModalProps['onRemoveFocusArea'];
 };
 
@@ -19,7 +18,6 @@ function FocusAreaCard({
   index,
   busy,
   onFocusAreaFieldChange,
-  onSetPrimaryFocusArea,
   onRemoveFocusArea,
 }: FocusAreaCardProps): JSX.Element {
   const trimmedRelativePath = focusArea.relativePath.trim();
@@ -49,30 +47,9 @@ function FocusAreaCard({
         <div>
           <span className="context-pack-modal__card-label">
             Focus area {index + 1}
-            {focusArea.repositoryType ? (
-              <span
-                className={classNames(
-                  'scope-focus-row__type',
-                  focusArea.repositoryType === 'primary' && 'scope-focus-row__type--primary',
-                )}
-              >
-                {focusArea.repositoryType === 'primary' ? 'Primary' : 'Support'}
-              </span>
-            ) : null}
           </span>
         </div>
         <div className="context-pack-modal__card-header-actions">
-          <button
-            type="button"
-            className={classNames(
-              'context-pack-modal__toggle-pill',
-              focusArea.primary && 'context-pack-modal__toggle-pill--active',
-            )}
-            onClick={() => onSetPrimaryFocusArea(focusArea.key)}
-            aria-pressed={focusArea.primary}
-          >
-            <PrimaryToggleLabel primary={focusArea.primary} />
-          </button>
           <button
             type="button"
             className="context-pack-modal__icon-btn context-pack-modal__icon-btn--danger"
@@ -120,22 +97,29 @@ function FocusAreaCard({
           ) : null}
         </label>
         <label className="composer-field">
-          <span>Focus type</span>
-          <input
-            value={focusArea.focusType}
+          <span>Category</span>
+          <select
+            value={focusArea.focusCategory}
             onChange={(event) =>
-              onFocusAreaFieldChange(focusArea.key, 'focusType', event.target.value)
+              onFocusAreaFieldChange(focusArea.key, 'focusCategory', event.target.value)
             }
-          />
-        </label>
-        <label className="composer-field">
-          <span>Group</span>
-          <input
-            value={focusArea.group}
-            onChange={(event) =>
-              onFocusAreaFieldChange(focusArea.key, 'group', event.target.value)
-            }
-          />
+          >
+            {[
+              'service',
+              'application',
+              'frontend',
+              'library',
+              'infrastructure',
+              'data',
+              'documentation',
+              'tool',
+              'unknown',
+            ].map((option) => (
+              <option key={option} value={option}>
+                {toTitleCase(option)}
+              </option>
+            ))}
+          </select>
         </label>
       </div>
     </article>

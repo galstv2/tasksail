@@ -78,9 +78,9 @@ export async function resumeCloseoutFromSentinel(
         });
         drove.push('retrospective-sync');
       } catch (err) {
-        // Per spec §4 Fix B step 5: tolerate retro-sync failure (re-stamp sentinel
+      // Tolerate retro-sync failure by re-stamping the sentinel
         // as Fix A does in completePendingItem) and continue with finalize/unlinks.
-        // Aborting here would re-create the strand 173443z hit (§1).
+      // Aborting here would recreate the original stranded-closeout failure mode.
         const reason = err instanceof Error ? err.message : String(err);
         log.warn('retrospective_sync.deferred', { taskId, reason });
         writeDeferredRetrospectiveMarker({

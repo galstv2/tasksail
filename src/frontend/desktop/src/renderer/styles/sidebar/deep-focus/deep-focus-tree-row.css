@@ -1,7 +1,4 @@
-/*
- * Deep Focus tree row styling.
- * Owns .deep-focus-row* and .deep-focus-row-container selectors.
- */
+/* Deep Focus tree row selectors. */
 .deep-focus-row-container {
   position: relative;
 }
@@ -123,7 +120,7 @@
 
 .deep-focus-row {
   display: grid;
-  grid-template-columns: 14px minmax(0, 1fr) 14px;
+  grid-template-columns: 14px minmax(0, 1fr) minmax(var(--ts-btn-sm), 1.75rem);
   gap: 0.3rem;
   align-items: center;
   /* Match the sibling baseline: .scope-focus-row uses 0.35rem 0.6rem and the
@@ -286,22 +283,40 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+.deep-focus-row__icon {
   width: 0.8rem;
   height: 0.8rem;
 }
 
 .deep-focus-row__chevron {
-  transition: transform var(--df-motion-standard) var(--ts-ease);
+  width: 100%;
+  min-height: var(--ts-btn-sm);
+  border-radius: var(--ts-radius-xs);
+  transition:
+    background var(--df-motion-fast) var(--ts-ease),
+    color var(--df-motion-fast) var(--ts-ease);
 }
 
-.deep-focus-row__chevron--expanded {
+.deep-focus-row__chevron:hover {
+  background: var(--df-surface-muted, var(--ts-bg-hover));
+  color: var(--df-text-secondary, var(--ts-text-muted));
+}
+
+.deep-focus-row__chevron--expanded svg {
   transform: rotate(90deg);
 }
 
-.deep-focus-row__icon svg,
-.deep-focus-row__chevron svg {
+.deep-focus-row__icon svg {
   width: 100%;
   height: 100%;
+}
+
+.deep-focus-row__chevron svg {
+  width: 0.8rem;
+  height: 0.8rem;
+  transition: transform var(--df-motion-standard) var(--ts-ease);
 }
 
 .deep-focus-row__label {
@@ -388,6 +403,7 @@
 
   .deep-focus-row,
   .deep-focus-row__chevron,
+  .deep-focus-row__chevron svg,
   .deep-focus-inline-commands__button {
     transition-duration: 0ms;
   }

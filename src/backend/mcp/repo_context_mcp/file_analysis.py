@@ -1,5 +1,4 @@
-"""File scanning, language detection, artifact classification, and repo
-entry normalization extracted from app.py (slice 02)."""
+"""File scanning and repository entry normalization helpers."""
 
 from __future__ import annotations
 
@@ -9,9 +8,9 @@ from pathlib import Path
 from typing import Any
 
 from src.backend.mcp.context_estate.bootstrap_detection import _detect_system_layer
-from src.backend.mcp.git_roots import coerce_git_root_field
 from src.backend.mcp.pack_schemas.manifest_v2 import LocalPath
-from src.backend.mcp.path_resolution import pick_local_path
+from src.backend.mcp.probes.git_roots import coerce_git_root_field
+from src.backend.mcp.probes.path_resolution import pick_local_path
 
 from .config import (
     DEFAULT_ALLOWED_SUFFIXES,

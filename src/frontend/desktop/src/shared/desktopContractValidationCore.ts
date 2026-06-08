@@ -47,7 +47,7 @@ const CONTEXT_PACK_SYSTEM_LAYERS = [
 ] as const;
 export const REINFORCEMENT_FEEDBACK_TYPES = ['none', 'positive', 'negative'] as const;
 export const PLANNER_FOCUS_VALIDATION_MODES = ['valid', 'fallback'] as const;
-export const PLANNER_LILY_PERSONALITY_IDS = ['balanced', 'clinical'] as const;
+export const PLANNER_PERSONALITY_IDS = ['balanced', 'clinical'] as const;
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -416,14 +416,14 @@ export function validatePlannerChildTaskExecutionScope(value: unknown, parentSna
   return errors;
 }
 
-export function validatePlannerLilyPlanningReloadScope(value: unknown, parentSnapshot?: unknown): string[] {
-  const fieldName = 'payload.lilyPlanningReloadScope';
+export function validatePlannerPlanningReloadScope(value: unknown, parentSnapshot?: unknown): string[] {
+  const fieldName = 'payload.plannerPlanningReloadScope';
   if (!isRecord(value)) {
     return [`${fieldName} must be an object.`];
   }
   return [
     ...(value.schemaVersion === 1 ? [] : [`${fieldName}.schemaVersion must be 1.`]),
-    ...(value.purpose === 'lily-planning-read-context' ? [] : [`${fieldName}.purpose must be lily-planning-read-context.`]),
+    ...(value.purpose === 'planner-planning-read-context' ? [] : [`${fieldName}.purpose must be planner-planning-read-context.`]),
     ...validatePlannerChildTaskExecutionScope(value, parentSnapshot, fieldName),
   ];
 }

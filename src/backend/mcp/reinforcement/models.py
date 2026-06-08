@@ -4,9 +4,6 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-# ---------------------------------------------------------------------------
-# Schema versions
-# ---------------------------------------------------------------------------
 SCHEMA_VERSION_TASK_LEDGER = "1.0"
 SCHEMA_VERSION_AGENT_REWARDS = "1.0"
 SCHEMA_VERSION_SETTLEMENTS = "1.0"
@@ -14,9 +11,6 @@ SCHEMA_VERSION_FEEDBACK_EVENTS = "1.0"
 SCHEMA_VERSION_REALIGNMENT_SESSIONS = "1.0"
 SCHEMA_VERSION_GLOBAL_REALIGNMENT_DOC = "1.0"
 
-# ---------------------------------------------------------------------------
-# Difficulty → base reward
-# ---------------------------------------------------------------------------
 DIFFICULTY_REWARDS: dict[str, int] = {
     "easy": 1000,
     "medium": 2000,
@@ -40,14 +34,10 @@ def _load_agent_reward_multipliers() -> dict[str, float]:
 
 AGENT_REWARD_MULTIPLIERS: dict[str, float] = _load_agent_reward_multipliers()
 
-# Settlement constants
 SETTLEMENT_STREAK_THRESHOLD = 10
 CHILD_TASK_MULTIPLIER = 0.5
 
 
-# ---------------------------------------------------------------------------
-# Dataclasses
-# ---------------------------------------------------------------------------
 @dataclass(slots=True)
 class TaskLedgerEntry:
     task_id: str

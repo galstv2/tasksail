@@ -44,9 +44,6 @@ export const RUNTIME_REGISTRY_PATH = '.platform-state/mcp-registry-external.json
 /** Sentinel field value for file-not-found errors. */
 export const FILE_NOT_FOUND_FIELD = '(file-not-found)';
 
-/**
- * Detect any ${...} reference in a string.
- */
 const HAS_VAR_REF = /\$\{/;
 
 /**
@@ -101,10 +98,6 @@ export async function loadDefaultExternalRegistry(
   return loadExternalMcpRegistry(path.join(repoRoot, DEFAULT_REGISTRY_PATH));
 }
 
-// ---------------------------------------------------------------------------
-// Validation
-// ---------------------------------------------------------------------------
-
 function err(field: string, message: string, fix: string): ExternalMcpValidationError {
   return { field, message, fix };
 }
@@ -117,7 +110,6 @@ export function validateExternalMcpRegistry(data: unknown): ExternalMcpRegistryL
     return { ok: false, errors };
   }
 
-  // Schema version
   const version = data['schema_version'];
   if (typeof version !== 'number' || !Number.isInteger(version) || version < 1) {
     errors.push(err('schema_version', 'Must be a positive integer.', 'Set "schema_version": 1 at the top level.'));
@@ -135,7 +127,6 @@ export function validateExternalMcpRegistry(data: unknown): ExternalMcpRegistryL
     ));
   }
 
-  // external_servers — optional, defaults to empty
   const servers = data['external_servers'];
   if (servers !== undefined && !Array.isArray(servers)) {
     errors.push(err('external_servers', 'Must be an array.', 'Set "external_servers": [] or omit it entirely.'));
@@ -169,10 +160,6 @@ export function validateExternalMcpRegistry(data: unknown): ExternalMcpRegistryL
   };
 }
 
-// ---------------------------------------------------------------------------
-// Server entry validation
-// ---------------------------------------------------------------------------
-
 type ServerResult =
   | { server: ExternalMcpServer }
   | { errors: ExternalMcpValidationError[] };
@@ -188,7 +175,6 @@ function validateServerEntry(
     return { errors: [err(prefix, 'Server entry must be an object.', 'Each entry in "external_servers" must be a { } object.')] };
   }
 
-  // id
   const id = requireString(data, 'id', prefix, errors);
   if (id !== undefined) {
     if (seenIds.has(id)) {
@@ -198,10 +184,8 @@ function validateServerEntry(
     }
   }
 
-  // display_name
   const displayName = requireString(data, 'display_name', prefix, errors);
 
-  // purpose — required, length-limited
   const purpose = requireString(data, 'purpose', prefix, errors);
   if (purpose !== undefined && purpose.length > MAX_PURPOSE_LENGTH) {
     errors.push(err(
@@ -218,7 +202,6 @@ function validateServerEntry(
     ));
   }
 
-  // preferred_for — required, must be non-empty array of short strings
   let preferredFor: string[] | undefined;
   if (data['preferred_for'] === undefined) {
     errors.push(err(
@@ -265,7 +248,6 @@ function validateServerEntry(
     }
   }
 
-  // fallback_description — optional, length-limited
   let fallbackDescription: string | undefined;
   if (data['fallback_description'] !== undefined) {
     if (typeof data['fallback_description'] !== 'string') {
@@ -286,10 +268,8 @@ function validateServerEntry(
     }
   }
 
-  // enabled
   const enabled = requireBoolean(data, 'enabled', prefix, errors);
 
-  // transport
   const transport = requireString(data, 'transport', prefix, errors);
   if (transport !== undefined && !ALLOWED_TRANSPORTS.includes(transport as ExternalMcpTransport)) {
     errors.push(err(
@@ -350,13 +330,12 @@ function validateServerEntry(
       }
     }
   } else {
-    // URL-based server (http/sse).
     url = requireString(data, 'url', prefix, errors);
     if (url !== undefined) {
       validateUrl(url, `${prefix}.url`, errors);
     }
 
-    // headers — optional, values may contain ${ENV_VAR} references
+    // Header values may contain whole-value ${ENV_VAR} references.
     if (data['headers'] !== undefined) {
       if (!isRecord(data['headers'])) {
         errors.push(err(`${prefix}.headers`, 'Must be an object.', 'Use "headers": { "Name": "value" } with string values.'));
@@ -387,7 +366,7 @@ function validateServerEntry(
       }
     }
 
-    // tools — optional allowlist; '*' is permitted for url servers.
+    // URL servers may omit tools or use the wildcard.
     tools = validateStringArrayField(data, 'tools', prefix, errors, MAX_TOOLS_ITEMS, true);
   }
 
@@ -565,10 +544,6 @@ function validateAbsoluteCwd(
   return raw;
 }
 
-// ---------------------------------------------------------------------------
-// URL validation
-// ---------------------------------------------------------------------------
-
 /** Hostnames allowed with http:// (local development only). */
 const LOCAL_DEV_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
@@ -604,10 +579,6 @@ function validateUrl(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Load with fallback
-// ---------------------------------------------------------------------------
-
 /**
  * Load the external MCP registry, trying the runtime file first and
  * falling back to the checked-in default if the runtime file is missing.
@@ -630,10 +601,6 @@ export async function loadExternalMcpRegistryWithFallback(
 
   return { schema_version: CURRENT_SCHEMA_VERSION, external_servers: [] };
 }
-
-// ---------------------------------------------------------------------------
-// Field extraction helpers
-// ---------------------------------------------------------------------------
 
 function requireString(
   data: Record<string, unknown>,

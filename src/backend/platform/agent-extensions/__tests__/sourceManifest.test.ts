@@ -174,30 +174,21 @@ describe('parseSourceManifest', () => {
 });
 
 describe('serializeSourceManifest', () => {
-  it('produces deterministic output (sorted by id)', () => {
-    const manifest: AgentExtensionsSourceManifest = {
+  it('serialization contracts: sorted output, trailing newline, and round-trip', () => {
+    const twoEntry: AgentExtensionsSourceManifest = {
       schema_version: 1,
       extensions: [
         { ...VALID_GIT_ENTRY, id: 'z-skill', display_name: 'Z', description: 'Z desc', enabled: true } as AgentExtensionSourceManifestEntry,
         { ...VALID_GIT_ENTRY, id: 'a-skill', display_name: 'A', description: 'A desc', enabled: true } as AgentExtensionSourceManifestEntry,
       ],
     };
-    const serialized = serializeSourceManifest(manifest);
+    const serialized = serializeSourceManifest(twoEntry);
     const parsed = JSON.parse(serialized) as { extensions: Array<{ id: string }> };
     expect(parsed.extensions[0].id).toBe('a-skill');
     expect(parsed.extensions[1].id).toBe('z-skill');
-  });
+    expect(serialized).toMatch(/\n$/);
 
-  it('ends with a trailing newline', () => {
-    const manifest: AgentExtensionsSourceManifest = {
-      schema_version: 1,
-      extensions: [],
-    };
-    expect(serializeSourceManifest(manifest)).toMatch(/\n$/);
-  });
-
-  it('round-trips correctly', () => {
-    const manifest: AgentExtensionsSourceManifest = {
+    const oneEntry: AgentExtensionsSourceManifest = {
       schema_version: 1,
       extensions: [
         {
@@ -211,8 +202,6 @@ describe('serializeSourceManifest', () => {
         },
       ],
     };
-    const serialized = serializeSourceManifest(manifest);
-    const reparsed = parse(serialized, 'round-trip');
-    expect(reparsed).toEqual(manifest);
+    expect(parse(serializeSourceManifest(oneEntry), 'round-trip')).toEqual(oneEntry);
   });
 });

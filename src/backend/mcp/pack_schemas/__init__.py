@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Union
 
-from src.backend.mcp.pack_constants import MANIFEST_VERSION_V2 as _MANIFEST_VERSION_V2
+from src.backend.mcp.pack.constants import MANIFEST_VERSION_V2 as _MANIFEST_VERSION_V2
 from src.backend.mcp.pack_schemas.answers import (
     BootstrapAnswers as BootstrapAnswers,
 )
@@ -69,13 +69,9 @@ from src.backend.mcp.pack_schemas.plan import (
     validate_plan as validate_plan,
 )
 
-# ---------------------------------------------------------------------------
-# Version-dispatching manifest helpers
-#
 # These wrappers keep callers and the parametrized fixture tests version-agnostic:
 # pass any raw manifest dict and the right validator/dumper is selected based on
 # manifest_version. v2 fixtures go in the same manifest/ fixture dir as v1.
-# ---------------------------------------------------------------------------
 
 _AnyManifest = Union[RepoSourcesManifest, RepoSourcesManifestV2]
 

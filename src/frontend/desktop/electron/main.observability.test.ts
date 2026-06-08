@@ -64,7 +64,7 @@ vi.mock('../../../backend/platform/context-pack/focusedRepo.js', () => ({
   collectFocusedRepoTargetDirectoryRoots: vi.fn(() => []),
 }));
 
-vi.mock('./main.staging', () => ({
+vi.mock('./planner/staging', () => ({
   initializeStagedPlanningDraft: vi.fn(async () => undefined),
   clearStagingArtifacts: vi.fn(async () => undefined),
   readOwnedStagedDraft: vi.fn(async () => ({ draft: null, error: null, metadata: null })),
@@ -95,7 +95,7 @@ describe('electron main bootstrap — sessions and guardrails', () => {
 
   it('includes planner broker telemetry in the observability snapshot', async () => {
     const { readObservabilitySnapshot } = await import('./main');
-    const plannerSession = await import('./plannerSession');
+    const plannerSession = await import('./planner/session');
 
     plannerSession.endSession();
     const { sessionId } = await plannerSession.startSession('/contextpacks/test');
@@ -808,7 +808,7 @@ describe('electron main bootstrap — sessions and guardrails', () => {
   });
 
   it('§7.0C OperatorStatus shape lock: operatorStatus is an object with activeTasks array and activeTaskId scalar', async () => {
-    // §5.5 F28: OperatorStatus changed from string enum to { activeTasks, activeTaskId }.
+    // OperatorStatus changed from string enum to { activeTasks, activeTaskId }.
     // This test locks the shape so regressions in the contract are caught immediately.
     const { readQueueStatusSnapshot } = await import('./main');
 

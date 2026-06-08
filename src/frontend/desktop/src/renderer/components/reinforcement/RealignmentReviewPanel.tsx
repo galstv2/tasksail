@@ -1,9 +1,9 @@
 import { useState } from 'react';
 
 import type { ReinforcementRealignmentSessionEntry } from '../../../shared/desktopContract';
-import type { RealignmentAnalysisRunState } from '../../hooks/useRealignmentSessions';
-import ConfirmOverlay from '../ConfirmOverlay';
-import { CloseIcon, StarIcon } from '../creation-steps/icons';
+import type { RealignmentAnalysisRunState } from '../../hooks/reinforcement/useRealignmentSessions';
+import ConfirmOverlay from '../shared/ConfirmOverlay';
+import { CloseIcon, StarIcon } from '../icons';
 import RealignmentSessionDetail from './RealignmentSessionDetail';
 import RealignmentSessionList from './RealignmentSessionList';
 import { realignmentActionLabel } from './realignmentSessionActions';

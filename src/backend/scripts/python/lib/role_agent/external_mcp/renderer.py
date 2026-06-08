@@ -61,11 +61,6 @@ def _is_pid_alive(pid: int) -> bool:
         return True
 
 
-# ---------------------------------------------------------------------------
-# Stale directory cleanup
-# ---------------------------------------------------------------------------
-
-
 def _read_provider_pid_sentinel(entry: Path) -> int | None:
     """Read the provider PID from a .provider-pid sentinel file.
 
@@ -131,11 +126,6 @@ def _rmtree(p: Path) -> None:
     shutil.rmtree(p)
 
 
-# ---------------------------------------------------------------------------
-# Env variable resolution
-# ---------------------------------------------------------------------------
-
-
 def resolve_headers(
     server: dict[str, Any],
 ) -> dict[str, str] | None:
@@ -147,10 +137,6 @@ def resolve_headers(
     """
     return resolve_env_ref_map(server.get("headers"), server.get("id", "?"))
 
-
-# ---------------------------------------------------------------------------
-# Connectivity preflight (advisory only — never blocks launch)
-# ---------------------------------------------------------------------------
 
 _PREFLIGHT_TIMEOUT_S = 3.0
 
@@ -208,9 +194,6 @@ def preflight_check_servers(
                 warnings.append(msg)
 
     return warnings
-# ---------------------------------------------------------------------------
-# Resolved server projection
-# ---------------------------------------------------------------------------
 
 
 def resolve_mcp_servers(
@@ -240,12 +223,6 @@ def resolve_mcp_servers(
             record["tools"] = list(tools)
         records.append(record)
     return records
-
-
-
-# ---------------------------------------------------------------------------
-# Capability summary rendering
-# ---------------------------------------------------------------------------
 
 
 def render_capability_summary(
@@ -294,11 +271,6 @@ def render_capability_summary(
     summary_path = launch_dir / "mcp-capability-summary.md"
     summary_path.write_text("\n".join(lines), encoding="utf-8")
     return summary_path
-
-
-# ---------------------------------------------------------------------------
-# Launch context orchestration
-# ---------------------------------------------------------------------------
 
 
 class LaunchContext:
@@ -365,10 +337,10 @@ def prepare_launch_context(
     """
     root = Path(root_dir)
 
-    # Step 1: cleanup stale directories.
+    # Clean up stale launch directories before rendering this launch.
     cleanup_stale_launches(root, agent_id)
 
-    # Step 2: no servers selected → not-applicable.
+    # No selected servers means there is no launch context to inject.
     if not servers:
         return LaunchContext(
             status="not-applicable",
@@ -376,8 +348,8 @@ def prepare_launch_context(
             injection_enabled=False,
         )
 
-    # Step 3: resolve secrets per transport, exclude servers fail-closed.
-    #   - local servers are gated behind the operator opt-in flag, then
+    # Resolve transport secrets and fail closed for servers that cannot render.
+    #   - local servers require operator opt-in, then
     #     resolve env (fail-closed) and require their command on PATH;
     #   - url servers resolve headers (fail-closed).
     local_enabled = local_mcp_enabled()
@@ -421,14 +393,14 @@ def prepare_launch_context(
         surviving.append(server)
         surviving_secret_maps.append(headers)
 
-    # Emit the opt-in-disabled notice once per launch context (not per server).
+    # Emit the opt-in-disabled notice once for each launch context.
     if local_excluded_by_flag:
         logger.warning(
             "external_mcp.local.disabled",
             extra={"reason": "external_mcp_local_enabled is off"},
         )
 
-    # Step 4: all servers excluded → unavailable.
+    # If every server was excluded, report unavailable.
     if not surviving:
         return LaunchContext(
             status="unavailable",
@@ -437,13 +409,13 @@ def prepare_launch_context(
             excluded_servers=excluded,
         )
 
-    # Step 4.5: advisory connectivity preflight (never blocks). Local servers
-    # have no network endpoint, so they are skipped.
+    # Advisory connectivity preflight never blocks. Local servers have no
+    # network endpoint, so they are skipped.
     preflight_check_servers([s for s in surviving if not is_local_server(s)])
 
-    # Step 5: create per-launch directory and render.
-    # SEC-TS-02: the per-launch dir holds resolved MCP auth tokens. mkdir mode is
-    # masked by umask, so chmod explicitly to guarantee owner-only access.
+    # Create the launch-specific directory and render.
+    # The launch directory holds resolved MCP auth tokens. mkdir mode is masked
+    # by umask, so chmod explicitly to guarantee owner-only access.
     _chr = cli_home_root(root)
     _chr.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(_chr, 0o700)
@@ -469,7 +441,7 @@ def prepare_launch_context(
     summary_path = render_capability_summary(launch_dir, surviving)
     resolved_servers = resolve_mcp_servers(surviving, surviving_secret_maps)
 
-    # Step 6: determine status.
+    # Determine final launch status.
     if excluded:
         status = "degraded"
         reason = (

@@ -8,199 +8,146 @@ class WorkflowPolicyDocsTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.repo_root = Path(__file__).resolve().parents[3]
-        cls.legacy_workflow_steps_dir = (
-            cls.repo_root
-            / "docs"
-            / "ImplementationSteps"
-            / "WorkflowPolicyEnforcementSteps"
+        docs = cls.repo_root / "docs" / "technical"
+        cls.workflow_pipeline = (
+            docs / "architecture" / "workflow-pipeline.md"
+        ).read_text(encoding="utf-8")
+        cls.agent_roster = (
+            docs / "architecture" / "agent-roster-and-autonomy.md"
+        ).read_text(encoding="utf-8")
+        cls.context_pack = (
+            docs / "architecture" / "context-pack-lifecycle.md"
+        ).read_text(encoding="utf-8")
+        cls.qmd = (
+            docs / "architecture" / "qmd-storage-and-memory.md"
+        ).read_text(encoding="utf-8")
+        cls.workflow_policy = (
+            docs / "platform-modules" / "workflow-policy.md"
+        ).read_text(encoding="utf-8")
+        cls.queue = (docs / "platform-modules" / "queue.md").read_text(
+            encoding="utf-8"
         )
-        cls.readme = (cls.repo_root / "README.md").read_text(
-            encoding="utf-8",
+        cls.mcp = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in sorted((docs / "mcp").glob("*.md"))
         )
-        cls.onboarding = (
-            cls.repo_root / "docs" / "getting-started" / "onboarding.md"
-        ).read_text(encoding="utf-8")
-        cls.operating_model = (
-            cls.repo_root / "docs" / "workflow" / "operating-model.md"
-        ).read_text(encoding="utf-8")
-        cls.platform_spec = (
-            cls.repo_root / "docs" / "architecture" / "platform-spec.md"
-        ).read_text(encoding="utf-8")
-        cls.context_pack_model = (
-            cls.repo_root / "docs" / "architecture" / "context-pack-model.md"
-        ).read_text(encoding="utf-8")
-        cls.qmd_memory_model = (
-            cls.repo_root / "docs" / "qmd" / "memory-model.md"
-        ).read_text(encoding="utf-8")
-        cls.qmd_metadata_schema = (
-            cls.repo_root / "docs" / "qmd" / "metadata-schema.md"
-        ).read_text(encoding="utf-8")
-        cls.qmd_task_filing_system = (
-            cls.repo_root / "docs" / "qmd" / "task-filing-system.md"
-        ).read_text(encoding="utf-8")
+        cls.operations = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in sorted((docs / "operations").glob("*.md"))
+        )
+        cls.contributing = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in sorted((docs / "contributing").glob("*.md"))
+        )
+        cls.all_technical = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in sorted(docs.rglob("*.md"))
+        )
 
-    # (doc_attr, phrase) tuples — every phrase must appear in the named doc.
-    _POSITIVE_ASSERTIONS: list[tuple[str, str]] = [
-        # Workflow policy runtime references across core docs
-        ("readme", "src/backend/platform/workflow-policy/cli.ts"),
-        ("readme", "fail closed"),
-        ("readme", "pnpm run local-checks"),
-        ("readme", ".platform-state/runtime/guardrails/"),
-        ("onboarding", "src/backend/platform/workflow-policy/cli.ts"),
-        ("onboarding", "fail closed"),
-        ("onboarding", "pnpm run local-checks"),
-        ("onboarding", ".platform-state/runtime/guardrails/"),
-        ("platform_spec", "canonical enforcement seam"),
-        ("platform_spec", "CI validation run fail closed"),
-        ("platform_spec", ".platform-state/runtime/guardrails/"),
-        ("operating_model", "canonical enforcement seam"),
-        ("operating_model", ".platform-state/runtime/guardrails/"),
-        # Agents as first-class platform layer
-        ("readme", ".github/agents/"),
-        ("readme", ".github/agents/registry.json"),
-        ("onboarding", ".github/agents/"),
-        ("onboarding", ".github/agents/registry.json"),
-        ("operating_model", ".github/agents/"),
-        ("operating_model", ".github/agents/registry.json"),
-        ("platform_spec", ".github/agents/"),
-        ("platform_spec", ".github/agents/registry.json"),
-        # QMD retrospective paths
-        (
-            "context_pack_model",
-            "qmd/context-packs/{context-pack-id}/archive/"
-            "retrospectives/{repo}/{year}/{task-id}/retrospective.md",
-        ),
-        ("context_pack_model", "qmd/global/retrospectives"),
-        ("qmd_memory_model", "qmd/global/retrospectives/shared-retrospective-memory.md"),
-        ("qmd_task_filing_system", "qmd/global/retrospectives/history/{year}/{task-id}/retrospective.md"),
-        ("qmd_task_filing_system", "retrospective.md.record.json"),
-        # Retrospective as required closeout gate
-        ("readme", "AgentWorkSpace/tasks/<taskId>/handoffs/retrospective-input.md"),
-        ("onboarding", "AgentWorkSpace/tasks/<taskId>/handoffs/retrospective-input.md"),
-        ("operating_model", "AgentWorkSpace/tasks/<taskId>/handoffs/retrospective-input.md"),
-        ("platform_spec", "AgentWorkSpace/tasks/<taskId>/handoffs/retrospective-input.md"),
-        ("qmd_task_filing_system", "AgentWorkSpace/tasks/<taskId>/handoffs/retrospective-input.md"),
-        ("readme", "fail closed"),
-        ("onboarding", "fail closed"),
-        ("operating_model", "closeout can archive or advance the queue"),
-        ("platform_spec", "same fail-closed retrospective gate"),
-        # Context-pack conventions contract
-        ("qmd_metadata_schema", "summary_scope: context-pack"),
-        ("qmd_metadata_schema", "codebase-conventions.md"),
-        ("qmd_metadata_schema", "codebase-conventions.md.record.json"),
-        ("qmd_metadata_schema", "context-pack guidance memory"),
-        (
-            "context_pack_model",
-            "qmd/context-packs/{context-pack-id}/canonical/"
-            "context-pack/codebase-conventions.md",
-        ),
-        ("context_pack_model", "not a bootstrap questionnaire answer"),
-        ("context_pack_model", "deferred state"),
-    ]
+    def test_workflow_docs_cover_registry_policy_and_closeout_boundaries(self) -> None:
+        for phrase in (
+            "Lily",
+            "Alice",
+            "Dalton",
+            "Ron",
+            "role-agent entrypoint",
+            "workflow-policy checks",
+            "task id",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, self.workflow_pipeline)
 
-    def test_docs_contain_required_workflow_policy_concepts(self) -> None:
-        for attr, phrase in self._POSITIVE_ASSERTIONS:
-            with self.subTest(doc=attr, phrase=phrase[:60]):
-                self.assertIn(phrase, getattr(self, attr))
+        for phrase in (
+            "registry-owned",
+            "Provider-neutral workflow roles",
+            "GitHub Copilot is the shipped CLI provider",
+            "Broad autonomous execution fails closed",
+            "model ids",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, self.agent_roster)
 
-    _NEGATIVE_ASSERTIONS: list[tuple[str, list[str]]] = [
-        # Removed workflow-policy steps tree must stay absent
-        (
-            "docs/ImplementationSteps/WorkflowPolicyEnforcementSteps",
-            ["readme", "onboarding", "operating_model", "platform_spec"],
-        ),
-        (
-            "WorkflowPolicyEnforcementSteps/README.md",
-            ["readme", "onboarding", "operating_model", "platform_spec"],
-        ),
-        (
-            "slice-06-regression-hardening-and-rollout-tightening.md",
-            ["readme", "onboarding", "operating_model", "platform_spec"],
-        ),
-        # Unsupported enforcement claims
-        (
+        for phrase in (
+            "runtime legality checks",
+            "Guarded checks fail closed",
+            "workflow-policy",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, self.workflow_policy)
+
+    def test_queue_docs_cover_parallel_state_and_repair_surfaces(self) -> None:
+        for phrase in (
+            "more than one active task",
+            "Active markers",
+            "activating markers",
+            "kill requests",
+            "error items",
+            "Closeout must specify a task id",
+            "Repair commands",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, self.queue)
+
+    def test_mcp_docs_cover_auth_header_env_and_launch_semantics(self) -> None:
+        for phrase in (
+            "POST routes require a configured token",
+            "bearer authorization",
+            "REPO_CONTEXT_MCP_REQUIRE_GET_AUTH",
+            "Host and Origin",
+            "TASKSAIL_LOCAL_MCP_ENABLED",
+            "external_mcp_local_enabled",
+            "whole-value environment references",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, self.mcp)
+
+    def test_context_pack_and_qmd_docs_preserve_unresolved_source_seams(self) -> None:
+        self.assertIn("Python parser-owned bootstrap command", self.context_pack)
+        self.assertIn("discovery-root", self.context_pack)
+        self.assertIn("unresolved source seam", self.qmd)
+        self.assertIn("conventions filename", self.qmd)
+        self.assertIn("reseed markers", self.qmd)
+        self.assertIn("seed-state", self.qmd)
+
+    def test_operations_and_contributing_docs_cover_current_validation_contracts(self) -> None:
+        for phrase in (
+            "direct local execution",
+            "Docker and Podman remain optional",
+            "TASKSAIL_CLI_PROVIDER",
+            "model catalog",
+            "repo-context auth token",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, self.operations)
+
+        for phrase in (
+            "pnpm run check-sizes",
+            "pnpm run check-comments",
+            "pnpm run check-open-source-readiness",
+            "tests/test_manifest.json",
+            "docs-check workflow",
+            "Python backend services",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, self.contributing)
+
+    def test_technical_docs_omit_unsupported_legacy_claims(self) -> None:
+        forbidden = (
             "the wrapper is the canonical enforcement seam",
-            ["readme", "onboarding", "operating_model", "platform_spec"],
-        ),
-        (
             "wrapper-only enforcement replaces the workflow-policy validator",
-            ["readme", "onboarding", "operating_model", "platform_spec"],
-        ),
-        (
-            "direct `copilot --agent <agent-id>` remains an intentional bypass path",
-            ["readme", "onboarding", "operating_model", "platform_spec"],
-        ),
-        # Stale future-tense references
-        (
-            "planned canonical enforcement seam",
-            ["onboarding", "operating_model", "platform_spec"],
-        ),
-        (
-            "During the current documentation-first phase",
-            ["onboarding", "operating_model", "platform_spec"],
-        ),
-        (
-            "Once the validator runtime lands",
-            ["onboarding", "operating_model", "platform_spec"],
-        ),
-        (
-            "Until the validator runtime lands",
-            ["onboarding", "operating_model", "platform_spec"],
-        ),
-        (
-            "future workflow-policy checks fail",
-            ["onboarding", "operating_model", "platform_spec"],
-        ),
-        (
-            "should eventually treat the bootstrap answers",
-            ["onboarding", "operating_model", "platform_spec"],
-        ),
-        # Unsupported retrospective behavior claims
-        (
             "retrospective transcripts are stored as raw chat logs",
-            [
-                "readme", "onboarding", "operating_model", "platform_spec",
-                "context_pack_model", "qmd_memory_model",
-                "qmd_metadata_schema", "qmd_task_filing_system",
-            ],
-        ),
-        (
             "retrospective memory replaces context-pack-scoped task archives",
-            [
-                "readme", "onboarding", "operating_model", "platform_spec",
-                "context_pack_model", "qmd_memory_model",
-                "qmd_metadata_schema", "qmd_task_filing_system",
-            ],
-        ),
-        (
-            "retrospective retrieval outranks active repo or handoff state",
-            [
-                "readme", "onboarding", "operating_model", "platform_spec",
-                "context_pack_model", "qmd_memory_model",
-                "qmd_metadata_schema", "qmd_task_filing_system",
-            ],
-        ),
-    ]
-
-    def test_removed_workflow_steps_dir_stays_absent(self) -> None:
-        self.assertFalse(self.legacy_workflow_steps_dir.exists())
-
-    def test_docs_omit_stale_or_unsupported_claims(self) -> None:
-        for phrase, doc_attrs in self._NEGATIVE_ASSERTIONS:
-            for attr in doc_attrs:
-                with self.subTest(doc=attr, phrase=phrase[:60]):
-                    self.assertNotIn(phrase, getattr(self, attr))
-
-    def test_docs_describe_retrospective_sidecar_schema(self) -> None:
-        expected_phrases = [
-            "task-retrospective",
-            "global-retrospective-entry",
-            "global-retrospective-memory",
-            "agent_contributions",
-            "synthesized_from_task_ids",
-        ]
-        for phrase in expected_phrases:
-            self.assertIn(phrase, self.qmd_metadata_schema)
+            "--bootstrap-answers-file",
+            "plan-followup-task",
+            "watch-dropbox",
+            "agent:status",
+            "agent:kill",
+            "gpt-5.4",
+            "claude-sonnet-4.6",
+        )
+        for phrase in forbidden:
+            with self.subTest(phrase=phrase):
+                self.assertNotIn(phrase, self.all_technical)
 
 
 if __name__ == "__main__":

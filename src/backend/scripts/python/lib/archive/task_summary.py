@@ -48,7 +48,7 @@ def build_task_archive_markdown(payload: dict[str, Any]) -> str:
     _add_list_section(lines, "Files Changed", payload.get("touched_files"))
     _add_list_section(lines, "Follow-Up Backlog", payload.get("followup_refs"))
     _add_handoff_artifacts_section(lines, payload.get("handoff_artifacts"))
-    # Append-only: this advisory section must remain last.
+    # Append-only: advisory content must remain last.
     _add_text_section(lines, "QA Advisory Finding", payload.get("advisory_finding"))
 
     return "\n".join(lines)

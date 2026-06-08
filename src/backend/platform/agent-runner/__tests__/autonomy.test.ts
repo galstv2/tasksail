@@ -85,7 +85,7 @@ describe('resolveAutonomyProfile', () => {
   it('does not bake per-task dirs into the resolver — that responsibility moved to roleAgent.ts', () => {
     // This resolver is intentionally taskId-unaware: per-task --add-dir scoping
     // is applied in roleAgent.ts so a single source of truth handles cross-task
-    // filesystem isolation for every agent uniformly (see roleAgent.ts §3b).
+    // filesystem isolation for every agent uniformly.
     const intent = resolveAutonomyProfile(makeQaExecutor(), undefined, '/repo');
     expect(intent.allowedDirs).not.toContain('/repo/AgentWorkSpace/tasks/task-test-001/handoffs');
     expect(intent.allowedDirs).not.toContain('/repo/AgentWorkSpace/ImplementationSteps');

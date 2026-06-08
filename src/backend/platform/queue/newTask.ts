@@ -158,7 +158,7 @@ export async function initializeTask(
     validateTaskId(taskId);
   }
 
-  // Per-task handoffs directory (§4.1B)
+  // Per-task handoffs directory.
   const perTaskHandoffsDir = queuePaths.taskHandoffs(taskId);
   await ensureDir(perTaskHandoffsDir);
 
@@ -211,7 +211,7 @@ export async function initializeTask(
     implementationStepsDir,
   });
 
-  // §4.1B: contextPackPath is now passed explicitly; do NOT read ACTIVE_CONTEXT_PACK_DIR env.
+  // contextPackPath is passed explicitly; do NOT read ACTIVE_CONTEXT_PACK_DIR env.
   // When missing, treat as non-fatal for task initialization (best-effort).
   const resolvedContextPackDir: string | undefined = contextPackPath;
 

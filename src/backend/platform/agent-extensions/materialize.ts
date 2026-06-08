@@ -251,7 +251,7 @@ export async function materializeExtension(
     } else if (entry.source.type === 'local') {
       await copyLocalSource(entry.source.path, entry.source.source_subpath, tempDir);
     } else {
-      // direct-attachment: SKILL.md is at config_path already materialized
+      // direct-attachment: the authored skill document is already materialized
       const configPath = entry.source.config_path;
       // Containment check: config_path must stay within repoRoot
       const repoReal = canonicalRoot(repoRoot);

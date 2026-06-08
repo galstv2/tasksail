@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -11,7 +11,6 @@ import { evaluateSpecQualityRules } from '../rules/spec.js';
 import { evaluateTaskQualityRules } from '../rules/taskQuality.js';
 
 const TEST_TASK_ID = 'task-test-001';
-const REPO_ROOT = path.join(import.meta.dirname, '../../../../..');
 
 function writeRepoFile(repoRoot: string, relativePath: string, content: string): void {
   const absolutePath = path.join(repoRoot, relativePath);
@@ -267,26 +266,6 @@ describe('workflow-policy content rule families', () => {
 
   afterEach(async () => {
     await Promise.all(createdRoots.splice(0).map((repoRoot) => rm(repoRoot, { recursive: true, force: true })));
-  });
-
-  it('keeps Alice instructions aligned with Dalton-ready slice authoring', () => {
-    const file = readFileSync(
-      path.join(REPO_ROOT, '.github/copilot/instructions/product-manager.instructions.md'),
-      'utf-8',
-    );
-
-    expect(file).toContain('Populate slices as execution blueprints, not summaries.');
-    expect(file).toContain('simple surgical tasks should be concise and exact');
-    expect(file).toContain('medium tasks need enough file/symbol/test detail to remove ambiguity');
-    expect(file).toContain('complex or risky tasks need expanded boundaries, sequencing, contracts, guards, validation, and coordination');
-    expect(file).toContain('Complex` uses Dalton fleet/orchestrator mode');
-    expect(file).toContain('Do not require every `Complex` slice to be independent or concurrently executable.');
-    expect(file).toContain('Do not require every slice to copy every requirement ID.');
-    expect(file).toContain('Do not require Dalton to read operator chat, Lily chat, private planning artifacts, or internal planning playbooks.');
-    expect(file).not.toMatch(/scratchspace/i);
-    expect(file).not.toMatch(/all slices must (run concurrently|be independent)/i);
-    expect(file).not.toMatch(/Choose `Complex` only when ALL/i);
-    expect(file).not.toMatch(/professional-task\.md/i);
   });
 
   it('accepts matching generated implementation-spec intake requirements', async () => {

@@ -1,4 +1,4 @@
-import type { DocumentDraft } from '../../hooks/useRealignmentDocument';
+import type { DocumentDraft } from '../../hooks/reinforcement/useRealignmentDocument';
 
 type GlobalRealignmentEditorProps = {
   hasActiveContextPack: boolean;

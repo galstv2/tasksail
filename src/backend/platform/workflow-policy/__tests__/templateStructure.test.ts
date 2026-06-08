@@ -173,51 +173,6 @@ describe('implementation-spec template structure', () => {
     );
   });
 
-  it('keeps implementation-spec and slice templates scaled without filler guidance', () => {
-    const implementationSpec = readFileSync(
-      join(REPO_ROOT, 'AgentWorkSpace/templates/implementation-spec.md'),
-      'utf-8',
-    );
-    const sliceTemplate = readFileSync(
-      join(REPO_ROOT, 'AgentWorkSpace/templates/slice-template.md'),
-      'utf-8',
-    );
-
-    expect(implementationSpec).toContain('Scale detail to task complexity');
-    expect(implementationSpec).toContain('Do not add filler');
-    expect(sliceTemplate).toContain('Scale detail to task complexity');
-    expect(sliceTemplate).toContain('Do not add filler');
-  });
-
-  it('keeps new slice guidance headings inside existing top-level sections', () => {
-    const markdown = readFileSync(
-      join(REPO_ROOT, 'AgentWorkSpace/templates/slice-template.md'),
-      'utf-8',
-    );
-    const headings = [...markdown.matchAll(/^## (.+)$/gm)].map((match) => match[1]);
-    const nestedHeadings = [...markdown.matchAll(/^### (.+)$/gm)].map((match) => match[1]);
-
-    expect(headings).toEqual([
-      'Objective',
-      'Dependencies and Order',
-      'Execution Scope',
-      'Files and Interfaces',
-      'Acceptance and Validation',
-      'Guards and Coordination',
-    ]);
-    expect(nestedHeadings).toEqual(expect.arrayContaining([
-      'Inputs to Read',
-      'Current Symbols',
-      'Included Symbols',
-      'Excluded Symbols',
-      'Requirement Coverage',
-      'Allowed Changes',
-      'Out of Scope',
-      'Stale Assumption Handling',
-      'Closeout Requirements',
-    ]));
-  });
-
   it('keeps Requirement Coverage nested under Execution Scope', () => {
     const markdown = readFileSync(
       join(REPO_ROOT, 'AgentWorkSpace/templates/slice-template.md'),

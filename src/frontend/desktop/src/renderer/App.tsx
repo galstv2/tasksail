@@ -1,31 +1,31 @@
-import AgentConfigModal from './components/AgentConfigModal';
-import AgentInstructionsBrowser from './components/AgentInstructionsBrowser';
-import AgentInstructionsEditor from './components/AgentInstructionsEditor';
-import AgentConfigRail from './components/AgentConfigRail';
-import InstructionsRail from './components/InstructionsRail';
-import ConfigRailStack from './components/ConfigRailStack';
-import ContextPackSidebar from './components/ContextPackSidebar';
-import { RefreshIcon, StarIcon } from './components/creation-steps/icons';
+import AgentConfigModal from './components/agent-config/AgentConfigModal';
+import AgentInstructionsBrowser from './components/agent-config/AgentInstructionsBrowser';
+import AgentInstructionsEditor from './components/agent-config/AgentInstructionsEditor';
+import AgentConfigRail from './components/agent-config/AgentConfigRail';
+import InstructionsRail from './components/agent-config/InstructionsRail';
+import ConfigRailStack from './components/agent-config/ConfigRailStack';
+import ContextPackSidebar from './components/context-pack/ContextPackSidebar';
+import { RefreshIcon, StarIcon } from './components/icons';
 import { TaskNotificationCenterButton } from './components/task-notifications/TaskNotificationCenterButton';
 import { TaskNotificationPanel } from './components/task-notifications/TaskNotificationPanel';
 import TaskBoard from './components/taskboard/TaskBoard';
-import ContextPackCreationModal from './components/ContextPackCreationModal';
-import ErrorBoundary from './components/ErrorBoundary';
-import McpConfigModal from './components/McpConfigModal';
+import ContextPackCreationModal from './components/context-pack/ContextPackCreationModal';
+import ErrorBoundary from './components/shared/ErrorBoundary';
+import McpConfigModal from './components/mcp-settings/McpConfigModal';
 import ReinforcementModal from './components/reinforcement/ReinforcementModal';
-import McpConfigRail from './components/McpConfigRail';
-import SystemSettingsRail from './components/SystemSettingsRail';
-import SystemSettingsModal from './components/SystemSettingsModal';
-import TerminalFeed from './components/TerminalFeed';
-import PlannerModal from './components/PlannerModal';
+import McpConfigRail from './components/mcp-settings/McpConfigRail';
+import SystemSettingsRail from './components/mcp-settings/SystemSettingsRail';
+import SystemSettingsModal from './components/mcp-settings/SystemSettingsModal';
+import TerminalFeed from './components/terminal/TerminalFeed';
+import PlannerModal from './components/planner/PlannerModal';
 import { ObservabilityProvider } from './contexts/ObservabilityContext';
 import { ToastProvider } from './contexts/ToastContext';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useAppShell } from './hooks/useAppShell';
-import { useThemeToggle } from './hooks/useThemeToggle';
+import { useAppShell } from './hooks/shared/useAppShell';
+import { useThemeToggle } from './hooks/shared/useThemeToggle';
 import { classNames } from './utils/classNames';
 
-const NOTIFICATION_PANEL_CLOSE_MS = 160;
+const NOTIFICATION_PANEL_CLOSE_MS = 90;
 
 function AppContent(): JSX.Element {
   const {
@@ -100,6 +100,18 @@ function AppContent(): JSX.Element {
     openNotificationPanel,
   ]);
 
+  const refreshNotifications = useCallback(() => {
+    void notificationCenterProps.refresh();
+  }, [notificationCenterProps.refresh]);
+
+  const dismissNotification = useCallback((notificationId: string) => {
+    void notificationCenterProps.dismiss(notificationId);
+  }, [notificationCenterProps.dismiss]);
+
+  const dismissAllNotifications = useCallback(() => {
+    void notificationCenterProps.dismissAll();
+  }, [notificationCenterProps.dismissAll]);
+
   const shouldRenderNotificationPanel = notificationCenterProps.isOpen || isNotificationPanelClosing;
 
   return (
@@ -164,9 +176,9 @@ function AppContent(): JSX.Element {
         <TaskNotificationPanel
           notifications={notificationCenterProps.notifications}
           onClose={closeNotificationPanel}
-          onRefresh={() => void notificationCenterProps.refresh()}
-          onDismiss={(notificationId) => void notificationCenterProps.dismiss(notificationId)}
-          onDismissAll={() => void notificationCenterProps.dismissAll()}
+          onRefresh={refreshNotifications}
+          onDismiss={dismissNotification}
+          onDismissAll={dismissAllNotifications}
           returnFocusRef={notificationButtonRef}
           isClosing={isNotificationPanelClosing}
         />

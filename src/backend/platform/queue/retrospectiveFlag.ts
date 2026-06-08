@@ -172,7 +172,7 @@ async function reclaimIfStale(lockDir: string): Promise<void> {
   }
 }
 
-// ── Counter file read/write helpers (used under lock) ────────────────────
+// Counter file read/write helpers; callers hold the lock.
 
 interface CounterPayload {
   schema_version: string;
@@ -291,7 +291,7 @@ function retrospectiveRequiredForTask(
   );
 }
 
-// ── Public read-only query (no lock — caller must serialize externally) ────
+// Public read-only query; caller must serialize externally.
 
 export async function getRetrospectiveRequiredForNextTask(options: {
   repoRoot: string;
@@ -432,13 +432,13 @@ export async function stampRetrospectiveRequiredMetadata(options: {
   await writeRetrospectiveRequiredLabel(retrospectivePath, content, required);
 }
 
-// ── Locked sync: read → decide → increment → write (F2 lock scope) ───────
+  // Locked sync: read -> decide -> increment -> write.
 
 /**
  * Atomically: acquire per-context-pack counter lock (precedence 4, held AFTER
  * queue lock), read the counter, decide whether a retrospective is required for
  * the task being completed, increment the counter, write it back, then update
- * the `Retrospective Required` label in retrospective-input.md.
+ * the `Retrospective Required` label in the retrospective input handoff.
  *
  * The lock is held continuously across the entire read-decide-increment-write
  * triple — releasing between any two steps would allow two concurrent callers
@@ -476,7 +476,7 @@ export async function syncRetrospectiveRequiredMetadata(options: {
   }
 
   try {
-    // F2 lock scope: read → decide → increment → write held atomically
+    // Read -> decide -> increment -> write is held atomically.
     const state = await readCounter(counterPath, contextPackId);
     const taskId = options.taskId;
     const shouldIncrement = shouldIncrementCounterForTask(state, taskId);

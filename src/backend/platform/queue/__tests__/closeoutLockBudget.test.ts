@@ -28,11 +28,6 @@ describe('closeoutQueueLockBudget', () => {
     expect(budget.maxRetries).toBeGreaterThanOrEqual(DIR_LOCK_DEFAULT_MAX_RETRIES);
   });
 
-  it('budget for 1 task is still at least the dirLock default retries', () => {
-    const budget = closeoutQueueLockBudget(1);
-    expect(budget.maxRetries).toBeGreaterThanOrEqual(DIR_LOCK_DEFAULT_MAX_RETRIES);
-  });
-
   it('returned budget always satisfies the inequality for the given task count', () => {
     for (const n of [1, 2, 5, 10, 20]) {
       const budget = closeoutQueueLockBudget(n);

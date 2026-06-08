@@ -8,6 +8,7 @@ import {
   GENERIC_REQUIRED_FILES,
   getRequiredDirs,
   getRequiredFiles,
+  normalizeStructureRelativePath,
 } from '../structure.js';
 
 describe('getRequiredDirs contents', () => {
@@ -20,7 +21,6 @@ describe('getRequiredDirs contents', () => {
 
   it('does not contain legacy singleton dirs AgentWorkSpace/handoffs or the old hyphen-free error dir', () => {
     expect(GENERIC_REQUIRED_DIRS).not.toContain('AgentWorkSpace/handoffs');
-    // error-items (with hyphen) must be present; the old non-hyphenated name must NOT be present.
     const oldErrorDir = ['AgentWorkSpace', 'error' + 'items'].join('/');
     expect(GENERIC_REQUIRED_DIRS).not.toContain(oldErrorDir);
   });
@@ -40,19 +40,13 @@ describe('getRequiredFiles contents', () => {
   });
 
   it('getRequiredFiles equals the generic list — the Copilot provider declares no required files', () => {
-    // The Copilot CLI's `--agent` mode reads role instructions from
-    // .github/copilot/instructions/ (enforced via requiredDirs). There is no
-    // top-level file the CLI auto-loads at runtime, so the provider has no
-    // required-file contract to add to the generic set.
-    //
-    // In particular, .github/copilot-instructions.md is GitHub's IDE / Chat
-    // convention — a personal dev aid, gitignored in this repo — and must
-    // NOT be on the validation gate. If it were, a fresh clone would fail
-    // `pnpm run validate` until the developer manually created a personal
-    // file the platform never reads at runtime.
+    // Copilot `--agent` reads .github/copilot/instructions/ via requiredDirs;
+    // top-level Copilot IDE / Chat instructions are personal dev aids, not
+    // runtime-required platform files.
+    const ignoredCopilotInstructions = ['.github', 'copilot-instructions.md'].join('/');
     const requiredFiles = getRequiredFiles(process.cwd());
     expect(requiredFiles).toEqual(GENERIC_REQUIRED_FILES);
-    expect(requiredFiles).not.toContain('.github/copilot-instructions.md');
+    expect(requiredFiles).not.toContain(ignoredCopilotInstructions);
     expect(requiredFiles).not.toContain('CLAUDE.md');
   });
 });
@@ -62,7 +56,6 @@ describe('validateStructure', () => {
 
     beforeEach(async () => {
     tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'validate-structure-'));
-    // Create .git so findRepoRoot works if called without repoRoot
     await fs.promises.mkdir(path.join(tmpDir, '.git'));
   });
 
@@ -71,7 +64,6 @@ describe('validateStructure', () => {
   });
 
   it('detects missing required directories', async () => {
-    // Create only files, no dirs
     for (const file of getRequiredFiles(tmpDir)) {
       const filePath = path.join(tmpDir, file);
       await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
@@ -85,7 +77,6 @@ describe('validateStructure', () => {
   });
 
   it('detects missing required files', async () => {
-    // Create all dirs but no files
     for (const dir of getRequiredDirs(tmpDir)) {
       await fs.promises.mkdir(path.join(tmpDir, dir), { recursive: true });
     }
@@ -110,6 +101,192 @@ describe('validateStructure', () => {
     expect(result.errors).toHaveLength(0);
   });
 
+  it('rejects a new production module dropped at the Electron root (post-refactor boundary)', async () => {
+    const electronDir = path.join(tmpDir, 'src/frontend/desktop/electron');
+    await fs.promises.mkdir(electronDir, { recursive: true });
+    await fs.promises.writeFile(path.join(electronDir, 'main.ts'), '');
+    await fs.promises.writeFile(path.join(electronDir, 'main.newFeatureHandlers.ts'), 'export {};\n');
+
+    const result = await validateStructure(tmpDir);
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.join('\n')).toContain('main.newFeatureHandlers.ts');
+    expect(result.errors.join('\n')).toContain('ownership folder');
+  });
+
+  it('allows allowlisted root files, ownership-folder modules, and root tests at the Electron root', async () => {
+    const electronDir = path.join(tmpDir, 'src/frontend/desktop/electron');
+    await fs.promises.mkdir(path.join(electronDir, 'tasks'), { recursive: true });
+    for (const allowed of [
+      'main.ts',
+      'preload.ts',
+      'repoObservability.ts',
+      'paths.ts',
+      'utils.ts',
+      'main.textUtils.ts',
+      'main.markdown.ts',
+      'devRestartProtocol.ts',
+    ]) {
+      await fs.promises.writeFile(path.join(electronDir, allowed), '');
+    }
+    await fs.promises.writeFile(path.join(electronDir, 'main.bootstrap.test.ts'), '');
+    await fs.promises.writeFile(path.join(electronDir, 'tasks', 'board.ts'), '');
+
+    const result = await validateStructure(tmpDir);
+
+    // This minimal fixture may have unrelated missing-structure errors; only
+    // the root-boundary rule must stay silent.
+    expect(result.errors.join('\n')).not.toContain('ownership folder');
+  });
+
+  it('rejects a new production module dropped at the renderer root (post-refactor boundary)', async () => {
+    const rendererDir = path.join(tmpDir, 'src/frontend/desktop/src/renderer');
+    await fs.promises.mkdir(rendererDir, { recursive: true });
+    await fs.promises.writeFile(path.join(rendererDir, 'main.tsx'), '');
+    await fs.promises.writeFile(path.join(rendererDir, 'plannerStrayModule.ts'), 'export {};\n');
+
+    const result = await validateStructure(tmpDir);
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.join('\n')).toContain('plannerStrayModule.ts');
+    expect(result.errors.join('\n')).toContain('ownership folder');
+  });
+
+  it('allows allowlisted root files, ownership-folder modules, and root tests at the renderer root', async () => {
+    const rendererDir = path.join(tmpDir, 'src/frontend/desktop/src/renderer');
+    await fs.promises.mkdir(path.join(rendererDir, 'components'), { recursive: true });
+    for (const allowed of [
+      'main.tsx',
+      'App.tsx',
+      'App.test.tsx',
+      'App.integration.test.tsx',
+      'App.test-setup.ts',
+      'activityStream.ts',
+      'activityStream.test.ts',
+    ]) {
+      await fs.promises.writeFile(path.join(rendererDir, allowed), '');
+    }
+    await fs.promises.writeFile(path.join(rendererDir, 'SomeWidget.test.tsx'), '');
+    await fs.promises.writeFile(path.join(rendererDir, 'components', 'SomeWidget.tsx'), '');
+
+    const result = await validateStructure(tmpDir);
+
+    // This minimal fixture may have unrelated missing-structure errors; only
+    // the renderer root-boundary rule must stay silent.
+    expect(result.errors.join('\n')).not.toContain('ownership folder');
+  });
+
+  it('rejects a new loose module dropped at the platform TypeScript root', async () => {
+    const platformDir = path.join(tmpDir, 'src/backend/platform');
+    await fs.promises.mkdir(path.join(platformDir, 'core'), { recursive: true });
+    await fs.promises.writeFile(path.join(platformDir, 'vitest.config.ts'), '');
+    await fs.promises.writeFile(path.join(platformDir, 'strayPlatformModule.ts'), 'export {};\n');
+
+    const result = await validateStructure(tmpDir);
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.join('\n')).toContain('strayPlatformModule.ts');
+    expect(result.errors.join('\n')).toContain('module folder');
+  });
+
+  it('allows the vitest tooling, module folders, and root tests at the platform TypeScript root', async () => {
+    const platformDir = path.join(tmpDir, 'src/backend/platform');
+    await fs.promises.mkdir(path.join(platformDir, 'validation'), { recursive: true });
+    for (const allowed of ['vitest.config.ts', 'vitest.childProcessGuard.ts', 'vitest.logIsolation.ts']) {
+      await fs.promises.writeFile(path.join(platformDir, allowed), '');
+    }
+    await fs.promises.writeFile(path.join(platformDir, 'harness.test.ts'), '');
+    await fs.promises.writeFile(path.join(platformDir, 'validation', 'structure.ts'), '');
+
+    const result = await validateStructure(tmpDir);
+
+    // The platform root-boundary rule must allow vitest tooling, module folders, and root tests.
+    expect(result.errors.join('\n')).not.toContain('module folder');
+  });
+
+  it('rejects a loose helper module dropped at the scripts/python root', async () => {
+    const scriptsDir = path.join(tmpDir, 'src/backend/scripts/python');
+    await fs.promises.mkdir(path.join(scriptsDir, 'lib'), { recursive: true });
+    await fs.promises.writeFile(path.join(scriptsDir, 'run-targeted-tests.py'), '');
+    await fs.promises.writeFile(path.join(scriptsDir, 'stray_helper.py'), '');
+
+    const result = await validateStructure(tmpDir);
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.join('\n')).toContain('stray_helper.py');
+    expect(result.errors.join('\n')).toContain('lib/');
+  });
+
+  it('allows scripts/python entrypoints plus the lib ownership folder', async () => {
+    const scriptsDir = path.join(tmpDir, 'src/backend/scripts/python');
+    await fs.promises.mkdir(path.join(scriptsDir, 'lib'), { recursive: true });
+    for (const allowed of [
+      'activate-context-pack-helper.py',
+      'approve-context-estate-manifest.py',
+      'bootstrap-context-pack.py',
+      'discover-context-estate.py',
+      'dismiss-realignment-session.py',
+      'file-task-archive.py',
+      'plan-qmd-seeding.py',
+      'realignment-ingest.py',
+      'repo-context-app.py',
+      'run-pack-preflight.py',
+      'run-role-agent-helper.py',
+      'run-targeted-tests.py',
+      'start-realignment-session.py',
+      'submit-reinforcement-feedback.py',
+      'sync-context-pack-workspace.py',
+      'update-global-realignment-doc.py',
+      'update-pack-manifest.py',
+      'upgrade-pack-on-activate.py',
+      'upgrade-pack-schema.py',
+      'validate-docs.py',
+      'write-stub-scope-tree.py',
+    ]) {
+      await fs.promises.writeFile(path.join(scriptsDir, allowed), '');
+    }
+    await fs.promises.writeFile(path.join(scriptsDir, 'notes.txt'), '');
+    await fs.promises.writeFile(path.join(scriptsDir, 'lib', 'helper.py'), '');
+
+    const result = await validateStructure(tmpDir);
+
+    expect(result.errors.join('\n')).not.toContain('scripts/python');
+  });
+
+  it('rejects a loose module dropped at the mcp root', async () => {
+    const mcpDir = path.join(tmpDir, 'src/backend/mcp');
+    await fs.promises.mkdir(path.join(mcpDir, 'pack'), { recursive: true });
+    await fs.promises.writeFile(path.join(mcpDir, '__init__.py'), '');
+    await fs.promises.writeFile(path.join(mcpDir, 'stray_probe.py'), '');
+
+    const result = await validateStructure(tmpDir);
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.join('\n')).toContain('stray_probe.py');
+    expect(result.errors.join('\n')).toContain('module folder');
+  });
+
+  it('allows the mcp package marker and subpackage directories', async () => {
+    const mcpDir = path.join(tmpDir, 'src/backend/mcp');
+    for (const subpackage of [
+      'context_estate',
+      'pack',
+      'pack_schemas',
+      'probes',
+      'reinforcement',
+      'repo_context_mcp',
+      'workspace_context_sync',
+    ]) {
+      await fs.promises.mkdir(path.join(mcpDir, subpackage), { recursive: true });
+    }
+    await fs.promises.writeFile(path.join(mcpDir, '__init__.py'), '');
+    await fs.promises.writeFile(path.join(mcpDir, 'README.md'), '');
+
+    const result = await validateStructure(tmpDir);
+
+    expect(result.errors.join('\n')).not.toContain('src/backend/mcp');
+  });
+
   it('allows the Electron main thin-wrapper composition surface', async () => {
     for (const dir of getRequiredDirs(tmpDir)) {
       await fs.promises.mkdir(path.join(tmpDir, dir), { recursive: true });
@@ -125,14 +302,14 @@ describe('validateStructure', () => {
       mainPath,
       [
         "import { app } from 'electron';",
-        "import { schedulePipelineAutoStart } from './main.startupRecovery';",
-        "import { createDefaultDesktopActionHandlers } from './main.desktopActionHandlers';",
+        "import { schedulePipelineAutoStart } from './app/startupRecovery';",
+        "import { createDefaultDesktopActionHandlers } from './ipc/desktopActionHandlers';",
         'const HAS_SINGLE_INSTANCE_LOCK = app.requestSingleInstanceLock?.() ?? true;',
         'export function registerAppLifecycle(): void {}',
         'export function handleDesktopAction() {',
         '  return createDefaultDesktopActionHandlers({ schedulePipelineAutoStart });',
         '}',
-        "export { createWindow } from './main.windowManager';",
+        "export { createWindow } from './app/windowManager';",
         '',
       ].join('\n'),
     );
@@ -178,12 +355,12 @@ describe('validateStructure', () => {
     const result = await validateStructure(tmpDir);
 
     expect(result.valid).toBe(false);
-    expect(result.errors.join('\n')).toContain('main.windowManager.ts');
-    expect(result.errors.join('\n')).toContain('main.ipcContract.ts');
-    expect(result.errors.join('\n')).toContain('main.desktopActionRouter.ts');
-    expect(result.errors.join('\n')).toContain('main.desktopActionHandlers.ts');
-    expect(result.errors.join('\n')).toContain('main.appController.ts');
-    expect(result.errors.join('\n')).toContain('main.startupRecovery.ts');
+    expect(result.errors.join('\n')).toContain('app/windowManager.ts');
+    expect(result.errors.join('\n')).toContain('ipc/contract.ts');
+    expect(result.errors.join('\n')).toContain('ipc/desktopActionRouter.ts');
+    expect(result.errors.join('\n')).toContain('ipc/desktopActionHandlers.ts');
+    expect(result.errors.join('\n')).toContain('app/appController.ts');
+    expect(result.errors.join('\n')).toContain('app/startupRecovery.ts');
   });
 
   it('allows the repoObservability public facade and barrel shape', async () => {
@@ -277,7 +454,7 @@ describe('validateStructure', () => {
     }
     const facadePath = path.join(tmpDir, 'src/frontend/desktop/electron/repoObservability.ts');
     const indexPath = path.join(tmpDir, 'src/frontend/desktop/electron/repoObservability/index.ts');
-    const consumerPath = path.join(tmpDir, 'src/frontend/desktop/electron/main.environmentStatus.ts');
+    const consumerPath = path.join(tmpDir, 'src/frontend/desktop/electron/app/environmentStatus.ts');
     await fs.promises.mkdir(path.dirname(indexPath), { recursive: true });
     await fs.promises.writeFile(
       facadePath,
@@ -301,6 +478,7 @@ describe('validateStructure', () => {
         '',
       ].join('\n'),
     );
+    await fs.promises.mkdir(path.dirname(consumerPath), { recursive: true });
     await fs.promises.writeFile(
       consumerPath,
       "import { readObservabilitySnapshot } from './repoObservability/snapshot';\n",
@@ -310,5 +488,12 @@ describe('validateStructure', () => {
 
     expect(result.valid).toBe(false);
     expect(result.errors.join('\n')).toContain('must import the public ./repoObservability facade');
+  });
+
+  it('normalizes Windows-style structure paths before architecture comparisons', () => {
+    expect(normalizeStructureRelativePath('src\\frontend\\desktop\\electron\\repoObservability.ts'))
+      .toBe('src/frontend/desktop/electron/repoObservability.ts');
+    expect(normalizeStructureRelativePath('src\\frontend\\desktop\\electron\\repoObservability\\snapshot.ts'))
+      .toBe('src/frontend/desktop/electron/repoObservability/snapshot.ts');
   });
 });

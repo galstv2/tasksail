@@ -15,7 +15,7 @@ const log = createLogger('platform/agent-runner/pipelineChildEntry');
  *   --task-id <id>     The task identifier for this pipeline run.
  *   --repo-root <path> The repo root (falls back to process.cwd() if absent).
  *
- * Env-vs-argv precedence (spec §5.1 lines 79-84):
+ * Env-vs-argv precedence:
  *   1. If --task-id is present in argv: use that. Assert TASKSAIL_TASK_ID either
  *      matches or is absent. Mismatch => throw conflicting-task-id-arg-vs-env.
  *   2. If --task-id is absent but TASKSAIL_TASK_ID env is set: use env.

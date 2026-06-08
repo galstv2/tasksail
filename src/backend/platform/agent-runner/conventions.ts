@@ -67,10 +67,8 @@ export async function resolveConventionsContext(
     };
   }
 
-  // In the full implementation, this would invoke the repo-context-app.py
-  // conventions command and parse the JSON output. For now, return the
-  // status indicating the loader is available but resolution is delegated
-  // to the Python helper at runtime.
+  // Resolution is delegated to the Python helper at runtime; this check only
+  // confirms that the loader is available.
   return {
     status: 'available',
     reason: 'Conventions context resolution delegated to Python helper.',

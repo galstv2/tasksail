@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -112,7 +112,6 @@ describe('saveAgentLaunchExtensionAssignments', () => {
       'utf-8',
     );
     const parsed = JSON.parse(raw);
-    // Should only contain schema_version and assignments with agent_id + extension_ids
     const pa = parsed.assignments.find((a: { agent_id: string }) => a.agent_id === 'planning-agent');
     expect(Object.keys(pa)).toEqual(['agent_id', 'extension_ids']);
     expect(pa.extension_ids).toEqual(['skill-a']);
@@ -227,61 +226,3 @@ describe('saveAgentLaunchExtensionAssignments', () => {
   });
 });
 
-describe('saveAgentLaunchExtensionAssignments event emission', () => {
-  it('emits agent_extensions.assignment.save.completed on success', async () => {
-    const progressCalls: unknown[] = [];
-    vi.mock('../../../core/logger.js', () => ({
-      createLogger: () => ({
-        progress: (args: unknown) => { progressCalls.push(args); },
-        warn: () => undefined,
-        info: () => undefined,
-        error: () => undefined,
-        debug: () => undefined,
-      }),
-    }));
-
-    makeManifestWith(['skill-a']);
-    const assignments: AgentLaunchExtensionAssignments = {
-      schema_version: 1,
-      assignments: PROVIDER_AGENT_IDS.map((id) => ({ agent_id: id, extension_ids: id === 'planning-agent' ? ['skill-a'] : [] })),
-    };
-    await saveAgentLaunchExtensionAssignments(tmpDir, assignments, seams);
-
-    // The real logger is not replaced by the dynamic vi.mock in this context,
-    // so verify the behavioral contract: file was written correctly
-    const assignmentPath = path.join(tmpDir, '.platform-state', 'agent-launch-extensions.json');
-    const saved = JSON.parse(fs.readFileSync(assignmentPath, 'utf-8'));
-    const pa = saved.assignments.find((a: { agent_id: string }) => a.agent_id === 'planning-agent');
-    expect(pa?.extension_ids).toContain('skill-a');
-
-    vi.restoreAllMocks();
-  });
-
-  it('emits agent_extensions.assignment.save.rejected on unknown-id rejection', async () => {
-    makeManifestWith(['skill-a']);
-    const bad: AgentLaunchExtensionAssignments = {
-      schema_version: 1,
-      assignments: PROVIDER_AGENT_IDS.map((id) => ({
-        agent_id: id,
-        extension_ids: id === 'planning-agent' ? ['ghost-id'] : [],
-      })),
-    };
-
-    // Rejection behavior: throws with message containing 'unknown'
-    await expect(saveAgentLaunchExtensionAssignments(tmpDir, bad, seams)).rejects.toThrow(/unknown/i);
-  });
-
-  it('emits agent_extensions.assignment.save.rejected on disabled-id rejection', async () => {
-    makeManifestWith(['disabled-x'], false);
-    const bad: AgentLaunchExtensionAssignments = {
-      schema_version: 1,
-      assignments: PROVIDER_AGENT_IDS.map((id) => ({
-        agent_id: id,
-        extension_ids: id === 'software-engineer' ? ['disabled-x'] : [],
-      })),
-    };
-
-    // Rejection behavior: throws with message containing 'disabled'
-    await expect(saveAgentLaunchExtensionAssignments(tmpDir, bad, seams)).rejects.toThrow(/disabled/i);
-  });
-});

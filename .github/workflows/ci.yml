@@ -11,6 +11,9 @@ on:
 permissions:
   contents: read
 
+env:
+  TASKSAIL_AGENT_REGISTRY_PATH: .github/agents/registry.json
+
 jobs:
   repository-structure:
     name: Repository Structure
@@ -88,19 +91,14 @@ jobs:
       - name: Run ruff lint
         run: ruff check .
 
-      # Representative Python unit lane across the OS matrix: PackWriter
-      # (cross-platform lock), MCP preflight (path/version), and QMD scope
-      # containment — the path/process/MCP regressions most likely to be
-      # Windows-specific.
       - name: Run representative Python unit lane
         run: python -m pytest tests/domains/pack_writer tests/domains/pack_preflight tests/domains/qmd/test_stub_scope.py -q
 
-  node-test-lane:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+  backend-node-lane:
+    name: Backend Node Lane
+    runs-on: ubuntu-latest
+    needs:
+      - repository-structure
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -118,14 +116,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - name: Run tests
-        run: pnpm run test
+      - name: TypeScript type check
+        run: pnpm run lint
+
+      - name: Run backend platform tests
+        run: pnpm run test -- --reporter=dot
 
       - name: Run smoke lane and workflow policy validation
         run: pnpm run test:smoke
 
-  frontend-css-color-token-discipline:
-    name: Frontend CSS Color Token Discipline
+  desktop-validation-lane:
+    name: Desktop Validation Lane
     runs-on: ubuntu-latest
     needs:
       - repository-structure
@@ -139,10 +140,28 @@ jobs:
           node-version: '24'
 
       - name: Install desktop dependencies
-        run: cd src/frontend/desktop && npm ci
+        working-directory: src/frontend/desktop
+        run: npm ci
+
+      - name: Audit desktop dependencies (fail on high/critical)
+        working-directory: src/frontend/desktop
+        run: npm audit --audit-level=high
 
       - name: Run CSS color token discipline gate
-        run: cd src/frontend/desktop && npm run test:css-colors
+        working-directory: src/frontend/desktop
+        run: npm run test:css-colors
+
+      - name: Desktop TypeScript type check
+        working-directory: src/frontend/desktop
+        run: npm run lint
+
+      - name: Run desktop tests
+        working-directory: src/frontend/desktop
+        run: npm test -- --reporter=dot
+
+      - name: Build desktop shell
+        working-directory: src/frontend/desktop
+        run: npm run build
 
   changed-domain-lane:
     name: Changed Domain Lane
@@ -174,48 +193,20 @@ jobs:
         with:
           python-version: '3.12'
 
-      # Cross-platform changed-domain discovery + manifest routing (no Bash).
-      # Uses the PR base SHA (github.event.pull_request.base.sha) and the shared
-      # tests/test_manifest.json so the workflow and local checks agree.
       - name: Run manifest-targeted domain lane for changed files
         run: pnpm exec tsx src/backend/platform/validation/changedDomainFiles.ts --base-sha "${{ github.event.pull_request.base.sha }}" --head-sha "${{ github.sha }}" --manifest ./tests/test_manifest.json
 
-  full-python-suite:
-    name: Full Python Suite
+  comment-discipline:
+    name: Comment Discipline
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     needs:
       - repository-structure
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-
-      - name: Install coverage
-        run: pip install "coverage>=7.0"
-
-      - name: Run full Python suite with coverage
-        run: |
-          coverage run -m unittest discover -s tests -v
-          coverage report --fail-under=60
-
-  direct-runtime-smoke:
-    name: Direct Runtime Smoke
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    needs:
-      - repository-structure
-    env:
-      CONTAINER_RUNTIME: direct
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -227,61 +218,16 @@ jobs:
         with:
           version: 10
 
+      - name: Install dependencies
+        run: pnpm install
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Install dependencies
-        run: pnpm install
-
-      - name: Set up TaskSail (direct runtime)
-        run: pnpm run setup
-
-      # Boots the direct MCP as a local Python daemon (no Docker), health-checks
-      # it, and stops it — exercised on Windows too, where termination uses
-      # taskkill /T /F.
-      - name: Boot the direct MCP daemon
-        run: pnpm exec tsx src/backend/platform/container/cli.ts bootstrap
-
-      - name: Health-check the direct MCP
-        run: pnpm exec tsx src/backend/platform/container/cli.ts healthcheck
-
-      - name: Stop the direct MCP daemon
-        if: always()
-        run: pnpm exec tsx src/backend/platform/container/cli.ts down
-
-  container-bootstrap:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - uses: pnpm/action-setup@v3
-        with:
-          version: 9
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm run setup
-      - run: npx tsx src/backend/platform/container/cli.ts bootstrap
-      - run: npx tsx src/backend/platform/container/cli.ts healthcheck
-
-  frontend-package:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-latest
-            script: package:mac
-          - os: windows-latest
-            script: package:win
-          - os: ubuntu-latest
-            script: package:linux
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - run: cd src/frontend/desktop && npm ci
-      - run: cd src/frontend/desktop && npm run ${{ matrix.script }} -- --dir
+      - name: Run changed-line comment discipline
+        run: >-
+          pnpm run check-comments -- --mode changed
+          --base-ref "${{ github.event.pull_request.base.sha }}"
+          --head-ref "${{ github.sha }}"

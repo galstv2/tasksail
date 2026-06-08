@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import type { ReinforcementModalProps } from '../../hooks/useReinforcementModal';
-import { useFeedbackSubmission } from '../../hooks/useFeedbackSubmission';
-import { useReinforcementOverview } from '../../hooks/useReinforcementOverview';
-import { useRealignmentSessions } from '../../hooks/useRealignmentSessions';
-import { useReinforcementTasks } from '../../hooks/useReinforcementTasks';
-import { useRealignmentDocument } from '../../hooks/useRealignmentDocument';
-import { useStreamEvents } from '../../hooks/useStreamEvents';
+import type { ReinforcementModalProps } from '../../hooks/reinforcement/useReinforcementModal';
+import { useFeedbackSubmission } from '../../hooks/reinforcement/useFeedbackSubmission';
+import { useReinforcementOverview } from '../../hooks/reinforcement/useReinforcementOverview';
+import { useRealignmentSessions } from '../../hooks/reinforcement/useRealignmentSessions';
+import { useReinforcementTasks } from '../../hooks/reinforcement/useReinforcementTasks';
+import { useRealignmentDocument } from '../../hooks/reinforcement/useRealignmentDocument';
+import { useStreamEvents } from '../../hooks/observability/useStreamEvents';
 import { filterSessionsForTasks, selectScopedSession } from '../../selectors/reinforcementSessionFilter';
-import { CloseIcon } from '../creation-steps/icons';
+import { CloseIcon } from '../icons';
 import FeedbackPanel from './FeedbackPanel';
 import GlobalRealignmentEditor from './GlobalRealignmentEditor';
 import RealignmentReviewPanel from './RealignmentReviewPanel';

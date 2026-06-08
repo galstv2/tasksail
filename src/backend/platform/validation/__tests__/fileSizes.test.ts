@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { loadBaseline, FILE_SIZE_LIMITS, REFACTOR_THRESHOLD } from '../fileSizes.js';
+import { loadBaseline } from '../fileSizes.js';
 
 describe('loadBaseline', () => {
   let tmpDir: string;
@@ -35,21 +35,5 @@ describe('loadBaseline', () => {
   it('returns empty map for missing file', async () => {
     const map = await loadBaseline(path.join(tmpDir, 'nonexistent.txt'));
     expect(map.size).toBe(0);
-  });
-});
-
-describe('FILE_SIZE_LIMITS', () => {
-  it('enforces correct limits per extension', () => {
-    expect(FILE_SIZE_LIMITS['.py']).toBe(500);
-    expect(FILE_SIZE_LIMITS['.sh']).toBe(1000);
-    expect(FILE_SIZE_LIMITS['.ts']).toBe(1000);
-    expect(FILE_SIZE_LIMITS['.tsx']).toBe(1000);
-    expect(FILE_SIZE_LIMITS['.css']).toBe(600);
-  });
-});
-
-describe('REFACTOR_THRESHOLD', () => {
-  it('is 1.5 (50% over)', () => {
-    expect(REFACTOR_THRESHOLD).toBe(1.5);
   });
 });

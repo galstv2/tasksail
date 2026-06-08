@@ -11,6 +11,9 @@ on:
 permissions:
   contents: read
 
+env:
+  TASKSAIL_AGENT_REGISTRY_PATH: .github/agents/registry.json
+
 jobs:
   markdown-quality:
     name: Markdown Quality
@@ -53,13 +56,16 @@ jobs:
         run: pnpm install
 
       - name: Validate repository markdown links
-        run: python3 ./src/backend/scripts/python/validate-docs.py
+        run: pnpm exec tsx ./src/backend/platform/core/pythonCli.ts ./src/backend/scripts/python/validate-docs.py
 
       - name: Validate handoff templates
-        run: pnpm exec tsx ./src/backend/platform/workflow-policy/cli.ts --mode ci --format text
+        run: pnpm exec tsx ./src/backend/platform/workflow-policy/cli.ts --mode lint --format text
+
+      - name: Run full docs contracts
+        run: pnpm exec tsx ./src/backend/platform/core/pythonCli.ts -m pytest ./tests/domains/docs_contracts -q
 
       - name: Run docs and contract lane
-        run: python3 ./src/backend/scripts/python/run-targeted-tests.py --manifest ./tests/test_manifest.json --lane contracts
+        run: pnpm exec tsx ./src/backend/platform/core/pythonCli.ts ./src/backend/scripts/python/run-targeted-tests.py --manifest ./tests/test_manifest.json --lane contracts
 
       - name: Install desktop dependencies
         working-directory: src/frontend/desktop
@@ -73,12 +79,12 @@ jobs:
         working-directory: src/frontend/desktop
         run: >-
           npm test -- electron/main.test.ts
-          src/renderer/components/PlanningWorkspace.test.tsx
-          src/renderer/components/PlannerPanel.test.tsx
-          src/renderer/components/ContextPackSidepmr.test.tsx
-          src/renderer/components/ObservationPane.test.tsx
-          src/renderer/components/ObservabilityPanel.test.tsx
-          src/renderer/components/TerminalStreamPanel.test.tsx
+          src/renderer/components/PlannerModal.test.tsx
+          src/renderer/components/ContextPackSidebar.test.tsx
+          src/renderer/components/ContextPackSidebarExpanded.test.tsx
+          src/renderer/components/TerminalFeed.test.tsx
+          src/renderer/components/observability/ActiveTasksSection.test.tsx
+          src/renderer/components/taskboard/TaskBoard.test.tsx
           src/renderer/hooks/useAppShell.test.tsx
           src/renderer/hooks/useContextPackSelection.test.tsx
           src/renderer/hooks/useFollowUpFlow.test.tsx

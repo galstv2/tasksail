@@ -37,3 +37,23 @@ export type {
   LoggingDisciplineResult,
   LoggingDisciplineViolation,
 } from './loggingDiscipline.js';
+
+export {
+  checkCommentDiscipline,
+  formatCommentDisciplineText,
+} from './commentDiscipline.js';
+export type {
+  CommentDisciplineMode,
+  CommentDisciplineResult,
+  CommentDisciplineViolation,
+} from './commentDiscipline.js';
+
+export {
+  checkOpenSourceReadiness,
+  formatOpenSourceReadinessText,
+} from './openSourceReadiness.js';
+export type {
+  OpenSourceReadinessOptions,
+  OpenSourceReadinessResult,
+  OpenSourceReadinessSummary,
+} from './openSourceReadiness.js';

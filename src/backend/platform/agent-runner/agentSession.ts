@@ -214,7 +214,7 @@ function createInternalMcpLaunchDir(
   agentId: string,
 ): string {
   const root = path.join(repoRoot, '.platform-state', 'runtime', providerHomeDirName);
-  // SEC-TS-02: owner-only so other local users cannot traverse into per-launch
+      // Owner-only so other local users cannot traverse into per-launch
   // dirs that hold resolved MCP auth tokens. mkdir does not tighten an existing
   // dir, so chmod unconditionally (matches renderer.py) to correct a pre-existing
   // permissive root.

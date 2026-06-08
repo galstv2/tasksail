@@ -64,21 +64,33 @@ describe('enterpriseMirrors — env merge (Map to object)', () => {
 });
 
 describe('enterpriseMirrors — registry precedence', () => {
-  it('NPM_CONFIG_REGISTRY wins over npm_config_registry and TASKSAIL_NPM_REGISTRY', () => {
-    const env: MirrorEnv = {
-      NPM_CONFIG_REGISTRY: 'https://a.example/npm/',
-      npm_config_registry: 'https://b.example/npm/',
-      TASKSAIL_NPM_REGISTRY: 'https://c.example/npm/',
-    };
-    expect(resolveEnterpriseMirrors(env).npm?.registry).toBe('https://a.example/npm/');
-  });
-
-  it('npm_config_registry wins over TASKSAIL_NPM_REGISTRY when uppercase is absent', () => {
-    const env: MirrorEnv = {
-      npm_config_registry: 'https://b.example/npm/',
-      TASKSAIL_NPM_REGISTRY: 'https://c.example/npm/',
-    };
-    expect(resolveEnterpriseMirrors(env).npm?.registry).toBe('https://b.example/npm/');
+  it.each([
+    [
+      'NPM_CONFIG_REGISTRY wins over npm_config_registry and TASKSAIL_NPM_REGISTRY',
+      {
+        NPM_CONFIG_REGISTRY: 'https://a.example/npm/',
+        npm_config_registry: 'https://b.example/npm/',
+        TASKSAIL_NPM_REGISTRY: 'https://c.example/npm/',
+      } as MirrorEnv,
+      'https://a.example/npm/',
+    ],
+    [
+      'npm_config_registry wins over TASKSAIL_NPM_REGISTRY when NPM_CONFIG_REGISTRY is absent',
+      {
+        npm_config_registry: 'https://b.example/npm/',
+        TASKSAIL_NPM_REGISTRY: 'https://c.example/npm/',
+      } as MirrorEnv,
+      'https://b.example/npm/',
+    ],
+    [
+      'TASKSAIL_NPM_REGISTRY is used when both uppercase and lowercase native vars are absent',
+      {
+        TASKSAIL_NPM_REGISTRY: 'https://c.example/npm/',
+      } as MirrorEnv,
+      'https://c.example/npm/',
+    ],
+  ] as const)('%s', (_label, env, expected) => {
+    expect(resolveEnterpriseMirrors(env).npm?.registry).toBe(expected);
   });
 
   it('PIP_INDEX_URL wins over TASKSAIL_PYPI_INDEX_URL', () => {
@@ -483,5 +495,83 @@ describe('enterpriseMirrors — runEnterpriseMirrorsStep', () => {
     });
     expect(step.status).toBe('failed');
     expect(step.message).toContain('unreachable');
+  });
+});
+
+describe('enterpriseMirrors — electron binary mirror (resolve)', () => {
+  it('resolves the electron + builder-binaries mirrors and marks configured', () => {
+    const resolved = resolveEnterpriseMirrors({
+      TASKSAIL_ELECTRON_MIRROR: 'https://art.example/electron/electron/releases/download/',
+      TASKSAIL_ELECTRON_BUILDER_BINARIES_MIRROR: 'https://art.example/electron-builder-binaries/',
+    });
+    expect(resolved.electronMirror).toBe('https://art.example/electron/electron/releases/download/');
+    expect(resolved.electronBuilderBinariesMirror).toBe('https://art.example/electron-builder-binaries/');
+    expect(resolved.configured).toBe(true);
+  });
+
+  it('strips URL-embedded credentials from the electron mirror', () => {
+    const resolved = resolveEnterpriseMirrors({
+      TASKSAIL_ELECTRON_MIRROR: 'https://user:secret@art.example/electron/releases/download/',
+    });
+    expect(resolved.electronMirror).toBe('https://art.example/electron/releases/download/');
+    expect(resolved.electronMirrorHadCredentials).toBe(true);
+  });
+
+  it('rejects an invalid electron mirror URL', () => {
+    const resolved = resolveEnterpriseMirrors({ TASKSAIL_ELECTRON_MIRROR: 'not a url' });
+    expect(resolved.electronMirror).toBeUndefined();
+    expect(resolved.errors.some((e) => e.key === 'Electron mirror')).toBe(true);
+  });
+});
+
+describe('enterpriseMirrors — electron mirror (filesystem)', () => {
+  let repoRoot: string;
+  const npmrcPath = () => join(repoRoot, '.npmrc');
+  const desktopNpmrcPath = () => join(repoRoot, 'src/frontend/desktop/.npmrc');
+
+  beforeEach(async () => {
+    repoRoot = await mkdtemp(join(tmpdir(), 'tasksail-electron-mirror-'));
+    await writeFile(join(repoRoot, '.env'), '', 'utf-8');
+  });
+  afterEach(async () => {
+    await rm(repoRoot, { recursive: true, force: true });
+  });
+
+  it('writes electron_mirror to the desktop .npmrc only, never the root .npmrc', async () => {
+    await applyEnterpriseMirrors(repoRoot, {
+      processEnv: {
+        NPM_CONFIG_REGISTRY: 'https://corp.example/npm/',
+        TASKSAIL_ELECTRON_MIRROR: 'https://art.example/electron/releases/download/',
+      },
+    });
+    const desktop = await readFile(desktopNpmrcPath(), 'utf-8');
+    const root = await readFile(npmrcPath(), 'utf-8');
+    expect(desktop).toContain('electron_mirror=https://art.example/electron/releases/download/');
+    expect(desktop).toContain('registry=https://corp.example/npm/');
+    expect(root).toContain('registry=https://corp.example/npm/');
+    expect(root).not.toContain('electron_mirror');
+  });
+
+  it('writes electron_mirror to the desktop .npmrc even with no npm registry configured', async () => {
+    const result = await applyEnterpriseMirrors(repoRoot, {
+      processEnv: { TASKSAIL_ELECTRON_MIRROR: 'https://art.example/electron/releases/download/' },
+    });
+    expect(result.status).toBe('configured');
+    const desktop = await readFile(desktopNpmrcPath(), 'utf-8');
+    expect(desktop).toContain('electron_mirror=https://art.example/electron/releases/download/');
+    expect(desktop).not.toContain('registry=');
+  });
+
+  it('surfaces the builder-binaries mirror as an export reminder, never in .npmrc', async () => {
+    const result = await applyEnterpriseMirrors(repoRoot, {
+      processEnv: {
+        TASKSAIL_ELECTRON_BUILDER_BINARIES_MIRROR: 'https://art.example/electron-builder-binaries/',
+      },
+    });
+    expect(result.status).toBe('configured');
+    // electron-builder reads it from the environment, so it is never persisted to .npmrc.
+    expect(result.changedFiles).not.toContain('src/frontend/desktop/.npmrc');
+    expect(result.changedFiles).not.toContain('.npmrc');
+    expect(result.messages.join(' ')).toContain('ELECTRON_BUILDER_BINARIES_MIRROR');
   });
 });

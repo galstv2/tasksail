@@ -10,6 +10,10 @@ from types import ModuleType
 
 import pytest
 
+from .registry_skip import skip_if_agent_registry_missing
+
+skip_if_agent_registry_missing()
+
 from src.backend.mcp.reinforcement.fairness import FairnessManager
 from src.backend.mcp.reinforcement.models import GlobalRealignmentDocument
 from src.backend.mcp.reinforcement.persistence import ReinforcementStore

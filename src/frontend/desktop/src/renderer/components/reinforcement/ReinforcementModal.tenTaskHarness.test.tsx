@@ -1,5 +1,5 @@
 /**
- * ReinforcementModal 10-task deterministic harness (Track H).
+ * ReinforcementModal 10-task deterministic harness.
  *
  * Covers: pack switch while modal is open, feedback draft reset,
  * realignmentId correlation under stream burst, and named React Profiler thresholds.
@@ -200,18 +200,6 @@ describe('ReinforcementModal 10-task deterministic harness', () => {
 
     expect(result.commitCount).toBeLessThanOrEqual(MAX_COMMIT_COUNT);
     expect(result.totalActualDuration).toBeLessThanOrEqual(MAX_DURATION_MS);
-  });
-
-  it('renders closed modal without issue (closed state)', () => {
-    const { container } = render(
-      <ReinforcementModal
-        isOpen={false}
-        onClose={vi.fn()}
-        hasActiveContextPack={true}
-        activeContextPackDir="/packs/pack-a"
-      />,
-    );
-    expect(container.innerHTML).toBe('');
   });
 
   it('modal is open and displays the dialog role', () => {

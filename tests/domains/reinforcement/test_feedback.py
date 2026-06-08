@@ -1,6 +1,10 @@
 """Tests for FeedbackInterpreter."""
 from __future__ import annotations
 
+from .registry_skip import skip_if_agent_registry_missing
+
+skip_if_agent_registry_missing()
+
 from src.backend.mcp.reinforcement.feedback import FeedbackInterpreter
 from src.backend.mcp.reinforcement.models import FeedbackEvent
 

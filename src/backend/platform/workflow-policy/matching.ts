@@ -111,10 +111,7 @@ export function markdownSectionsHaveContent(
   ));
 }
 
-// ---------------------------------------------------------------------------
-// Text pattern helpers (mirrored from Python lib/text.py)
-// ---------------------------------------------------------------------------
-
+// Keep these text patterns mirrored with Python lib/text.py.
 export const CODE_FENCE_PATTERN = /^```/m;
 export const COMMAND_LINE_PATTERN =
   /^\s*[-$>]?\s*(?:(?:cmd(?:\.exe)?\s+\/c)|python3?|py|make|npm|npx|bash|sh|pytest|pip|cd|powershell(?:\.exe)?|pwsh(?:\.exe)?|\.\/|\.\\)\s*/m;

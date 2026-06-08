@@ -223,11 +223,6 @@ describe('Copilot generic launch extension helpers', () => {
     expect(buildCopilotLaunchExtensionEnv({ pluginDirs: ['/p'], skillDirs: [] })).toEqual({});
   });
 
-  it('preserves planner helper exports as aliases of the generic helpers', () => {
-    expect(buildCopilotPlannerLaunchExtensionArgs).toBe(buildCopilotLaunchExtensionArgs);
-    expect(buildCopilotPlannerLaunchExtensionEnv).toBe(buildCopilotLaunchExtensionEnv);
-  });
-
   it('keeps PlannerLaunchExtensionDirs type-identical to AgentLaunchExtensionDirs', () => {
     // Bidirectional assignability fails to compile if the alias ever diverges.
     const agentShape: AgentLaunchExtensionDirs = { pluginDirs: ['/p'], skillDirs: ['/s'] };

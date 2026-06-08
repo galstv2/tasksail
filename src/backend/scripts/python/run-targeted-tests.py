@@ -4,11 +4,15 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import subprocess
 import sys
-import unittest
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
 from lib.protocol_output import write_protocol_stdout
 
@@ -311,15 +315,27 @@ def run_modules(
     if workspace_root_str not in sys.path:
         sys.path.insert(0, workspace_root_str)
 
-    suite = unittest.defaultTestLoader.loadTestsFromNames(list(modules))
-    result = unittest.TextTestRunner(verbosity=verbosity).run(suite)
-    return 0 if result.wasSuccessful() else 1
+    test_paths: list[str] = []
+    for module in modules:
+        module_path = workspace_root / Path(*module.split(".")).with_suffix(".py")
+        if not module_path.is_file():
+            raise ManifestError(
+                f"Selected test module '{module}' does not resolve to a file "
+                f"under workspace root '{workspace_root}'."
+            )
+        test_paths.append(str(module_path))
+
+    args = [sys.executable, "-m", "pytest", *test_paths]
+    if verbosity <= 1:
+        args.append("-q")
+    completed = subprocess.run(args, cwd=workspace_root)
+    return completed.returncode
 
 
 def build_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Run targeted unittest modules using a manifest of lanes, "
+            "Run targeted pytest modules using a manifest of lanes, "
             "domains, and changed-path rules."
         )
     )

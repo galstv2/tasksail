@@ -1,8 +1,8 @@
 /**
- * §3.1 Per-task context pack sidecar — Done-when test.
+ * Per-task context pack sidecar done-when test.
  *
  * Verifies that activating a pending item writes
- * AgentWorkSpace/tasks/<taskId>/.task.json with the required §3.1 schema
+ * AgentWorkSpace/tasks/<taskId>/.task.json with the required schema
  * fields and state: "active".
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -84,7 +84,7 @@ describe('§3.1 per-task .task.json sidecar', () => {
 
     const sidecar = JSON.parse(readFileSync(sidecarPath, 'utf-8')) as Record<string, unknown>;
 
-    // Required §3.1 schema fields
+  // Required schema fields.
     expect(sidecar['schema_version']).toBe(1);
     expect(sidecar['taskId']).toBe(taskId);
     expect(sidecar['state']).toBe('active');
@@ -95,11 +95,11 @@ describe('§3.1 per-task .task.json sidecar', () => {
     const cpb = sidecar['contextPackBinding'] as Record<string, unknown>;
     expect(cpb).toBeDefined();
     expect('contextPackPath' in cpb).toBe(true);
-    // §3.1 schema contract: contextPackPath is a FILE path; path.dirname must
-    // round-trip back to the context pack directory for §3.2 consumers.
+  // Schema contract: contextPackPath is a FILE path; path.dirname must
+  // round-trip back to the context pack directory for sidecar consumers.
     // At L0 the in-scope binding lacks a contextPackDir (extractContextPackBinding
     // returns null for the minimal pending-item fixture), so contextPackPath is null.
-    // Verify the null-branch explicitly. A later test under §3.2 will cover the
+  // Verify the null-branch explicitly. A later reader test covers the
     // non-null branch with a real context pack fixture.
     expect(cpb['contextPackPath']).toBeNull();
     expect('dataHostDir' in cpb).toBe(true);
@@ -124,9 +124,7 @@ describe('§3.1 per-task .task.json sidecar', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// §3.2 taskJson reader — error handling and policy-layer integration
-// ---------------------------------------------------------------------------
+// taskJson reader error handling and policy-layer integration.
 
 describe('§3.2 taskJson reader and env-reads policy layer', () => {
   let repoRoot: string;
@@ -147,9 +145,7 @@ describe('§3.2 taskJson reader and env-reads policy layer', () => {
     }
   });
 
-  // -------------------------------------------------------------------------
   // readTaskJson error cases
-  // -------------------------------------------------------------------------
 
   it('throws task-sidecar-missing when .task.json does not exist', () => {
     expect(() => readTaskJson('nonexistent-task', repoRoot)).toThrow();
@@ -316,7 +312,7 @@ describe('§3.2 taskJson reader and env-reads policy layer', () => {
     writeFileSync(
       path.join(taskDir, '.task.json'),
       JSON.stringify({
-        // schema_version intentionally absent — defaults to 1, then B7-data
+        // schema_version intentionally absent — defaults to 1, then read-side
         // normalization bumps the IN-MEMORY shape to CURRENT (2). The on-disk
         // file is left untouched (no mtime churn → platform-config cache safe).
         taskId,
@@ -460,9 +456,6 @@ describe('§3.2 taskJson reader and env-reads policy layer', () => {
     expect(() => readTaskJson(taskId, repoRoot)).toThrow();
   });
 
-  // -------------------------------------------------------------------------
-  // requireAuthorizedActiveContextPack with TASKSAIL_TASK_ID
-  // -------------------------------------------------------------------------
 
   it('rejects with task-sidecar-missing when TASKSAIL_TASK_ID is set but sidecar is absent', async () => {
     process.env['TASKSAIL_TASK_ID'] = 'a';
@@ -482,7 +475,6 @@ describe('§3.2 taskJson reader and env-reads policy layer', () => {
     }
   });
 
-  // readTaskJsonSafe returns null on corrupt (not throw)
   it('readTaskJsonSafe returns null for corrupt sidecar', () => {
     const taskId = 'safe-corrupt';
     const taskDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
@@ -492,9 +484,7 @@ describe('§3.2 taskJson reader and env-reads policy layer', () => {
     expect(result).toBeNull();
   });
 
-  // -------------------------------------------------------------------------
-  // §B7-data schema v2 normalization and per-binding mergedAt/mergedVia surfacing
-  // -------------------------------------------------------------------------
+  // Schema v2 normalization and per-binding mergedAt/mergedVia surfacing.
 
   it('B7-data: reads a v1 on-disk sidecar and surfaces in-memory schema_version=2 with mergedAt undefined', () => {
     const taskId = 'b7-v1-sidecar';
@@ -666,9 +656,7 @@ describe('§3.2 taskJson reader and env-reads policy layer', () => {
     expect(b2!.mergedVia).toBe('branch-deleted');
   });
 
-  // -------------------------------------------------------------------------
   // sliceArtifactFormat normalization
-  // -------------------------------------------------------------------------
 
   it('sliceArtifactFormat: absent field normalizes to markdown', () => {
     const taskId = 'legacy-no-format';
@@ -785,7 +773,7 @@ describe('§3.2 taskJson reader and env-reads policy layer', () => {
     expect(caughtPayload!['code']).toBe('task-sidecar-corrupt');
   });
 
-  // §3.5 Phase 3 gate — sidecar wins over mutated .env under TASKSAIL_TASK_ID.
+  // Sidecar wins over mutated .env under TASKSAIL_TASK_ID.
   it('§3.5: with TASKSAIL_TASK_ID set, returns the sidecar-bound pack even when .env is mutated mid-run', async () => {
     const taskId = 'task-a';
     const packADir = path.join(repoRoot, 'packs', 'a');

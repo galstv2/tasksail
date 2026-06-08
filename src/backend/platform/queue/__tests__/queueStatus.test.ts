@@ -88,7 +88,7 @@ describe('getQueueStatus', () => {
   });
 
   it('reports activeTasks when active marker exists in .active-items/', async () => {
-    // §4.1B: active state tracked via .active-items/<taskId> marker
+// Active state tracked via .active-items/<taskId> marker.
     const pendingDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems');
     const activeItemsDir = path.join(pendingDir, '.active-items');
     mkdirSync(activeItemsDir, { recursive: true });
@@ -101,7 +101,7 @@ describe('getQueueStatus', () => {
     expect(status.activeTasks[0]!.taskId).toBe('active-task');
     // Back-compat getter derives the marker filename from the task dir via
     // path.dirname/path.basename (separator-aware), not a POSIX "/handoffs"
-    // string strip that no-ops on Windows and would yield "handoffs.md".
+    // string strip that no-ops on Windows and would yield a bogus handoff filename.
     expect(status.activeItem).toBe('active-task.md');
   });
 
@@ -163,7 +163,7 @@ describe('getQueueStatus', () => {
   });
 
   it('reports empty activeTasks when .active-items/ is absent', async () => {
-    // §4.1B: no .active-items/ directory → no active tasks
+// No .active-items/ directory means no active tasks.
     const status = await getQueueStatus(tmpRoot);
 
     expect(status.activeTasks).toHaveLength(0);
@@ -191,7 +191,6 @@ describe('getQueueStatus', () => {
   });
 });
 
-// ── §4.1B / §4.5 — activeItemsDir-based active task reporting ────────────────
 
 describe('getQueueStatus §4.1B — activeTasks array from .active-items/', () => {
   let tmpRoot: string;

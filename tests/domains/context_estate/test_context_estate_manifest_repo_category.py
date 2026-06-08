@@ -5,15 +5,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.backend.mcp.context_estate_discovery import discover_estate
-from src.backend.mcp.context_estate_manifest import (
+from src.backend.mcp.context_estate.bootstrap import bootstrap_context_pack
+from src.backend.mcp.context_estate.bootstrap_builders import (
+    _build_distributed_review_payload,
+)
+from src.backend.mcp.context_estate.bootstrap_normalization import normalize_bootstrap_answers
+from src.backend.mcp.context_estate.discovery import discover_estate
+from src.backend.mcp.context_estate.manifest import (
     build_approved_manifest,
     write_approved_manifest,
-)
-from src.backend.mcp.context_pack_bootstrap import (
-    _build_distributed_review_payload,
-    bootstrap_context_pack,
-    normalize_bootstrap_answers,
 )
 
 

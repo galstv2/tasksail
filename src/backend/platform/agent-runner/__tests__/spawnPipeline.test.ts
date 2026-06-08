@@ -1,8 +1,8 @@
 /**
- * Tests for spawnPipeline.ts (§5.1 MG-7).
+ * Tests for spawnPipeline.ts.
  *
- * F13: stdout/stderr streams are exposed on the returned object.
- * F14: resolveChildEntryPath returns .ts in dev, .js from app.asar.unpacked in production.
+ * stdout/stderr streams are exposed on the returned object.
+ * resolveChildEntryPath returns .ts in dev, .js from app.asar.unpacked in production.
  *
  * Concurrent fork and env-vs-argv precedence tests use the CJS stub at
  * __tests__/fixtures/pipelineChildStub.cjs, which replicates pipelineChildEntry.ts's
@@ -86,9 +86,6 @@ afterEach(async () => {
   tempDirs.length = 0;
 });
 
-// ---------------------------------------------------------------------------
-// Test 1: Two-task concurrent fork — both run without contention
-// ---------------------------------------------------------------------------
 describe('spawnPipelineForTask — concurrent fork', () => {
   it('runs two child processes with different taskIds concurrently without contention', async () => {
     const tmp = mkdtempSync(join(tmpdir(), 'spawn-concurrent-'));
@@ -136,9 +133,6 @@ describe('spawnPipelineForTask — concurrent fork', () => {
   }, 10_000);
 });
 
-// ---------------------------------------------------------------------------
-// Test 2: Env-vs-argv precedence (four sub-cases)
-// ---------------------------------------------------------------------------
 describe('spawnPipelineForTask — env-vs-argv precedence', () => {
   it('argv and matching env: child uses argv value, no error', async () => {
     const child = forkStub(
@@ -208,9 +202,6 @@ describe('spawnPipelineForTask — env-vs-argv precedence', () => {
   }, 10_000);
 });
 
-// ---------------------------------------------------------------------------
-// Test 3: F13 — stdout and stderr streams are exposed and readable
-// ---------------------------------------------------------------------------
 describe('spawnPipelineForTask — F13 streams exposed', () => {
   it('returned object has stdout and stderr Readable instances', async () => {
     const child = forkStub(
@@ -218,13 +209,11 @@ describe('spawnPipelineForTask — F13 streams exposed', () => {
       { TASKSAIL_TASK_ID: 'stream-test' },
     );
 
-    // Assert stream types
     expect(child.stdout).toBeInstanceOf(Readable);
     expect(child.stderr).toBeInstanceOf(Readable);
     expect(typeof child.stdout.pipe).toBe('function');
     expect(typeof child.stderr.pipe).toBe('function');
 
-    // Assert stdout actually delivers data
     const stdoutText = await collectStream(child.stdout);
     child.stderr.resume();
     const exitCode = await child.exit;
@@ -246,12 +235,8 @@ describe('spawnPipelineForTask — F13 streams exposed', () => {
   }, 10_000);
 });
 
-// ---------------------------------------------------------------------------
-// Test 4: F14 — ASAR path discriminator unit test
-// ---------------------------------------------------------------------------
 describe('resolveChildEntryPath — F14 ASAR discriminator', () => {
   it('returns .ts suffix in dev environment (isPackaged falsy)', () => {
-    // Ensure isPackaged is not set
     const saved = (process as any).isPackaged;
     try {
       delete (process as any).isPackaged;
@@ -301,7 +286,7 @@ describe('resolveChildEntryPath — F14 ASAR discriminator', () => {
   });
 
   it('dev path: result ends with pipelineChildEntry.ts (no literal .ts in spawnPipeline.ts)', () => {
-    // F14 contract: the .ts suffix is constructed by resolveChildEntryPath, not hardcoded.
+    // The .ts suffix is constructed by resolveChildEntryPath, not hardcoded.
     // This test verifies the runtime behavior of that construction.
     const saved = (process as any).isPackaged;
     try {

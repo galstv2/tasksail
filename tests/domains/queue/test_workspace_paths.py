@@ -1,7 +1,7 @@
 """Tests for lib.workspace_paths helpers.
 
 Covers both singleton (TASKSAIL_TASK_ID unset) and per-task
-(TASKSAIL_TASK_ID=t1) modes to enforce back-compat and §1.6 parameterization.
+(TASKSAIL_TASK_ID=t1) modes to enforce compatibility.
 """
 from __future__ import annotations
 
@@ -27,10 +27,6 @@ from lib.workspace_paths import (
 REPO = Path("/fake/repo")
 
 
-# ---------------------------------------------------------------------------
-# task_worktree_root
-# ---------------------------------------------------------------------------
-
 def test_task_worktree_root_singleton_when_unset():
     with mock.patch.dict(os.environ, {}, clear=False):
         os.environ.pop("TASKSAIL_TASK_ID", None)
@@ -47,10 +43,6 @@ def test_task_worktree_root_per_task_when_set():
         assert task_worktree_root(REPO) == REPO / "AgentWorkSpace" / "tasks" / "t1"
 
 
-# ---------------------------------------------------------------------------
-# handoffs_dir
-# ---------------------------------------------------------------------------
-
 def test_handoffs_dir_singleton():
     with mock.patch.dict(os.environ, {}, clear=False):
         os.environ.pop("TASKSAIL_TASK_ID", None)
@@ -62,10 +54,6 @@ def test_handoffs_dir_per_task():
         assert handoffs_dir(REPO) == REPO / "AgentWorkSpace" / "tasks" / "t1" / "handoffs"
 
 
-# ---------------------------------------------------------------------------
-# implementation_steps_dir
-# ---------------------------------------------------------------------------
-
 def test_implementation_steps_dir_singleton():
     with mock.patch.dict(os.environ, {}, clear=False):
         os.environ.pop("TASKSAIL_TASK_ID", None)
@@ -76,10 +64,6 @@ def test_implementation_steps_dir_per_task():
     with mock.patch.dict(os.environ, {"TASKSAIL_TASK_ID": "t1"}, clear=False):
         assert implementation_steps_dir(REPO) == REPO / "AgentWorkSpace" / "tasks" / "t1" / "ImplementationSteps"
 
-
-# ---------------------------------------------------------------------------
-# cli_home_root
-# ---------------------------------------------------------------------------
 
 def test_cli_home_root_singleton_default():
     with mock.patch.dict(os.environ, {}, clear=False):
@@ -103,10 +87,6 @@ def test_cli_home_root_per_task():
         assert cli_home_root(REPO) == REPO / ".platform-state" / "runtime" / "tasks" / "t1" / "provider-home"
 
 
-# ---------------------------------------------------------------------------
-# platform_runtime_root
-# ---------------------------------------------------------------------------
-
 def test_platform_runtime_root_singleton():
     with mock.patch.dict(os.environ, {}, clear=False):
         os.environ.pop("TASKSAIL_TASK_ID", None)
@@ -117,10 +97,6 @@ def test_platform_runtime_root_per_task():
     with mock.patch.dict(os.environ, {"TASKSAIL_TASK_ID": "t1"}, clear=False):
         assert platform_runtime_root(REPO) == REPO / ".platform-state" / "runtime" / "tasks" / "t1"
 
-
-# ---------------------------------------------------------------------------
-# Different task IDs produce different paths (isolation guarantee)
-# ---------------------------------------------------------------------------
 
 def test_different_task_ids_produce_different_paths():
     with mock.patch.dict(os.environ, {"TASKSAIL_TASK_ID": "a"}, clear=False):

@@ -64,7 +64,7 @@ import { IMPLEMENTATION_SPEC_TEMPLATE, sectionBetween } from './intakeTestHelper
 describe('initializeTask starter slice generation', () => {
   let repoRoot: string;
   let templatesDir: string;
-  // §4.1B: initializeTask writes per-task artifacts under tasks/<taskId>/
+  // initializeTask writes per-task artifacts under tasks/<taskId>/.
   // Use a fixed taskId so we can locate the per-task ImplementationSteps dir.
   const FIXED_TASK_ID = 'alice-runtime-templates';
 
@@ -104,7 +104,7 @@ describe('initializeTask starter slice generation', () => {
       force: true,
     });
 
-    // §4.1B: per-task ImplementationSteps path
+  // Per-task ImplementationSteps path.
     const implementationStepsDir = path.join(
       repoRoot, 'AgentWorkSpace', 'tasks', FIXED_TASK_ID, 'ImplementationSteps',
     );
@@ -147,7 +147,7 @@ describe('initializeTask starter slice generation', () => {
       }),
     ).rejects.toThrow('Starter slice blocked by missing pre-slice artifacts.');
 
-    // §4.1B: per-task ImplementationSteps path
+  // Per-task ImplementationSteps path.
     const implementationStepsDir = path.join(
       repoRoot, 'AgentWorkSpace', 'tasks', FIXED_TASK_ID, 'ImplementationSteps',
     );
@@ -175,7 +175,7 @@ describe('initializeTask starter slice generation', () => {
   }
 });
 
-// ── §4.5 — validateTaskId / generateTaskId / per-task handoffs path ──────────
+// validateTaskId / generateTaskId / per-task handoffs path.
 
 describe('validateTaskId — MG-10 shape constraints', () => {
   it('accepts valid taskIds', () => {
@@ -535,9 +535,7 @@ describe('initializeTask — stamps Core Metadata and Task Lineage labels', () =
   });
 });
 
-// ---------------------------------------------------------------------------
-// Track B: --with-starter-slice fail-closed when slice_artifact_format = xml
-// ---------------------------------------------------------------------------
+  // --with-starter-slice fails closed when slice_artifact_format = xml.
 
 describe('--with-starter-slice: fail-closed in xml mode', () => {
   let repoRoot: string;

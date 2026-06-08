@@ -1,10 +1,5 @@
-/*
- * Regular and recent-task workspace scope affordance for the Planning Specialist
- * stage bar. Extracted from planner.css so the new scope styles do not push
- * planner.css past the CSS hard-fail threshold. The stage bar is the positioned
- * container for the hover/focus popover. Child-task scope styling stays in
- * planner-child-scope.css and is intentionally not reused here.
- */
+/* Stage-bar scope popover styles live here so planner.css stays under the size limit.
+   Child-task scope styling stays in planner-child-scope.css. */
 
 .planner-modal__stage-bar {
   position: relative;

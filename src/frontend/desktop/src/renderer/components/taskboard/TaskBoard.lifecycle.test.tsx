@@ -1,5 +1,5 @@
 /**
- * TaskBoard lifecycle reconciliation tests (Track C).
+ * TaskBoard lifecycle reconciliation tests.
  *
  * Covers:
  * - reconcileSelectedTaskFromBoard: rebind/close when board snapshot changes
@@ -13,7 +13,7 @@ import type {
   ArchivedTaskEntry,
   TaskBoardReadChildChainBranchInventoryResponse,
 } from '../../../shared/desktopContract';
-import type { TaskBoardState } from '../../hooks/useTaskBoard';
+import type { TaskBoardState } from '../../hooks/taskboard/useTaskBoard';
 import TaskBoard from './TaskBoard';
 
 // --- helpers ---
@@ -189,8 +189,7 @@ describe('reconcileSelectedTaskFromBoard: task lifecycle transitions', () => {
   it('rebinds to completed column by taskId when pending fileName differs from taskId', async () => {
     // This test covers the P3 fix: handleCardClick now passes item.taskId for pending/error/open
     // rows so reconcileSelectedTaskFromBoard can match by taskId into the completed column even
-    // when the pending fileName (renamed-task.md) differs from the synthetic completed filename
-    // (TASK-A.md).
+    // when the pending fileName differs from the synthetic completed filename.
     const readTaskContent = vi.fn(async (_f: string, col: string) => {
       if (col === 'completed') return { content: 'COMPLETED_CONTENT_A', artifactRelativePath: 'archive.md', artifacts: [] };
       return { content: 'PENDING_CONTENT_A' };

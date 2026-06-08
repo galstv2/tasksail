@@ -14,10 +14,10 @@ import {
   updateChildScopeDeepFocus,
   updateStandardChildScope,
   updateStandardChildScopeRole,
-} from '../../plannerChildScope';
-import { supportsDeepFocus } from '../SidebarDeepFocusUtils';
-import DeepFocusSelector from '../focus-selection/DeepFocusSelector';
-import StandardFocusSelector from '../focus-selection/StandardFocusSelector';
+} from '../../planner/plannerChildScope';
+import { supportsDeepFocus } from '../deep-focus/SidebarDeepFocusUtils';
+import DeepFocusSelector from '../deep-focus/DeepFocusSelector';
+import StandardFocusSelector from '../deep-focus/StandardFocusSelector';
 
 export type ChildScopeOverridePanelProps = {
   selectedPack: ContextPackCatalogEntry;

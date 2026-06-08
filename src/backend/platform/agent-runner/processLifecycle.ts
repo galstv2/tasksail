@@ -60,7 +60,6 @@ export function launchAgent(
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 
-  // Forward termination signals to the child process.
   const onSigterm = (): void => {
     if (child.pid && !child.killed) terminateChildProcess(child, 'SIGTERM');
   };
@@ -269,13 +268,11 @@ export async function gracefulKill(
 
   while (Date.now() < deadline) {
     if (!signalProcess(pid, 0)) {
-      // Process has exited.
       return;
     }
     await sleep(100);
   }
 
-  // Process still alive — force kill.
   signalProcess(pid, 'SIGKILL');
 }
 
@@ -287,7 +284,6 @@ export async function cleanupProcesses(
   pids: number[],
   timeoutMs = 3000,
 ): Promise<void> {
-  // Send SIGTERM to all.
   for (const pid of pids) {
     signalProcess(pid, 'SIGTERM');
   }
@@ -298,7 +294,6 @@ export async function cleanupProcesses(
 
   const deadline = Date.now() + timeoutMs;
 
-  // Poll until all are gone or timeout.
   while (Date.now() < deadline) {
     const alive = pids.filter((pid) => {
       return signalProcess(pid, 0);
@@ -311,7 +306,6 @@ export async function cleanupProcesses(
     await sleep(100);
   }
 
-  // SIGKILL any survivors.
   for (const pid of pids) {
     signalProcess(pid, 'SIGKILL');
   }

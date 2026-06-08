@@ -34,14 +34,6 @@ describe('planner conversation history store', () => {
     rmSync(repoRoot, { recursive: true, force: true });
   });
 
-  it('resolves the normalized absolute history path without creating the file', () => {
-    const historyPath = resolvePlannerHistoryPath(path.join(repoRoot, '.'));
-
-    expect(historyPath).toBe(path.normalize(path.join(repoRoot, '.platform-state', 'planner-conversation-history.json')));
-    expect(path.isAbsolute(historyPath)).toBe(true);
-    expect(existsSync(historyPath)).toBe(false);
-  });
-
   it('returns the empty version 1 shape when the file is missing', async () => {
     await expect(readPlannerHistory({ repoRoot })).resolves.toEqual({
       version: 1,

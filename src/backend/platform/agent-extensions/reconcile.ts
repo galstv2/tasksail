@@ -109,7 +109,7 @@ export async function reconcileAgentExtensions(
     unavailable: 0,
   };
 
-  // Acquire lock first; read manifest while holding the lock (spec single-writer rule)
+  // Acquire the lock before reading the manifest so reconciliation has a single writer.
   try {
     await withAgentExtensionsLock(repoRoot, 'reconcileAgentExtensions', async () => {
       let manifest;

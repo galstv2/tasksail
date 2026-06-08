@@ -1,26 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
-  trimWhitespace,
   stripWrappingQuotes,
   slugify,
   jsonEscapeString,
   extractFrontmatter,
   extractMarkdownSection,
 } from '../text.js';
-
-describe('trimWhitespace', () => {
-  it('removes leading and trailing whitespace', () => {
-    expect(trimWhitespace('  hello  ')).toBe('hello');
-  });
-
-  it('handles empty string', () => {
-    expect(trimWhitespace('')).toBe('');
-  });
-
-  it('handles tabs and newlines', () => {
-    expect(trimWhitespace('\t\n hello \n\t')).toBe('hello');
-  });
-});
 
 describe('stripWrappingQuotes', () => {
   it('strips double quotes', () => {

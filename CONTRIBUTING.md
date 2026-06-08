@@ -29,6 +29,7 @@ Thanks for contributing to TaskSail.
 Before opening a pull request, run:
 
 - `pnpm run local-checks`
+- `pnpm run check-open-source-readiness`
 
 If your change touches the desktop shell, also run:
 

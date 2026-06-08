@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from src.backend.mcp.pack.writer import PackWriter, PackWriterContended
 from src.backend.mcp.pack_schemas import (
     LocalPath,
     ManifestRepositoryV2,
@@ -16,9 +17,7 @@ from src.backend.mcp.pack_schemas import (
     validate_plan,
 )
 from src.backend.mcp.pack_schemas.manifest import ManifestFocusableArea
-from src.backend.mcp.pack_writer import PackWriter, PackWriterContended
 
-# Paths to shared fixtures
 _FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "pack_schemas"
 _MANIFEST_V2_FIXTURE = _FIXTURES / "manifest" / "distributed-v2.json"
 _ANSWERS_FIXTURE = _FIXTURES / "answers" / "minimum.json"
@@ -41,10 +40,6 @@ def _make_pack_dir(tmp_path: Path) -> tuple[Path, Path]:
     return pack_dir, manifest_path
 
 
-# ------------------------------------------------------------------
-# Test 1: basic write creates the manifest
-# ------------------------------------------------------------------
-
 def test_write_manifest_creates_file(tmp_path: Path) -> None:
     pack_dir = tmp_path / "pack"
     pack_dir.mkdir()
@@ -57,15 +52,10 @@ def test_write_manifest_creates_file(tmp_path: Path) -> None:
     assert raw["context_pack_id"] == "platform-demo-v2"
 
 
-# ------------------------------------------------------------------
-# Test 2: write_manifest mirrors repository_type = repo_focus
-# ------------------------------------------------------------------
-
 def test_write_manifest_mirrors_repository_type(tmp_path: Path) -> None:
     pack_dir = tmp_path / "pack"
     pack_dir.mkdir()
     model = _load_v2_fixture()
-    # Set repo_focus to a known value, clear repository_type
     assert model.repositories is not None
     model.repositories[0].repo_focus = "support"
     model.repositories[0].repository_type = ""
@@ -73,10 +63,6 @@ def test_write_manifest_mirrors_repository_type(tmp_path: Path) -> None:
     raw = json.loads((pack_dir / "qmd" / "repo-sources.json").read_text(encoding="utf-8"))
     assert raw["repositories"][0]["repository_type"] == "support"
 
-
-# ------------------------------------------------------------------
-# Test 3: write_manifest derives focus area repository_type
-# ------------------------------------------------------------------
 
 def test_write_manifest_derives_focus_area_types(tmp_path: Path) -> None:
     pack_dir = tmp_path / "pack"
@@ -110,15 +96,9 @@ def test_write_manifest_derives_focus_area_types(tmp_path: Path) -> None:
     assert fa_by_id["core"]["repository_type"] == "support"
 
 
-# ------------------------------------------------------------------
-# Test 4: update_manifest authorship guard — repo_focus
-# ------------------------------------------------------------------
-
-
 def test_update_manifest_authorship_guard_repo_focus(tmp_path: Path) -> None:
     pack_dir, _ = _make_pack_dir(tmp_path)
 
-    # Mark the first repo as authored with a specific focus
     def seed_authored(model: RepoSourcesManifestV2) -> RepoSourcesManifestV2:
         assert model.repositories is not None
         model.repositories[0].repo_focus = "support"
@@ -128,7 +108,6 @@ def test_update_manifest_authorship_guard_repo_focus(tmp_path: Path) -> None:
     writer = PackWriter(pack_dir)
     writer.update_manifest(seed_authored, preserve_authored_fields=False)
 
-    # Now a mutator tries to overwrite the authored value
     def try_override(model: RepoSourcesManifestV2) -> RepoSourcesManifestV2:
         assert model.repositories is not None
         model.repositories[0].repo_focus = "primary"
@@ -137,13 +116,7 @@ def test_update_manifest_authorship_guard_repo_focus(tmp_path: Path) -> None:
     writer.update_manifest(try_override)
 
     raw = json.loads((pack_dir / "qmd" / "repo-sources.json").read_text(encoding="utf-8"))
-    # The authored value should be preserved
     assert raw["repositories"][0]["repo_focus"] == "support"
-
-
-# ------------------------------------------------------------------
-# Test 5: update_manifest authorship guard — repo_category
-# ------------------------------------------------------------------
 
 
 def test_update_manifest_authorship_guard_repo_category(tmp_path: Path) -> None:
@@ -169,11 +142,6 @@ def test_update_manifest_authorship_guard_repo_category(tmp_path: Path) -> None:
     assert raw["repositories"][0]["repo_category"] == "library"
 
 
-# ------------------------------------------------------------------
-# Test 6: update_manifest — repo_focus is operator-owned
-# ------------------------------------------------------------------
-
-
 def test_update_manifest_preserves_repo_focus_without_authored_flag(tmp_path: Path) -> None:
     pack_dir, _ = _make_pack_dir(tmp_path)
 
@@ -188,10 +156,6 @@ def test_update_manifest_preserves_repo_focus_without_authored_flag(tmp_path: Pa
     assert raw["repositories"][0]["repo_focus"] == "primary"
 
 
-# ------------------------------------------------------------------
-# Test 7: write_answers creates the answers file
-# ------------------------------------------------------------------
-
 def test_write_answers_creates_file(tmp_path: Path) -> None:
     pack_dir = tmp_path / "pack"
     pack_dir.mkdir()
@@ -203,10 +167,6 @@ def test_write_answers_creates_file(tmp_path: Path) -> None:
     parsed = json.loads(answers_path.read_text(encoding="utf-8"))
     assert parsed["context_pack_id"] == "test-pack"
 
-
-# ------------------------------------------------------------------
-# Test 8: write_plan creates the plan file
-# ------------------------------------------------------------------
 
 def test_write_plan_creates_file(tmp_path: Path) -> None:
     pack_dir = tmp_path / "pack"
@@ -220,10 +180,6 @@ def test_write_plan_creates_file(tmp_path: Path) -> None:
     assert parsed["context_pack_id"] == "test-pack"
 
 
-# ------------------------------------------------------------------
-# Test 9: manifest_file override routes to custom path
-# ------------------------------------------------------------------
-
 def test_manifest_file_override(tmp_path: Path) -> None:
     pack_dir = tmp_path / "pack"
     pack_dir.mkdir()
@@ -234,16 +190,11 @@ def test_manifest_file_override(tmp_path: Path) -> None:
     assert not (pack_dir / "qmd" / "repo-sources.json").exists()
 
 
-# ------------------------------------------------------------------
-# Test 10: idempotent update — same mutator twice produces same bytes
-# ------------------------------------------------------------------
-
-
 def test_idempotent_update(tmp_path: Path) -> None:
     pack_dir, manifest_path = _make_pack_dir(tmp_path)
 
     def mutator(model: RepoSourcesManifestV2) -> RepoSourcesManifestV2:
-        return model  # identity mutator
+        return model
 
     writer = PackWriter(pack_dir)
     writer.update_manifest(mutator)
@@ -253,15 +204,10 @@ def test_idempotent_update(tmp_path: Path) -> None:
     assert first_bytes == second_bytes
 
 
-# ------------------------------------------------------------------
-# Test 11: synthesis of primary_focus_area_ids from legacy repository_type=primary
-# ------------------------------------------------------------------
-
 def test_synthesis_of_primary_focus_area_ids(tmp_path: Path) -> None:
     """Legacy manifests with focus_area.repository_type='primary' synthesize primary_focus_area_ids."""
     pack_dir = tmp_path / "pack"
     pack_dir.mkdir()
-    # Build a model with legacy repository_type-based classification, no primary_focus_area_ids
     model = RepoSourcesManifestV2(
         manifest_version="qmd-repo-sources/v2",
         manifest_status="approved",
@@ -295,11 +241,6 @@ def test_synthesis_of_primary_focus_area_ids(tmp_path: Path) -> None:
     assert fa_by_id["core"]["repository_type"] == "support"
 
 
-# ------------------------------------------------------------------
-# Test 12: lock contention — second writer times out and raises PackWriterContended
-# ------------------------------------------------------------------
-
-
 def test_lock_contention_raises_after_timeout(tmp_path: Path) -> None:
     """Two PackWriter instances on the same pack: second raises PackWriterContended."""
     pack_dir, _ = _make_pack_dir(tmp_path)
@@ -315,10 +256,8 @@ def test_lock_contention_raises_after_timeout(tmp_path: Path) -> None:
 
     thread = threading.Thread(target=hold_lock, daemon=True)
     thread.start()
-    # Wait until the first writer actually holds the lock
     assert lock_held.wait(timeout=2.0), "First writer never acquired the lock"
 
-    # Second writer with very short timeout — must fail immediately
     writer2 = PackWriter(pack_dir)
     with pytest.raises(PackWriterContended):
         with writer2._locked(timeout=0.1):
@@ -328,10 +267,7 @@ def test_lock_contention_raises_after_timeout(tmp_path: Path) -> None:
     thread.join(timeout=2.0)
 
 
-# ------------------------------------------------------------------
-# G5 crash-safety: PackWriter end-to-end. A crash between temp-file
-# write and os.replace must leave the original manifest intact.
-# ------------------------------------------------------------------
+# Crash between temp-file write and os.replace must leave the original manifest intact.
 
 def test_write_manifest_crash_between_tempfile_and_replace_preserves_original(
     tmp_path: Path,
@@ -343,14 +279,11 @@ def test_write_manifest_crash_between_tempfile_and_replace_preserves_original(
     def _explode(*_a: object, **_kw: object) -> None:
         raise OSError("simulated crash mid-write")
 
-    # PackWriter -> pack_io.write_text_atomic -> utils.write_text_atomic ->
-    # lib/io.atomic_write_text -> os.replace; intercept the rename step at its
-    # concrete home in scripts/python/lib/io.py.
+    # Intercept the final os.replace call in the atomic-write stack.
     from src.backend.scripts.python.lib import io as _io
     monkeypatch.setattr(_io.os, "replace", _explode)
 
     model = _load_v2_fixture()
-    # Mutate something so the would-be write differs from the original.
     assert model.repositories is not None
     model.repositories[0].repo_focus = "support"
 
@@ -360,7 +293,6 @@ def test_write_manifest_crash_between_tempfile_and_replace_preserves_original(
     assert manifest_path.read_bytes() == original_bytes, (
         "Original manifest must be intact when os.replace fails mid-write"
     )
-    # Confirm no leftover *.tmp sibling pollutes the directory.
     leftovers = [p for p in manifest_path.parent.iterdir() if p.suffix == ".tmp"]
     assert leftovers == [], f"Unexpected temp file leftover: {leftovers}"
 

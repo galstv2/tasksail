@@ -112,11 +112,22 @@ describe('direct runtime process supervisor', () => {
           REPO_CONTEXT_MCP_HOST: '127.0.0.1',
           REPO_CONTEXT_MCP_PORT: '8819',
           REPO_CONTEXT_MCP_CONTAINER_PORT: '8811',
+          REPO_CONTEXT_MCP_REQUIRE_GET_AUTH: '1',
           TASKSAIL_REPO_ROOT: tmpDir,
         }),
       }),
     );
     expect(spawnMock.mock.calls[0][2].env).not.toHaveProperty('ACTIVE_CONTEXT_PACK_DIR');
+  });
+
+  it('lets an operator override REPO_CONTEXT_MCP_REQUIRE_GET_AUTH via .env', async () => {
+    fs.writeFileSync(path.join(tmpDir, '.env'), 'REPO_CONTEXT_MCP_REQUIRE_GET_AUTH=0\n', 'utf-8');
+    spawnMock.mockReturnValue(new FakeChild(4242));
+    checkServiceHealthMock.mockResolvedValue({ service: 'repo-context-mcp', healthy: true, attempts: 1 });
+
+    await spawnDirectMcp({ repoRoot: tmpDir, port: 8819, env: { TASKSAIL_REPO_ROOT: tmpDir } });
+
+    expect(spawnMock.mock.calls[0][2].env.REPO_CONTEXT_MCP_REQUIRE_GET_AUTH).toBe('0');
   });
 
   it('uses a compatible fallback when Python 3.12 discovery is unavailable', async () => {

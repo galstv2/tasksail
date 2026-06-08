@@ -99,7 +99,7 @@ describe('task notification store', () => {
     expect(snapshot.notifications.map((record) => record.taskId).sort()).toEqual(['task-1', 'task-2']);
   });
 
-  it('computes unseenCount from seenAt null and dismissedAt null', async () => {
+  it('excludes seen and dismissed records from unseenCount and the visible snapshot', async () => {
     const first = await recordTaskNotification({
       repoRoot,
       record: recordInput({ taskId: 'task-1' }),
@@ -113,20 +113,25 @@ describe('task notification store', () => {
     expect(first).not.toBeNull();
     expect(second).not.toBeNull();
 
-    await markTaskNotificationsSeen({
+    // allVisible marks every visible record seen, so unseenCount drops to 0.
+    const afterSeen = await markTaskNotificationsSeen({
       repoRoot,
       notificationIds: [first!.notificationId],
+      allVisible: true,
       now: dateMinute(3),
     });
+    expect(afterSeen.unseenCount).toBe(0);
+    expect(afterSeen.notifications.every((record) => record.seenAt === dateMinute(3).toISOString())).toBe(true);
+
+    // A dismissed record leaves the visible snapshot and is not counted as unseen.
     await dismissTaskNotification({
       repoRoot,
-      notificationId: second!.notificationId,
+      notificationId: first!.notificationId,
       now: dateMinute(4),
     });
-
     const snapshot = await readTaskNotificationSnapshot(repoRoot);
     expect(snapshot.unseenCount).toBe(0);
-    expect(snapshot.notifications.map((record) => record.notificationId)).toEqual([first!.notificationId]);
+    expect(snapshot.notifications.map((record) => record.notificationId)).toEqual([second!.notificationId]);
   });
 
   it('marks notifications seen without dismissing records', async () => {
@@ -157,31 +162,7 @@ describe('task notification store', () => {
     });
   });
 
-  it('marks every visible notification seen when allVisible is true', async () => {
-    const first = await recordTaskNotification({
-      repoRoot,
-      record: recordInput({ taskId: 'task-1' }),
-      now: dateMinute(1),
-    });
-    await recordTaskNotification({
-      repoRoot,
-      record: recordInput({ taskId: 'task-2' }),
-      now: dateMinute(2),
-    });
-    expect(first).not.toBeNull();
-
-    const snapshot = await markTaskNotificationsSeen({
-      repoRoot,
-      notificationIds: [first!.notificationId],
-      allVisible: true,
-      now: dateMinute(3),
-    });
-
-    expect(snapshot.unseenCount).toBe(0);
-    expect(snapshot.notifications.every((record) => record.seenAt === dateMinute(3).toISOString())).toBe(true);
-  });
-
-  it('dismisses one notification and removes it from the visible snapshot', async () => {
+  it('dismiss removes a single notification from the visible snapshot, then dismissAll clears it', async () => {
     const first = await recordTaskNotification({
       repoRoot,
       record: recordInput({ taskId: 'task-1' }),
@@ -195,39 +176,25 @@ describe('task notification store', () => {
     expect(first).not.toBeNull();
     expect(second).not.toBeNull();
 
-    const snapshot = await dismissTaskNotification({
+    // Dismissing one notification removes it from the visible snapshot and persists dismissedAt.
+    const afterOne = await dismissTaskNotification({
       repoRoot,
       notificationId: second!.notificationId,
       now: dateMinute(3),
     });
-
-    expect(snapshot.notifications.map((record) => record.notificationId)).toEqual([first!.notificationId]);
-    const persisted = readPersistedNotifications(repoRoot);
-    expect(persisted.find((record) => record.notificationId === second!.notificationId)).toMatchObject({
+    expect(afterOne.notifications.map((record) => record.notificationId)).toEqual([first!.notificationId]);
+    expect(readPersistedNotifications(repoRoot).find((record) => record.notificationId === second!.notificationId)).toMatchObject({
       dismissedAt: dateMinute(3).toISOString(),
     });
-  });
 
-  it('dismisses all visible notifications', async () => {
-    await recordTaskNotification({
+    // Dismissing all clears the visible snapshot, zeroes unseenCount, and persists dismissedAt on every record.
+    const afterAll = await dismissAllTaskNotifications({
       repoRoot,
-      record: recordInput({ taskId: 'task-1' }),
-      now: dateMinute(1),
+      now: dateMinute(4),
     });
-    await recordTaskNotification({
-      repoRoot,
-      record: recordInput({ taskId: 'task-2' }),
-      now: dateMinute(2),
-    });
-
-    const snapshot = await dismissAllTaskNotifications({
-      repoRoot,
-      now: dateMinute(3),
-    });
-
-    expect(snapshot.unseenCount).toBe(0);
-    expect(snapshot.notifications).toEqual([]);
-    expect(readPersistedNotifications(repoRoot).every((record) => record.dismissedAt === dateMinute(3).toISOString())).toBe(true);
+    expect(afterAll.unseenCount).toBe(0);
+    expect(afterAll.notifications).toEqual([]);
+    expect(readPersistedNotifications(repoRoot).every((record) => record.dismissedAt !== null)).toBe(true);
   });
 
   it('quarantines malformed JSON and returns an empty snapshot', async () => {

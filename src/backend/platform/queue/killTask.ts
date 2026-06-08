@@ -271,7 +271,7 @@ async function rollbackBindings(bindings: ActivationRollbackBinding[]): Promise<
       await execFileAsync('git', ['-C', binding.originalRoot, 'worktree', 'prune']).catch(() => {});
     }
     if (rollbackBinding.createdBranch && binding.worktreeBranch) {
-      // SEC-TS-05: '--' guards against an agent-authored branch name starting with '-'.
+      // '--' guards against an agent-authored branch name starting with '-'.
       await execFileAsync('git', ['-C', binding.originalRoot, 'branch', '-D', '--', binding.worktreeBranch]).catch(() => {});
     }
   }

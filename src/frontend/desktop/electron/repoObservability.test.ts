@@ -13,7 +13,7 @@ vi.mock('node:child_process', async (importOriginal) => {
 import { execSync } from 'node:child_process';
 
 import { probePidLiveness, readObservabilitySnapshot, readQueueStatusSnapshot } from './repoObservability';
-import { setCurrentActiveContextPackTaskScope } from './main.contextPackTaskVisibility';
+import { setCurrentActiveContextPackTaskScope } from './contextPack/taskVisibility';
 
 const execSyncMock = vi.mocked(execSync);
 

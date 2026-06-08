@@ -7,10 +7,7 @@ import {
   AgentRunError,
   ConfigError,
   ContainerError,
-  ContextPackError,
   InvariantError,
-  MCPError,
-  QueueError,
   ValidationError,
   flushLoggers,
   runCliBoundary,
@@ -57,23 +54,8 @@ const ERROR_CASES: Array<{
     exitCode: 69,
   },
   {
-    name: 'MCPError',
-    error: new MCPError('mcp down', { code: 'MCP_DOWN', category: 'external' }),
-    exitCode: 69,
-  },
-  {
     name: 'AgentRunError',
     error: new AgentRunError('agent failed', { code: 'AGENT_FAILED', category: 'system' }),
-    exitCode: 70,
-  },
-  {
-    name: 'QueueError',
-    error: new QueueError('queue failed', { code: 'QUEUE_FAILED', category: 'system' }),
-    exitCode: 70,
-  },
-  {
-    name: 'ContextPackError',
-    error: new ContextPackError('pack failed', { code: 'PACK_FAILED', category: 'system' }),
     exitCode: 70,
   },
   {

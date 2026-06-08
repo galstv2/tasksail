@@ -8,7 +8,7 @@ import {
   readVisibleTaskMarkdownItems,
   resolveActiveContextPackTaskScope,
   type ContextPackLister,
-} from '../main.contextPackTaskVisibility';
+} from '../contextPack/taskVisibility';
 import { REPO_ROOT } from '../paths';
 import { inferOperatorStatus } from './lifecycle';
 import {
@@ -136,7 +136,7 @@ export async function readQueueStatusSnapshot(
     activeTaskIds = rawActiveTaskIds;
   }
 
-  // Derive activeTaskId for backward-compat scalar from the first active marker (F39).
+  // Derive activeTaskId for backward-compat scalar from the first active marker.
   const activeTaskId = activeTaskIds[0] ?? null;
 
   const operatorStatus = inferOperatorStatus({

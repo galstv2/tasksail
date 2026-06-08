@@ -35,9 +35,6 @@ class QmdRewardWriter:
     def agent_rewards_dir(self) -> Path:
         return self._agent_rewards_dir
 
-    # ------------------------------------------------------------------
-    # Per-agent reward memory
-    # ------------------------------------------------------------------
     def write_agent_reward(
         self,
         reward: AgentRewardMemory,
@@ -64,9 +61,6 @@ class QmdRewardWriter:
         self._agent_rewards_dir.mkdir(parents=True, exist_ok=True)
         return [self.write_agent_reward(r, _dir_exists=True) for r in rewards]
 
-    # ------------------------------------------------------------------
-    # Task archive patching
-    # ------------------------------------------------------------------
     def patch_task_archive_md(  # Archive-index lock: held (precedence 5)
         self,
         archive_md_path: Path,
@@ -82,7 +76,7 @@ class QmdRewardWriter:
         this method — it is invoked post-promotion in file-task-archive.py
         after all queue and counter locks have been released.
         """
-        # archive_md_path lives at <scope_dir>/archive/tasks/<year>/<name>.md
+        # archive_md_path lives under the canonical task archive tree.
         scope_dir = archive_md_path.parents[3]
         index_lock_path = scope_dir / ".indexes.lock"
         lock_fd = acquire_file_lock(index_lock_path)
@@ -98,9 +92,6 @@ class QmdRewardWriter:
             atomic_write_text(archive_md_path, content)
         finally:
             release_file_lock(lock_fd)
-
-
-# ── Rendering helpers ────────────────────────────────────────────────────
 
 
 def _render_agent_reward_md(reward: AgentRewardMemory) -> str:
@@ -147,11 +138,9 @@ def _replace_managed_section(
     marker = heading + "\n"
     start = content.find(marker)
     if start == -1:
-        # Append at end
         if not content.endswith("\n"):
             content += "\n"
         return content + f"\n{heading}\n\n{new_body}\n"
-    # Find end of section (next ## heading or EOF)
     body_start = start + len(marker)
     next_heading = content.find("\n## ", body_start)
     if next_heading == -1:

@@ -1,5 +1,5 @@
 import type { ReinforcementRealignmentSessionEntry } from '../../../shared/desktopContract';
-import type { RealignmentAnalysisRunState } from '../../hooks/useRealignmentSessions';
+import type { RealignmentAnalysisRunState } from '../../hooks/reinforcement/useRealignmentSessions';
 
 export function realignmentActionLabel(status: string): string | null {
   if (status === 'open') return 'Run analysis';

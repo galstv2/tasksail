@@ -680,7 +680,7 @@ describe('electron main bootstrap — dialogs and planner', () => {
     ).resolves.toEqual({
       ok: false,
       action: 'planner.readStagedDraft',
-      error: 'Staged draft 20260320T003500Z-spec.md is empty. Ask Lily to rewrite the draft before finalizing.',
+      error: 'Staged draft 20260320T003500Z-spec.md is empty. Ask the planner to rewrite the draft before finalizing.',
     });
   });
 

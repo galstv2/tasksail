@@ -9,12 +9,10 @@ import type {
   AgentExtensionSourceManifestEntry,
 } from '../types.js';
 
-// Build an in-memory fs adapter backed by a real temp dir
 function buildFsAdapter(_root: string): AgentExtensionFsAdapter {
   const realFs = buildDefaultFs();
   return {
     ...realFs,
-    // pathExists uses real stat
   };
 }
 
@@ -32,9 +30,7 @@ let tmpDir: string;
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'materialize-test-'));
-  // Create .platform-state dir
   fs.mkdirSync(path.join(tmpDir, '.platform-state'), { recursive: true });
-  // Create config/agent-extensions.default.json
   fs.mkdirSync(path.join(tmpDir, 'config'), { recursive: true });
   fs.writeFileSync(
     path.join(tmpDir, 'config', 'agent-extensions.default.json'),
@@ -72,7 +68,6 @@ function makeDirectAttachmentEntry(configPath: string): AgentExtensionSourceMani
 
 describe('materializeExtension (local source)', () => {
   it('materializes a local skill source and writes receipt outside runtime dir', async () => {
-    // Create a local skill dir with SKILL.md
     const srcDir = path.join(tmpDir, 'my-skill-src');
     fs.mkdirSync(srcDir, { recursive: true });
     fs.writeFileSync(path.join(srcDir, 'SKILL.md'), SKILL_MD_CONTENT);
@@ -86,12 +81,10 @@ describe('materializeExtension (local source)', () => {
 
     const result = await materializeExtension(tmpDir, entry, seams);
 
-    // Runtime copy must exist under .platform-state/skills/<id>
     const expectedRuntimePath = path.join(tmpDir, '.platform-state', 'skills', 'test-skill');
     expect(result.runtime_path).toBe(expectedRuntimePath);
     expect(fs.existsSync(path.join(expectedRuntimePath, 'SKILL.md'))).toBe(true);
 
-    // Receipt must be outside the runtime dir
     const receiptPath = path.join(
       tmpDir,
       '.platform-state',
@@ -106,7 +99,6 @@ describe('materializeExtension (local source)', () => {
     expect(receipt.kind).toBe('skill');
     expect(receipt.imported_at).toBe(NOW);
     expect(receipt.source_digest).toBeTruthy();
-    // Receipt must NOT be inside the runtime copy dir
     expect(receiptPath).not.toContain(expectedRuntimePath);
   });
 
@@ -120,7 +112,6 @@ describe('materializeExtension (local source)', () => {
 
     await materializeExtension(tmpDir, entry, seams);
 
-    // Re-materialize same content → same digest
     const tmpDir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'mat-digest2-'));
     try {
       fs.mkdirSync(path.join(tmpDir2, '.platform-state'), { recursive: true });
@@ -155,7 +146,6 @@ describe('materializeExtension (local source)', () => {
     const targetDir = path.join(tmpDir, '.platform-state', 'skills', 'test-skill');
     expect(fs.existsSync(targetDir)).toBe(true);
 
-    // Add a stale file to the target, re-materialize — target is replaced clean
     fs.writeFileSync(path.join(targetDir, 'stale.txt'), 'stale');
     await materializeExtension(tmpDir, entry, seams);
 
@@ -177,9 +167,7 @@ describe('materializeExtension (local source)', () => {
 
     await expect(materializeExtension(tmpDir, entry)).rejects.toThrow();
 
-    // Temp dir should be cleaned up
     const tempDir = path.join(tmpDir, '.platform-state', 'agent-extensions');
-    // Either temp was cleaned up or doesn't exist at all
     if (fs.existsSync(tempDir)) {
       const tmpEntries = fs.readdirSync(tempDir).filter((n) => n.startsWith('.tmp-'));
       expect(tmpEntries).toHaveLength(0);
@@ -206,14 +194,13 @@ describe('materializeExtension (git source)', () => {
   it('writes commit_sha from rev-parse into the receipt', async () => {
     const FAKE_SHA = 'abc1234def5678901234567890123456789abcde';
 
-    // Inject an execFile seam that fakes git clone (creates SKILL.md) and rev-parse
+    // Inject an execFile seam that fakes git clone and rev-parse
     const fakeExecFile = async (
       _file: string,
       args: string[],
       _options: { cwd: string },
     ): Promise<{ stdout: string; stderr: string }> => {
       if (args[0] === 'clone') {
-        // Extract targetDir (last argument) and seed it
         const targetDir = args[args.length - 1];
         fs.mkdirSync(targetDir, { recursive: true });
         fs.writeFileSync(path.join(targetDir, 'SKILL.md'), SKILL_MD_CONTENT);
@@ -277,7 +264,7 @@ describe('materializeExtension (git source)', () => {
     const seams: AgentExtensionMutationSeams = { now: () => NOW, execFile: fakeExecFile };
     const result = await materializeExtension(tmpDir, entry, seams);
 
-    // SKILL.md must be present in runtime dir
+    // The skill document must be present in runtime dir
     expect(fs.existsSync(path.join(result.runtime_path, 'SKILL.md'))).toBe(true);
     // root-only.txt must NOT appear (only subdir content was copied)
     expect(fs.existsSync(path.join(result.runtime_path, 'root-only.txt'))).toBe(false);

@@ -20,10 +20,6 @@ import {
 import { loadMarkdownContract } from './contracts/markdownContract.js';
 import { normalizeText } from './matching.js';
 
-// ---------------------------------------------------------------------------
-// Public types
-// ---------------------------------------------------------------------------
-
 export interface SliceArtifactDescriptor {
   format: SliceArtifactFormat;
   extension: '.md' | '.xml';
@@ -39,10 +35,6 @@ export interface SliceArtifactContent {
   validationSurfaceText: string;
   validationCommandsText: string;
 }
-
-// ---------------------------------------------------------------------------
-// Descriptor
-// ---------------------------------------------------------------------------
 
 export function describeSliceArtifactFormat(format: SliceArtifactFormat): SliceArtifactDescriptor {
   if (format === 'xml') {
@@ -62,10 +54,6 @@ export function describeSliceArtifactFormat(format: SliceArtifactFormat): SliceA
     displayGlob: 'slice-*.md',
   };
 }
-
-// ---------------------------------------------------------------------------
-// File listing
-// ---------------------------------------------------------------------------
 
 export async function listSliceArtifactFiles(
   stepsDir: string,
@@ -92,7 +80,6 @@ export async function listWrongFormatSliceFiles(
 ): Promise<string[]> {
   try {
     const wrongExt = format === 'xml' ? '.md' : '.xml';
-    // wrongPattern: slice-N.{wrongExt}, excluding template files
     const wrongPattern = format === 'xml'
       ? /^slice-[1-9]\d*\.md$/
       : /^slice-[1-9]\d*\.xml$/;
@@ -101,7 +88,6 @@ export async function listWrongFormatSliceFiles(
       .filter((entry) => {
         if (!entry.isFile()) return false;
         if (!entry.name.endsWith(wrongExt)) return false;
-        // exclude template files
         if (entry.name === 'slice-template.md' || entry.name === 'slice-template.xml') return false;
         return wrongPattern.test(entry.name);
       })
@@ -115,10 +101,6 @@ export async function listWrongFormatSliceFiles(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Slice ID extraction
-// ---------------------------------------------------------------------------
-
 export function sliceIdFromFilename(filePath: string, format: SliceArtifactFormat): string {
   const base = path.basename(filePath);
   const ext = format === 'xml' ? '.xml' : '.md';
@@ -129,17 +111,13 @@ export function sliceIdFromFilename(filePath: string, format: SliceArtifactForma
   return base.replace(/\.(md|xml)$/, '');
 }
 
-// ---------------------------------------------------------------------------
-// Parallel slice reference normalization
-// ---------------------------------------------------------------------------
-
 export function normalizeParallelSliceReference(
   value: string,
   format: SliceArtifactFormat,
 ): string {
   const trimmed = value.trim();
   if (format === 'xml') {
-    // Accept bare slice-N or slice-N.xml. Reject a wrong-format slice-N.md by
+    // Accept bare slice ids or XML slice artifacts. Reject wrong-format markdown refs by
     // returning '' so callers (which drop falsy refs) do not silently treat it
     // as the matching slice-N.xml. Callers must gate their free-text fallback on
     // whether any raw reference existed, not on whether one survived filtering.
@@ -148,15 +126,9 @@ export function normalizeParallelSliceReference(
     }
     return trimmed.replace(/\.xml$/i, '');
   }
-  // markdown: strip .md suffix
   return trimmed.replace(/\.md$/i, '');
 }
 
-// ---------------------------------------------------------------------------
-// XML parsing helpers (no third-party dependency)
-// ---------------------------------------------------------------------------
-
-// Required field paths for XML slices
 const XML_REQUIRED_FIELD_PATHS: readonly string[] = [
   'metadata/title',
   'objective/purpose',
@@ -205,18 +177,14 @@ export const MARKDOWN_SCOPE_INVENTORY_SECTION_SPECS: readonly SemanticSectionSpe
   },
 ];
 
-// Patterns that mark a field body as placeholder/incomplete
 const XML_PLACEHOLDER_RE =
   /^(?:tbd|todo|tba|placeholder)\.?$/i;
 
-/** Strip XML comments (<!-- ... -->) from a string. */
 function stripXmlComments(text: string): string {
   return text.replace(/<!--[\s\S]*?-->/g, '');
 }
 
-/** Decode CDATA markers and basic XML entities. */
 function decodeCdata(text: string): string {
-  // Remove CDATA wrappers
   return text
     .replace(/<!\[CDATA\[/g, '')
     .replace(/\]\]>/g, '');
@@ -232,14 +200,10 @@ function decodeXmlEntities(text: string): string {
 }
 
 /**
- * Extract the text content of a named XML element (self-closing not handled;
- * looks for the first occurrence of the open tag).
- * Returns null when the element is absent.
- * CDATA sections inside element content are decoded.
+ * Extract a named XML element's body from the fixed slice template.
+ * Self-closing tags are intentionally outside this lightweight parser.
  */
 function extractXmlElement(xml: string, elementName: string): string | null {
-  // Match open tag (with optional attributes), content (including CDATA), close tag.
-  // Non-greedy to get the first occurrence.
   const re = new RegExp(
     `<${elementName}(?:\\s[^>]*)?>([\\s\\S]*?)</${elementName}>`,
     '',
@@ -250,10 +214,6 @@ function extractXmlElement(xml: string, elementName: string): string | null {
   return decodeXmlEntities(decodeCdata(raw));
 }
 
-/**
- * Extract the text content of a child element within a parent element.
- * Finds the first parent element, then the first child element within it.
- */
 function extractXmlChildElement(
   xml: string,
   parentName: string,
@@ -264,10 +224,6 @@ function extractXmlChildElement(
   return extractXmlElement(parentContent, childName);
 }
 
-/**
- * Extract all required XML field bodies from a slice XML string.
- * Returns a map of field path => decoded body text.
- */
 function extractXmlRequiredFields(xml: string): Record<string, string> {
   const result: Record<string, string> = {};
   for (const fieldPath of XML_REQUIRED_FIELD_PATHS) {
@@ -291,7 +247,6 @@ function extractXmlRequiredFields(xml: string): Record<string, string> {
  * For validationCommands, we allow non-empty fenced blocks.
  */
 function isXmlFieldIncomplete(fieldPath: string, body: string): boolean {
-  // Strip XML comments
   const stripped = stripXmlComments(body).trim();
 
   if (!stripped) {
@@ -302,17 +257,14 @@ function isXmlFieldIncomplete(fieldPath: string, body: string): boolean {
     return true;
   }
 
-  // Check if what remains before stripping comments was only comments
   const bodyTrimmed = body.trim();
   if (!bodyTrimmed) return true;
 
-  // Template-comment-only: entire non-whitespace content is XML comments
   const noComments = bodyTrimmed.replace(/<!--[\s\S]*?-->/g, '').trim();
   if (!noComments) {
     return true;
   }
 
-  // For validationCommands: check if fenced block has actual command content
   if (fieldPath === 'acceptanceAndValidation/validationCommands') {
     return isFencedCommandBodyEmpty(noComments);
   }
@@ -325,7 +277,6 @@ function isXmlFieldIncomplete(fieldPath: string, body: string): boolean {
  * code fence (``` ... ```) with no actual command lines inside it.
  */
 function isFencedCommandBodyEmpty(text: string): boolean {
-  // Strip outer fenced blocks and see if there's any content
   const lines = text.split(/\r?\n/);
   let inFence = false;
   let hasCommandContent = false;
@@ -338,12 +289,10 @@ function isFencedCommandBodyEmpty(text: string): boolean {
         continue;
       }
       if (trimmed) {
-        // Non-fence non-empty line outside a fence counts as content
         hasCommandContent = true;
       }
       continue;
     }
-    // inside fence
     if (trimmed === '```' || /^```/.test(trimmed)) {
       inFence = false;
       continue;
@@ -354,10 +303,6 @@ function isFencedCommandBodyEmpty(text: string): boolean {
   }
   return !hasCommandContent;
 }
-
-// ---------------------------------------------------------------------------
-// Markdown fenced-command extraction (mirrors testCapture.ts logic)
-// ---------------------------------------------------------------------------
 
 function extractCommandsFromFences(sectionContent: string): string[] {
   const contract = loadMarkdownContract();
@@ -424,10 +369,6 @@ function removeSingleContinuationBackslash(value: string): string | null {
   return slashCount === 1 ? value.slice(0, -1).trimEnd() : null;
 }
 
-// ---------------------------------------------------------------------------
-// parseSliceArtifactContent
-// ---------------------------------------------------------------------------
-
 export function parseSliceArtifactContent(args: {
   filePath: string;
   text: string;
@@ -446,14 +387,12 @@ export function parseSliceArtifactContent(args: {
 function parseMarkdownSliceArtifactContent(sliceId: string, text: string): SliceArtifactContent {
   const sections = parseSemanticSections(text);
 
-  // Build requiredFields from slice required section specs
   const requiredFields: Record<string, string> = {};
   for (const spec of [...SLICE_REQUIRED_SECTION_SPECS, ...MARKDOWN_SCOPE_INVENTORY_SECTION_SPECS]) {
     const content = resolveSemanticSection(sections, spec).content;
     requiredFields[spec.key] = normalizeText(content);
   }
 
-  // Validation surface = unit-tests + acceptance-criteria + validation-commands sections
   const validationSurfaceSpecs = SLICE_REQUIRED_SECTION_SPECS.filter((s) =>
     s.key === 'unit-tests' || s.key === 'acceptance-criteria' || s.key === 'validation-commands',
   );
@@ -462,7 +401,6 @@ function parseMarkdownSliceArtifactContent(sliceId: string, text: string): Slice
   );
   const validationSurfaceText = validationSurfaceLines.join('\n');
 
-  // validationCommandsText = just the validation-commands body
   const validationCommandsSpec = SLICE_REQUIRED_SECTION_SPECS.find(
     (s) => s.key === 'validation-commands',
   )!;
@@ -479,13 +417,11 @@ function parseMarkdownSliceArtifactContent(sliceId: string, text: string): Slice
 }
 
 function parseXmlSliceArtifactContent(sliceId: string, text: string): SliceArtifactContent {
-  // Strip XML comments from the full text for ID extraction, but keep
-  // original text as .text (spec says text = full decoded slice text)
+  // Decode returned text while extracting fields from raw XML.
   const decoded = decodeXmlEntities(decodeCdata(text));
 
   const requiredFields = extractXmlRequiredFields(text);
 
-  // Validation surface = acceptanceCriteria + validationCommands
   const acceptanceCriteria = requiredFields['acceptanceAndValidation/acceptanceCriteria'] ?? '';
   const validationCommandsText = requiredFields['acceptanceAndValidation/validationCommands'] ?? '';
   const validationSurfaceText = [acceptanceCriteria, validationCommandsText]
@@ -500,10 +436,6 @@ function parseXmlSliceArtifactContent(sliceId: string, text: string): SliceArtif
     validationCommandsText,
   };
 }
-
-// ---------------------------------------------------------------------------
-// missingRequiredSliceFields
-// ---------------------------------------------------------------------------
 
 export function missingRequiredSliceFields(content: SliceArtifactContent): string[] {
   const missing: string[] = [];
@@ -540,10 +472,6 @@ export function missingRequiredAttributeFields(rawXml: string): string[] {
   return missing;
 }
 
-// ---------------------------------------------------------------------------
-// extractSliceValidationCommands
-// ---------------------------------------------------------------------------
-
 export function extractSliceValidationCommands(args: {
   text: string;
   format: SliceArtifactFormat;
@@ -561,7 +489,6 @@ export function extractSliceValidationCommands(args: {
     return extractCommandsFromFences(decoded);
   }
 
-  // markdown: delegates to existing fenced-command extraction
   const validationCommandsSpec = SLICE_REQUIRED_SECTION_SPECS.find(
     (s) => s.key === 'validation-commands',
   );
@@ -572,10 +499,6 @@ export function extractSliceValidationCommands(args: {
   if (!sectionContent) return [];
   return extractCommandsFromFences(sectionContent);
 }
-
-// ---------------------------------------------------------------------------
-// repairXmlSliceStructure
-// ---------------------------------------------------------------------------
 
 const EXECUTION_SLICE_OPEN_RE = /<executionSlice\b[^>]*>/;
 const EXECUTION_SLICE_CLOSE_RE = /<\/executionSlice>/;
@@ -597,17 +520,14 @@ export function repairXmlSliceStructure(args: {
     reason,
   });
 
-  // Reject markdown files
   if (filePath.endsWith('.md')) {
     return noRepair('repair does not apply to markdown files');
   }
 
-  // Reject if text doesn't look like XML at all
   if (!EXECUTION_SLICE_OPEN_RE.test(text)) {
     return noRepair('text does not contain executionSlice element');
   }
 
-  // Reject if content has markdown structure (## headings)
   if (/^##\s/m.test(text)) {
     return noRepair('text appears to be a markdown document, not XML');
   }
@@ -615,8 +535,7 @@ export function repairXmlSliceStructure(args: {
   let result = text;
   let changed = false;
 
-  // Check for ambiguous duplicate required fields — reject if any required field
-  // appears more than once in the document (outside XML comments/CDATA)
+  // Duplicate required fields are ambiguous after XML comments are stripped.
   const strippedForDupCheck = stripXmlComments(text);
   for (const fieldPath of XML_REQUIRED_FIELD_PATHS) {
     const childName = fieldPath.split('/')[1]!;
@@ -627,24 +546,20 @@ export function repairXmlSliceStructure(args: {
     }
   }
 
-  // Repair 1: Add missing XML declaration
   if (!result.startsWith('<?xml')) {
     result = `<?xml version="1.0" encoding="UTF-8"?>\n${result}`;
     changed = true;
   }
 
-  // Repair 2: Ensure executionSlice has correct id attribute matching expectedSliceId
   const openTagMatch = EXECUTION_SLICE_OPEN_RE.exec(result);
   if (openTagMatch) {
     const openTag = openTagMatch[0];
     const hasId = /\bid="[^"]*"/.test(openTag);
     if (!hasId) {
-      // Add id attribute
       const fixedTag = openTag.replace('<executionSlice', `<executionSlice id="${expectedSliceId}"`);
       result = result.replace(openTag, fixedTag);
       changed = true;
     } else {
-      // Check if id matches
       const idMatch = /\bid="([^"]*)"/.exec(openTag);
       if (idMatch && idMatch[1] !== expectedSliceId) {
         const fixedTag = openTag.replace(/\bid="[^"]*"/, `id="${expectedSliceId}"`);
@@ -654,7 +569,6 @@ export function repairXmlSliceStructure(args: {
     }
   }
 
-  // Repair 3: Ensure closing tag exists
   if (!EXECUTION_SLICE_CLOSE_RE.test(result)) {
     result = result.trimEnd() + '\n</executionSlice>\n';
     changed = true;

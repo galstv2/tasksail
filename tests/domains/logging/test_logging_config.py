@@ -12,7 +12,6 @@ from src.backend.scripts.python.lib.errors import ValidationError
 from src.backend.scripts.python.lib.logging_config import (
     bind,
     configure_logging,
-    new_span_id,
 )
 
 
@@ -93,10 +92,6 @@ def test_configure_logging_skips_asyncio_handler_without_warning(tmp_path: Path,
         configure_logging()
 
     assert not [warning for warning in captured if issubclass(warning.category, DeprecationWarning)]
-
-
-def test_new_span_id_reuses_request_id_shape() -> None:
-    assert new_span_id().startswith("req-")
 
 
 def _one(root: Path, pattern: str) -> Path:

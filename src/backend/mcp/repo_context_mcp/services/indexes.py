@@ -1,8 +1,7 @@
 """Index-writing and conventions-memo helpers for SeedingService.
 
-Extracted from seeding_service.py (Phase 6 Gate G1).  Functions receive
-the SeedingService instance as ``service`` (duck-typed) to access injected
-callables without introducing a new class hierarchy.
+Functions receive the SeedingService instance as ``service`` (duck-typed) to
+access injected callables without introducing a new class hierarchy.
 """
 from __future__ import annotations
 

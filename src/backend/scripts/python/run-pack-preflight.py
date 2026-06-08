@@ -34,7 +34,7 @@ if str(_REPO_ROOT) not in sys.path:
 from src.backend.mcp.context_estate.bootstrap_normalization import (
     normalize_bootstrap_answers,
 )
-from src.backend.mcp.pack_preflight import (
+from src.backend.mcp.pack.preflight import (
     PackPreflightRequest,
     PackPreflightValidator,
     PreflightError,

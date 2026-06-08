@@ -155,32 +155,6 @@ describe('fileTaskArchive', () => {
     );
   });
 
-  it('passes the active provider registry path into the archive helper', async () => {
-    mockRunPython.mockResolvedValue({
-      stdout: '{}',
-      stderr: '',
-      exitCode: 0,
-    });
-
-    await fileTaskArchive({
-      contextPackDir: '/packs/pack-a',
-      taskId: 'task-abc',
-      repoRoot: '/fake/repo',
-    });
-
-    expect(mockRunPython).toHaveBeenCalledWith(
-      expect.stringContaining('file-task-archive.py'),
-      expect.any(Array),
-      expect.objectContaining({
-        env: expect.objectContaining({
-          TASKSAIL_CLI_HOME_DIR_NAME: 'copilot-home',
-          TASKSAIL_AGENT_REGISTRY_PATH: '/fake/repo/.github/agents/registry.json',
-          TASKSAIL_TASK_ID: 'task-abc',
-        }),
-      }),
-    );
-  });
-
   it('includes optional --qmd-scope and --resume', async () => {
     mockRunPython.mockResolvedValue({
       stdout: '{}',

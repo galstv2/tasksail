@@ -1,7 +1,7 @@
 /**
- * §5.1 MG-7: Bypass-gate check via inherited env.
+ * Bypass-gate check via inherited env.
  *
- * After the §5.1 MG-7 deletion, the bypass gate (runRoleAgent checks
+ * After helper removal, the bypass gate (runRoleAgent checks
  * RUN_ROLE_AGENT_ALLOW_INTERNAL_BYPASS=true) is satisfied because the child process
  * spawned by spawnPipelineForTask inherits the env var from fork options.
  *
@@ -157,7 +157,7 @@ describe('runPipelineSequence — bypass gate via inherited env (§5.1 MG-7)', (
   it(
     'runPipelineSequence completes without bypass-gate error when RUN_ROLE_AGENT_ALLOW_INTERNAL_BYPASS is pre-set on the child env (§5.1 MG-7)',
     async () => {
-      // Previously, the helper (now deleted per §5.1 MG-7) set the env in-process.
+      // Previously, the helper set the env in-process.
       // Now the child process inherits the env from spawnPipelineForTask's fork options.
       // In this in-process test, we simulate that inheritance by pre-setting the env
       // before calling runPipelineSequence.

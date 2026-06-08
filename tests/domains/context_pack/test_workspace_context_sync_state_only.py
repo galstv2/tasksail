@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.backend.mcp.workspace_context_sync_service import (
+from src.backend.mcp.workspace_context_sync.service import (
     WorkspaceContextSyncService,
 )
 

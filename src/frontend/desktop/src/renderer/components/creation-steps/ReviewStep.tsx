@@ -1,5 +1,5 @@
-import type { ContextPackCreationModalProps } from '../../contextPackCreationTypes';
-import { contextPackModeLabel, isMonolithEstateMode } from '../../contextPackModeUtils';
+import type { ContextPackCreationModalProps } from '../../contextPack/contextPackCreationTypes';
+import { contextPackModeLabel, isMonolithEstateMode } from '../../contextPack/contextPackModeUtils';
 import { classNames } from '../../utils/classNames';
 import { toTitleCase } from '../../utils/toTitleCase';
 
@@ -61,10 +61,6 @@ function ReviewStep({ draft }: ReviewStepProps): JSX.Element {
       draft.repositories.length > 0 ? 'pass' : 'fail',
     ),
     validationItem(
-      'Working repository selected',
-      draft.repositories.some((r) => r.primary) ? 'pass' : 'warn',
-    ),
-    validationItem(
       'All repo roots set',
       draft.repositories.every((r) => r.repoRoot.trim()) ? 'pass' : 'fail',
     ),
@@ -79,12 +75,8 @@ function ReviewStep({ draft }: ReviewStepProps): JSX.Element {
             draft.focusAreas.length > 0 ? 'pass' : 'fail',
           ),
           validationItem(
-            'Working folder selected',
-            draft.focusAreas.some((focusArea) => focusArea.primary) ? 'pass' : 'warn',
-          ),
-          validationItem(
-            'Working folder has a relative path',
-            draft.focusAreas.some((f) => f.primary && f.relativePath.trim()) ? 'pass' : 'fail',
+            'Focus areas have relative paths',
+            draft.focusAreas.every((f) => f.relativePath.trim()) ? 'pass' : 'fail',
           ),
         ]
       : []),
@@ -129,18 +121,11 @@ function ReviewStep({ draft }: ReviewStepProps): JSX.Element {
 
           <div className="context-pack-modal__repo-chips">
             {draft.repositories.map((repo) => (
-              <span
-                key={repo.key}
-                className={classNames(
-                  'context-pack-modal__repo-chip',
-                  repo.primary && 'context-pack-modal__repo-chip--primary',
-                )}
-              >
-                {repo.primary && 'Primary \u2022 '}
+              <span key={repo.key} className="context-pack-modal__repo-chip">
                 {repo.repoName || repo.repoId || 'Unnamed'}
-                {repo.systemLayer && (
+                {repo.repoCategory && (
                   <span className="context-pack-modal__repo-chip__layer">
-                    {toTitleCase(repo.systemLayer)}
+                    {toTitleCase(repo.repoCategory)}
                   </span>
                 )}
               </span>
@@ -151,23 +136,16 @@ function ReviewStep({ draft }: ReviewStepProps): JSX.Element {
               <p className="context-pack-modal__section-label">Focus areas</p>
               <div className="context-pack-modal__repo-chips">
                 {draft.focusAreas.map((focusArea) => (
-                  <span
-                    key={focusArea.key}
-                    className={classNames(
-                      'context-pack-modal__repo-chip',
-                      focusArea.repositoryType === 'primary' && 'context-pack-modal__repo-chip--primary',
-                    )}
-                    >
-                      {focusArea.repositoryType === 'primary' ? 'Primary \u2022 ' : 'Support \u2022 '}
-                      {focusArea.focusName || focusArea.focusId || 'Unnamed focus area'}
-                      {(focusArea.relativePath || focusArea.focusType) ? (
-                        <span className="context-pack-modal__repo-chip__layer">
-                          {[
-                            focusArea.relativePath,
-                            focusArea.focusType ? toTitleCase(focusArea.focusType) : null,
-                          ].filter(Boolean).join(' \u2022 ')}
-                        </span>
-                      ) : null}
+                  <span key={focusArea.key} className="context-pack-modal__repo-chip">
+                    {focusArea.focusName || focusArea.focusId || 'Unnamed focus area'}
+                    {(focusArea.relativePath || focusArea.focusCategory) ? (
+                      <span className="context-pack-modal__repo-chip__layer">
+                        {[
+                          focusArea.relativePath,
+                          focusArea.focusCategory ? toTitleCase(focusArea.focusCategory) : null,
+                        ].filter(Boolean).join(' \u2022 ')}
+                      </span>
+                    ) : null}
                   </span>
                 ))}
               </div>

@@ -39,9 +39,6 @@ function runtimePath(): string {
   return path.join(tmpDir, RUNTIME_REGISTRY_PATH);
 }
 
-// ---------------------------------------------------------------------------
-// Initial seeding
-// ---------------------------------------------------------------------------
 
 describe('initial seeding', () => {
   it('creates runtime file from default when missing', async () => {
@@ -73,9 +70,6 @@ describe('initial seeding', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Fail-closed semantics
-// ---------------------------------------------------------------------------
 
 describe('fail-closed semantics', () => {
   it('fails on corrupt runtime file (does not silently re-seed)', async () => {
@@ -122,9 +116,6 @@ describe('fail-closed semantics', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Round-trip with operator mutations
-// ---------------------------------------------------------------------------
 
 describe('round-trip with operator mutations', () => {
   it('preserves operator-added servers on re-seed', async () => {
@@ -157,9 +148,6 @@ describe('round-trip with operator mutations', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Atomic save
-// ---------------------------------------------------------------------------
 
 describe('atomic save', () => {
   it('concurrent writes do not corrupt the file', async () => {

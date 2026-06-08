@@ -1,13 +1,4 @@
-/* ═══════════════════════════════════════════════════════════════════════════
-   TaskSail UI Standards Framework
-   ═══════════════════════════════════════════════════════════════════════════
-   Version:  2.0.0
-   Updated:  2026-03-22
-   Aesthetic: Refined nautical instrument panel
-   ─────────────────────────────────────────────────────────────────────────── */
-
-
-/* ── §1  Design Tokens ─────────────────────────────────────────────────── */
+/* TaskSail UI design tokens. */
 
 /* Local self-hosted UI faces. Family names match the typography tokens below. */
 @font-face {
@@ -55,13 +46,13 @@
 :root {
   color-scheme: light dark;
 
-  /* ── Typography ──────────────────────────────────────────────────────── */
+  /* Typography */
   --ts-font-sans: 'Outfit', ui-sans-serif, system-ui, -apple-system,
     BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --ts-font-mono: 'Source Code Pro', 'SF Mono', 'Cascadia Code',
     'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo,
     Monaco, Consolas, monospace;
-  /* ── Light palette — slate & ivory ───────────────────────────────────── */
+  /* Light palette slate & ivory */
   --ts-bg:               #f4f6fa;
   --ts-overlay:          rgba(20, 30, 50, 0.03);
   --ts-surface:          #ffffff;
@@ -70,34 +61,34 @@
   --ts-surface-terminal: #0f1419;
   --ts-bg-hover:         rgba(30, 50, 100, 0.05);
 
-  /* ── Section backgrounds ─────────────────────────────────────────────── */
+  /* Section backgrounds */
   --ts-header-bg:        #1e2a3a;
   --ts-sidebar-bg:       #f8f9fc;
   --ts-main-bg:          #eef0f6;
   --ts-rail-bg:          #f8f9fc;
 
-  /* ── Header (dark header in light mode for contrast) ─────────────────── */
+  /* Header (dark header in light mode for contrast) */
   --ts-header-text:      #e8ecf2;
   --ts-header-text-soft: #8b9bb5;
   --ts-header-border:    rgba(255, 255, 255, 0.08);
 
-  /* ── Borders ─────────────────────────────────────────────────────────── */
+  /* Borders */
   --ts-border:           rgba(25, 40, 75, 0.09);
   --ts-border-strong:    rgba(25, 40, 75, 0.16);
 
-  /* ── Text ────────────────────────────────────────────────────────────── */
+  /* Text */
   --ts-text:             #1a2332;
   --ts-text-muted:       #4e5d74;
   --ts-text-soft:        #8292a8;
   --ts-text-inverse:     #ffffff;
 
-  /* ── Accent — warm brass/amber ──────────────────────────────────────── */
+  /* Accent warm brass/amber */
   --ts-accent:           #d08b3e;
   --ts-accent-hover:     #be7a30;
   --ts-accent-subtle:    rgba(208, 139, 62, 0.10);
   --ts-accent-tint:      rgba(208, 139, 62, 0.10);
 
-  /* ── Brand palette — matches dock icon ───────────────────────────── */
+  /* Brand palette matches dock icon */
   --ts-brand-burgundy:       #8c2f3b;
   --ts-brand-burgundy-light: #c45a68;
   --ts-brand-gold:           #b8862d;
@@ -110,17 +101,17 @@
   --ts-brand-gray-light:     #95a3b5;
   --ts-brand-cloudblue:      #89b8f0;
 
-  /* ── Chat bubble tokens ────────────────────────────────────────────── */
+  /* Chat bubble tokens */
   --ts-chat-sender:      var(--ts-brand-cloudblue);
   --ts-chat-receiver:    #d8dfe8;
 
-  /* ── Secondary accent — cool teal ─────────────────────────────────── */
+  /* Secondary accent cool teal */
   --ts-accent2:          #2d8a8a;
   --ts-accent2-hover:    #247474;
   --ts-accent2-subtle:   rgba(45, 138, 138, 0.10);
   --ts-accent2-tint:     rgba(45, 138, 138, 0.08);
 
-  /* ── Semantic status ─────────────────────────────────────────────────── */
+  /* Semantic status */
   --ts-success:          #2d9d5a;
   --ts-warning:          #c8873a;
   --ts-error:            #c44040;
@@ -131,20 +122,20 @@
   --ts-danger-tint:      rgba(220, 38, 38, 0.06);
   --ts-success-tint:     rgba(45, 157, 90, 0.08);
 
-  /* ── Elevation ───────────────────────────────────────────────────────── */
+  /* Elevation */
   --ts-shadow-sm:  0 1px 2px rgba(15, 25, 45, 0.06);
   --ts-shadow-md:  0 2px 6px rgba(15, 25, 45, 0.08), 0 4px 14px rgba(15, 25, 45, 0.05);
   --ts-shadow-lg:  0 4px 16px rgba(15, 25, 45, 0.10), 0 12px 40px rgba(15, 25, 45, 0.08);
   --ts-shadow-xl:  0 0 0 0.5px rgba(0, 0, 0, 0.04), 0 4px 14px rgba(0, 0, 0, 0.07), 0 24px 60px rgba(0, 0, 0, 0.12);
 
-  /* ── Z-index ────────────────────────────────────────────────────────── */
+  /* Z-index */
   --ts-z-header: 2;
   --ts-z-dropdown: 20;
   --ts-z-modal: 100;
   --ts-z-toast: 200;
   --ts-z-popover: 210;
 
-  /* ── Terminal tokens (untouched) ───────────────────────────────────── */
+  /* Terminal tokens */
   --terminal-bg:         #0f1419;
   --terminal-chrome:     #161b22;
   --terminal-drawer-bg:  #1c2129;
@@ -165,48 +156,48 @@
   --terminal-green-pale:    #7ee787;
   --terminal-red-light:     #ffa198;
 
-  /* ── Scrollbar ──────────────────────────────────────────────────────── */
+  /* Scrollbar */
   --ts-scrollbar-width:  6px;
   --ts-scrollbar-track:  transparent;
   --ts-scrollbar-thumb:  rgba(255, 255, 255, 0.10);
   --ts-scrollbar-thumb-hover: rgba(255, 255, 255, 0.18);
 
-  /* ── Radii ───────────────────────────────────────────────────────────── */
+  /* Radii */
   --ts-radius-sm:  4px;
   --ts-radius-md:  8px;
   --ts-radius-lg:  10px;
   --ts-radius-xl:  16px;
   --ts-radius-pill: 999px;
 
-  /* ── Transitions ─────────────────────────────────────────────────────── */
+  /* Transitions */
   --ts-ease: cubic-bezier(0.25, 0.1, 0.25, 1);
   --ts-spring: cubic-bezier(0.22, 1, 0.36, 1);
   --ts-duration: 200ms;
 
-  /* ── Button sizing ─────────────────────────────────────────────────── */
+  /* Button sizing */
   --ts-btn-sm: 24px;
   --ts-btn-md: 32px;
   --ts-btn-lg: 40px;
 
-  /* ── Font sizing floors ────────────────────────────────────────────── */
+  /* Font sizing floors */
   --ts-font-xs:   0.66rem;   /* smallest allowed — badges, counts */
   --ts-font-sm:   0.7rem;    /* secondary labels, timestamps */
   --ts-font-base: 0.8rem;    /* body text */
   --ts-font-md:   0.95rem;   /* section headers, modal titles */
   --ts-font-lg:   1rem;      /* primary headings */
 
-  /* ── Container padding ────────────────────────────────────────────── */
+  /* Container padding */
   --ts-pad-panel:  1rem;
   --ts-pad-modal:  0.85rem 1.1rem;
   --ts-pad-card:   0.75rem 0.85rem;
 
-  /* ── Font weights ──────────────────────────────────────────────────── */
+  /* Font weights */
   --ts-weight-normal: 400;
   --ts-weight-medium: 500;
   --ts-weight-semibold: 600;
   --ts-weight-bold: 700;
 
-  /* ── Mapped aliases (backward compat) ────────────────────────────────── */
+  /* Mapped aliases (backward compat) */
   --app-bg:              var(--ts-bg);
   --app-surface:         var(--ts-surface);
   --app-surface-alt:     var(--ts-surface-alt);
@@ -230,12 +221,7 @@
   color: var(--ts-text);
 }
 
-
-/* ── §1.1  Dark mode ─────────────────────────────────────────────────── */
-/* Dark tokens are applied via .theme-dark on <html>. The useThemeToggle
-   hook manages the class based on user preference or OS setting.
-   No @media (prefers-color-scheme) blocks — the hook is the single
-   source of truth, eliminating duplication and specificity conflicts. */
+/* Dark tokens are applied only via .theme-dark; the theme hook owns user/OS preference. */
 
 :root.theme-dark {
   --ts-bg:               #0c1018;
@@ -281,7 +267,7 @@
 }
 
 
-/* ── Thin scrollbar for dark-background scroll containers ──────────── */
+/* Thin scrollbar for dark-background scroll containers */
 
 .terminal-feed__scroll,
 .task-board-column__list,

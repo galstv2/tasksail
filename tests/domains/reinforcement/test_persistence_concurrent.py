@@ -13,21 +13,26 @@ from pathlib import Path
 
 import pytest
 
-# ---------------------------------------------------------------------------
-# Gate
-# ---------------------------------------------------------------------------
 pytestmark = pytest.mark.skipif(
     not os.environ.get("RUN_SLOW_TESTS"),
     reason="Set RUN_SLOW_TESTS=1 to run concurrent-writer tests",
 )
+pytestmark = [
+    pytestmark,
+    pytest.mark.skipif(
+        not os.environ.get("TASKSAIL_AGENT_REGISTRY_PATH", "").strip(),
+        reason=(
+            "TASKSAIL_AGENT_REGISTRY_PATH is not set; skipping reinforcement "
+            "tests that require the active CLI provider agent registry."
+        ),
+    ),
+]
 
 # Ensure repo root is importable from worker processes.
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
-# ---------------------------------------------------------------------------
 # Worker functions (must be importable at module level for multiprocessing)
-# ---------------------------------------------------------------------------
 
 def _worker_append_task_entry(repo_root_str: str, task_id: str) -> None:
     """Worker: appends a single TaskLedgerEntry to the store."""
@@ -91,10 +96,6 @@ def _worker_append_settlement(repo_root_str: str, settlement_id: str) -> None:
     store.append_settlement(record)
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 def _run_workers(
     target,
     args_list: list[tuple],
@@ -119,10 +120,6 @@ def _run_workers(
             errors.append(f"Worker pid={p.pid} exited with code {p.exitcode}")
     return errors
 
-
-# ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
 
 class TestPersistenceConcurrent:
     """Concurrent multiprocess writers against a shared ReinforcementStore."""

@@ -5,6 +5,10 @@ from pathlib import Path
 
 import pytest
 
+from .registry_skip import skip_if_agent_registry_missing
+
+skip_if_agent_registry_missing()
+
 from src.backend.mcp.reinforcement.engine import ReinforcementEngine
 from src.backend.mcp.reinforcement.models import AgentRewardMemory
 from src.backend.mcp.reinforcement.persistence import ReinforcementStore
@@ -121,11 +125,6 @@ class TestFeedback:
 
 
 class TestReadAccessors:
-    def test_get_agent_rewards_empty(
-        self, engine: ReinforcementEngine,
-    ) -> None:
-        assert engine.get_agent_rewards() == []
-
     def test_get_settlement_history(
         self, engine: ReinforcementEngine,
     ) -> None:

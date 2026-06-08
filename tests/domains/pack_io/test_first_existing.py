@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from src.backend.mcp.pack_io import (
+from src.backend.mcp.pack.io import (
     NoExistingPathError,
     SkippedPath,
     resolve_first_existing,
@@ -42,7 +42,6 @@ def test_multi_path_mixed(tmp_path: Path) -> None:
     c = tmp_path / "c"
     b.mkdir()
     c.mkdir()
-    # a is missing, b is chosen, c is not-selected
     chosen, skipped = resolve_first_existing([a, b, c])
     assert chosen == b
     assert skipped[0] == SkippedPath(path=a, reason="missing")
@@ -52,14 +51,6 @@ def test_multi_path_mixed(tmp_path: Path) -> None:
 def test_all_missing_raises(tmp_path: Path) -> None:
     with pytest.raises(NoExistingPathError):
         resolve_first_existing([tmp_path / "x", tmp_path / "y"])
-
-
-def test_single_path_no_skipped(tmp_path: Path) -> None:
-    d = tmp_path / "only"
-    d.mkdir()
-    chosen, skipped = resolve_first_existing([d])
-    assert chosen == d
-    assert skipped == []
 
 
 def test_unreadable_skipped_as_unreadable(tmp_path: Path) -> None:

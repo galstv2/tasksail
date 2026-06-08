@@ -1,5 +1,5 @@
 /**
- * §B2 Commit-routing integration test.
+ * Commit-routing integration test.
  *
  * Validates the full per-task worktree split end-to-end:
  *   - prepareDaltonBoundary points the agent CWD at the worktreeRoot, not the
@@ -40,9 +40,6 @@ import type { FocusedRepoResult } from '../../context-pack/focusedRepo.js';
 import type { AutonomyIntent } from '../types.js';
 import type { TaskRepoBinding } from '../../queue/taskJson.js';
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf-8' }).trim();
@@ -82,7 +79,7 @@ function writeTaskJson(
 ): void {
   const dir = path.join(platformRoot, 'AgentWorkSpace', 'tasks', taskId);
   mkdirSync(dir, { recursive: true });
-  // schema_version: 1 today; B7-data bumps to 2.
+  // schema_version: 1 today; read-side normalization bumps it to 2.
   const json = {
     schema_version: 1,
     taskId,
@@ -157,9 +154,6 @@ function makeAutonomyArgs(): AutonomyIntent {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Test fixtures
-// ---------------------------------------------------------------------------
 
 describe('§B2 commit-routing integration', () => {
   let platformRoot: string;
@@ -197,8 +191,8 @@ describe('§B2 commit-routing integration', () => {
       baseCommitSha: baseSha,
     }]);
 
-    // Construct focused as if B1's worktreeInjection already ran. This is the
-    // shape downstream consumers (prepareDaltonBoundary) actually see at runtime.
+    // Construct focused as if worktreeInjection already ran. This is the shape
+    // downstream consumers (prepareDaltonBoundary) actually see at runtime.
     const focused = makeFocused({
       primaryRepoRoot: worktreeRoot,
       visibleRepoRoots: [worktreeRoot],
@@ -211,7 +205,7 @@ describe('§B2 commit-routing integration', () => {
       autonomyArgs,
     );
 
-    // Boundary assertions — the heart of B2.
+    // Core boundary assertions.
     expect(boundary.agentCwd).toBe(worktreeRoot);
     expect(autonomyArgs.allowedDirs).toContain(worktreeRoot);
 

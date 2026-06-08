@@ -158,7 +158,7 @@ export async function resolveReinforcementContext(
       ],
       {
         cwd: repoRoot,
-        // SEC-TS-06: bound the pre-launch render so a hung helper (e.g. blocked
+  // Bound the pre-launch render so a hung helper (e.g. blocked
         // on a corrupt/locked QMD file written by a prior run) cannot stall the
         // agent pipeline indefinitely. Matches reinforcementWrite.ts. The catch
         // below degrades to an 'unavailable' status rather than crashing.

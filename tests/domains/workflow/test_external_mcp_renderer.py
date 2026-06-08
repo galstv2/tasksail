@@ -22,6 +22,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from lib.role_agent.external_mcp.renderer import (
+    LaunchContext,
     cleanup_stale_launches,
     prepare_launch_context,
     render_capability_summary,
@@ -121,11 +122,6 @@ class ResolveHeadersTests(unittest.TestCase):
         with mock.patch.dict(os.environ, env, clear=True):
             result = resolve_headers(server)
         self.assertIsNone(result)
-
-    def test_returns_empty_dict_for_no_headers(self) -> None:
-        server = _make_server()
-        result = resolve_headers(server)
-        self.assertEqual(result, {})
 
 
 class ResolveMcpServersTests(unittest.TestCase):
@@ -231,7 +227,6 @@ class RenderCapabilitySummaryTests(unittest.TestCase):
         server = _make_server()
         path = render_capability_summary(self.tmpdir, [server])
         content = path.read_text()
-        # Should not claim tools are definitely available or authenticated.
         self.assertNotIn("is live", content)
         self.assertNotIn("is authenticated", content)
 
@@ -253,10 +248,8 @@ class RenderCapabilitySummaryTests(unittest.TestCase):
         ]
         path = render_capability_summary(self.tmpdir, servers)
         content = path.read_text()
-        # Both servers present.
         self.assertIn("MCP A", content)
         self.assertIn("MCP B", content)
-        # Stays compact: less than 50 lines for 2 servers.
         self.assertLess(len(content.splitlines()), 50)
 
     def test_escapes_markdown_in_operator_text(self) -> None:
@@ -266,7 +259,6 @@ class RenderCapabilitySummaryTests(unittest.TestCase):
         )
         path = render_capability_summary(self.tmpdir, [server])
         content = path.read_text()
-        # Markdown control characters should be escaped.
         self.assertIn(r"\*bold\*", content)
         self.assertIn(r"\#", content)
         self.assertIn(r"\[chars\]", content)
@@ -299,7 +291,6 @@ class PrepareLaunchContextTests(unittest.TestCase):
         self.assertEqual(ctx.status, "not-applicable")
         self.assertFalse(ctx.injection_enabled)
         self.assertIsNone(ctx.launch_dir)
-        # No runtime artifacts created.
         cli_home = cli_home_root(self.tmpdir)
         if cli_home.exists():
             dirs = list(cli_home.iterdir())
@@ -317,7 +308,6 @@ class PrepareLaunchContextTests(unittest.TestCase):
             "url": "https://mcp.example.com/sse",
             "headers": {},
         }])
-        # Verify files exist.
         launch_dir = Path(ctx.launch_dir)
         self.assertTrue((launch_dir / "mcp-capability-summary.md").exists())
 
@@ -383,7 +373,6 @@ class PrepareLaunchContextTests(unittest.TestCase):
         self.assertEqual(ctx2.status, "not-applicable")
         self.assertFalse(ctx2.injection_enabled)
 
-        # No new directories created.
         new_dirs = set(cli_home.iterdir()) - existing_dirs
         self.assertEqual(len(new_dirs), 0)
 
@@ -404,14 +393,25 @@ class PrepareLaunchContextTests(unittest.TestCase):
         ctx = prepare_launch_context(self.tmpdir, "swe", [])
         self.assertIsNone(ctx.context_file)
 
+    def test_malformed_status_exports(self) -> None:
+        ctx = LaunchContext(
+            status="malformed",
+            reason="registry corrupted",
+            injection_enabled=False,
+        )
+        exports = ctx.env_exports()
+        self.assertEqual(exports["EXTERNAL_MCP_CONTEXT_STATUS"], "malformed")
+        self.assertEqual(exports["EXTERNAL_MCP_CONTEXT_INJECTION_ENABLED"], "false")
+        self.assertNotIn("COPILOT_HOME", exports)
+        self.assertNotIn("EXTERNAL_MCP_CONTEXT_FILE", exports)
+
     def test_retries_on_launch_dir_collision(self) -> None:
         """If the generated token collides, retry until a unique dir is created."""
         server = _make_server()
         cli_home = cli_home_root(self.tmpdir)
         cli_home.mkdir(parents=True)
 
-        # Pre-create a directory matching the first token that will be generated.
-        # Mock _generate_launch_token to return a colliding token first, then a fresh one.
+        # Force one launch-token collision before falling back to the real generator.
         call_count = 0
         original_fn = __import__(
             "lib.role_agent.external_mcp.renderer", fromlist=["_generate_launch_token"]
@@ -424,7 +424,6 @@ class PrepareLaunchContextTests(unittest.TestCase):
                 return "swe-collision-token"
             return original_fn(agent_id)
 
-        # Pre-create the colliding directory.
         (cli_home / "swe-collision-token").mkdir()
 
         with mock.patch(
@@ -434,7 +433,6 @@ class PrepareLaunchContextTests(unittest.TestCase):
             ctx = prepare_launch_context(self.tmpdir, "swe", [server])
 
         self.assertTrue(ctx.injection_enabled)
-        # The launch dir should NOT be the colliding one.
         self.assertNotEqual(Path(ctx.launch_dir).name, "swe-collision-token")
         self.assertTrue((Path(ctx.launch_dir) / "mcp-capability-summary.md").exists())
 
@@ -461,7 +459,6 @@ class PreflightTests(unittest.TestCase):
             "swe",
             [server],
         )
-        # Server should still be injected despite preflight failure.
         self.assertTrue(ctx.injection_enabled)
         self.assertEqual(len(ctx.selected_servers), 1)
 
@@ -493,7 +490,6 @@ class DegradedAndUnavailableTests(unittest.TestCase):
         self.assertEqual(ctx.excluded_servers, ["bad-mcp"])
         self.assertEqual(len(ctx.selected_servers), 1)
         self.assertEqual(ctx.selected_servers[0]["id"], "good-mcp")
-        # Verify env exports reflect degraded state.
         exports = ctx.env_exports()
         self.assertEqual(exports["EXTERNAL_MCP_CONTEXT_STATUS"], "degraded")
         self.assertIn("excluded", exports["EXTERNAL_MCP_CONTEXT_REASON"])
@@ -518,7 +514,6 @@ class DegradedAndUnavailableTests(unittest.TestCase):
         old_dir = Path(ctx1.launch_dir)
         self.assertTrue(old_dir.exists())
 
-        # "Delete" the server: next launch with empty list.
         ctx2 = prepare_launch_context(self.tmpdir, "swe", [])
         self.assertEqual(ctx2.status, "not-applicable")
         self.assertFalse(ctx2.injection_enabled)
@@ -526,6 +521,15 @@ class DegradedAndUnavailableTests(unittest.TestCase):
         self.assertIsNone(ctx2.context_file)
         # Old dir from ctx1 still exists (our PID is alive), but no NEW
         # dirs were created for the empty-servers launch.
+
+    def test_deleted_server_absent_from_next_launch_summary(self) -> None:
+        server = _make_server(id="will-delete", display_name="Deletable MCP")
+        ctx1 = prepare_launch_context(self.tmpdir, "swe", [server])
+        summary1 = (Path(ctx1.launch_dir) / "mcp-capability-summary.md").read_text()
+        self.assertIn("Deletable MCP", summary1)
+
+        ctx2 = prepare_launch_context(self.tmpdir, "swe", [])
+        self.assertIsNone(ctx2.context_file)
 
     def test_concurrent_launches_get_isolated_receipts(self) -> None:
         """Two launches for the same agent get separate dirs and receipts."""
@@ -543,7 +547,6 @@ class DegradedAndUnavailableTests(unittest.TestCase):
                 "selected_server_ids": [s["id"] for s in ctx.selected_servers],
             }), encoding="utf-8")
 
-        # Both receipts exist independently and point to their own dir.
         r1 = json.loads((Path(ctx1.launch_dir) / "mcp-receipt.json").read_text())
         r2 = json.loads((Path(ctx2.launch_dir) / "mcp-receipt.json").read_text())
         self.assertEqual(r1["launch_dir"], ctx1.launch_dir)

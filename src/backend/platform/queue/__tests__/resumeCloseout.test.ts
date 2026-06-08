@@ -167,7 +167,7 @@ describe('resumeCloseoutFromSentinel', () => {
 
   it('continues finalization and writes deferred marker when retrospective sync fails', async () => {
     // Bug 1 regression guard: a thrown sync MUST NOT strand finalize/unlinks.
-    // Spec §4 Fix B step 5 — "Tolerate failure (re-stamp sentinel as Fix A does)".
+    // Tolerate failure by re-stamping the sentinel.
     seedSentinel(repoRoot, taskId, {
       archiveSucceeded: true,
       archivePath,

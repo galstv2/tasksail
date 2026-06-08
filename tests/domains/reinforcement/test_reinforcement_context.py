@@ -6,6 +6,10 @@ import sys
 from argparse import Namespace
 from pathlib import Path
 
+from .registry_skip import skip_if_agent_registry_missing
+
+skip_if_agent_registry_missing()
+
 ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))

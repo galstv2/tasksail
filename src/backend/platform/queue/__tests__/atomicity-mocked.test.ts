@@ -33,7 +33,6 @@ import { resolveQueuePaths } from '../paths.js';
 const mockReset = vi.mocked(resetHandoffArtifacts);
 const mockInit = vi.mocked(initializeTaskArtifacts);
 
-// ── Test 2: completeActiveItem preserves pending file on reset failure ──
 
 describe('completeActiveItem operation ordering', () => {
   let tmpDir: string;
@@ -59,7 +58,7 @@ describe('completeActiveItem operation ordering', () => {
   it('preserves pending file and per-task marker when reset fails', async () => {
     mockReset.mockRejectedValue(new Error('Simulated reset failure'));
 
-    // Set up: per-task active-items marker (§4.1 parallel model)
+    // Set up the per-task active-items marker.
     const taskId = 'task-001';
     const activeItemsDir = path.join(pendingDir, '.active-items');
     mkdirSync(activeItemsDir, { recursive: true });
@@ -74,12 +73,11 @@ describe('completeActiveItem operation ordering', () => {
       }),
     ).rejects.toThrow('Simulated reset failure');
 
-    // Per-task marker must still exist (marker-delete is step 4, after reset)
+    // Per-task marker must still exist; marker-delete happens after reset.
     expect(existsSync(path.join(activeItemsDir, taskId))).toBe(true);
   });
 });
 
-// ── Test 3: activateNextPendingItemIfReady rolls active marker on init failure ──
 
 describe('activateNextPendingItemIfReady claim rollback', () => {
   let repoRoot: string;

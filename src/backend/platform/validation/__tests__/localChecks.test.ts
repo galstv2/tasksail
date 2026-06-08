@@ -48,6 +48,7 @@ describe('runLocalChecks', () => {
     const names = result.results.map(r => r.name);
     expect(names).toContain('structure');
     expect(names).toContain('file-sizes');
+    expect(names).toContain('open-source-readiness');
     // contracts profile should not include python-lint
     expect(names).not.toContain('python-lint');
   });
@@ -71,6 +72,7 @@ describe('runLocalChecks', () => {
     const names = result.results.map(r => r.name);
     expect(names).toContain('structure');
     expect(names).toContain('file-sizes');
+    expect(names).toContain('open-source-readiness');
     expect(names).toContain('desktop-css-color-token-discipline');
     expect(names).not.toContain('python-lint');
     expect(names).not.toContain('python-tests');
@@ -80,13 +82,27 @@ describe('runLocalChecks', () => {
     const result = await runLocalChecks({
       repoRoot: tmpDir,
       profile: 'full',
-      changedPath: 'src/backend/mcp/workspace_context_sync_service.py',
+      changedPath: 'src/backend/mcp/workspace_context_sync/service.py',
     });
     const names = result.results.map(r => r.name);
     expect(names).toContain('structure');
     expect(names).toContain('file-sizes');
+    expect(names).toContain('open-source-readiness');
     expect(names).not.toContain('desktop-css-color-token-discipline');
     expect(names).not.toContain('desktop-tests');
     expect(names).not.toContain('desktop-build');
+  });
+
+  it('runs comment discipline only when explicitly requested', async () => {
+    const defaultResult = await runLocalChecks({ repoRoot: tmpDir, profile: 'smoke' });
+    expect(defaultResult.results.map(r => r.name)).not.toContain('comment-discipline');
+
+    const explicitResult = await runLocalChecks({
+      repoRoot: tmpDir,
+      profile: 'smoke',
+      comments: true,
+      commentMode: 'report',
+    });
+    expect(explicitResult.results.map(r => r.name)).toContain('comment-discipline');
   });
 });

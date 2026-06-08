@@ -4,10 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { existsSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 
-// ---------------------------------------------------------------------------
-// Mocks — factories must NOT reference module-scope variables (hoisting rule).
-// ---------------------------------------------------------------------------
-
+// Mock factories stay self-contained because Vitest hoists them.
 vi.mock('../../container/sharedMcp.js', () => ({
   ensureSharedMcpRunning: vi.fn<() => Promise<void>>(),
 }));
@@ -20,9 +17,7 @@ vi.mock('../../agent-runner/pipelineSupervisor.js', () => ({
   startPipeline: vi.fn().mockResolvedValue({ status: 'started', pid: 12345 }),
 }));
 
-// ---------------------------------------------------------------------------
-// System under test and mock handles (imported AFTER vi.mock calls)
-// ---------------------------------------------------------------------------
+// Import the system under test after the mock registrations.
 import {
   activateNextPendingItemIfReady,
   _getLastRollbackRedriveForTest,
@@ -34,10 +29,6 @@ import { startPipeline as _startPipeline } from '../../agent-runner/pipelineSupe
 
 const ensureSharedMcpRunning = vi.mocked(_ensureSharedMcpRunning);
 const startPipeline = vi.mocked(_startPipeline);
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 /** Creates a deferred { promise, resolve, reject } triple. */
 function deferred<T = void>() {
@@ -92,9 +83,7 @@ async function setupRepo(repoRoot: string, maxParallelTasks: number): Promise<vo
   await writeFile(path.join(repoRoot, 'AgentWorkSpace', 'templates', 'slice-template.md'), '# Slice\n');
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('activateNextPendingItemIfReady rollback re-drive', () => {
   let repoRoot: string;
@@ -149,7 +138,7 @@ describe('activateNextPendingItemIfReady rollback re-drive', () => {
     await markerWritten.promise;
 
     // Verify the marker is present on disk (belt-and-suspenders).
-    // Active markers use the taskId (no .md extension) as the filename.
+    // Active markers use the taskId without the queue-file extension.
     expect(existsSync(path.join(paths.activeItemsDir, 'task-a'))).toBe(true);
 
     // task-b activation with cap=1: task-a's marker is counted, so cap is reached.

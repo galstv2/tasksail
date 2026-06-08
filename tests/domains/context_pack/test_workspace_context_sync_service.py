@@ -5,10 +5,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.backend.mcp.context_estate_discovery import discover_estate
-from src.backend.mcp.context_estate_draft_index import write_draft_artifact
-from src.backend.mcp.context_estate_manifest import write_approved_manifest
-from src.backend.mcp.workspace_context_sync_service import (
+from src.backend.mcp.context_estate.discovery import discover_estate
+from src.backend.mcp.context_estate.draft_index import write_draft_artifact
+from src.backend.mcp.context_estate.manifest import write_approved_manifest
+from src.backend.mcp.workspace_context_sync.service import (
     WorkspaceContextSyncService,
 )
 

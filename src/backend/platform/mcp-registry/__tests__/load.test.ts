@@ -2,9 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { validateRegistry, loadMcpRegistry, validateVolumePath } from '../load.js';
-import type { McpRegistryValidationError } from '../types.js';
+import type { McpRegistry, McpRegistryValidationError } from '../types.js';
+import { ALLOWED_ENV_FILE_REFS } from '../types.js';
+import { toServiceHealthSpecs } from '../healthSpecs.js';
+import { getEnabledComposeServices } from '../composeMetadata.js';
 
-/** Path to the checked-in default registry. */
 const DEFAULT_REGISTRY_PATH = path.resolve(
   __dirname, '..', '..', '..', '..', '..', 'config', 'mcp-registry.default.json',
 );
@@ -13,7 +15,6 @@ function loadDefaultRegistryJson(): unknown {
   return JSON.parse(readFileSync(DEFAULT_REGISTRY_PATH, 'utf-8'));
 }
 
-/** Build a minimal valid registry for test mutations. */
 function validRegistry(): Record<string, unknown> {
   return {
     schema_version: 1,
@@ -52,10 +53,6 @@ function validRegistry(): Record<string, unknown> {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Default registry
-// ---------------------------------------------------------------------------
-
 describe('default registry (config/mcp-registry.default.json)', () => {
   it('parses and validates successfully', () => {
     const data = loadDefaultRegistryJson();
@@ -77,11 +74,27 @@ describe('default registry (config/mcp-registry.default.json)', () => {
       expect(ids).toEqual(['repo-context-mcp']);
     }
   });
-});
 
-// ---------------------------------------------------------------------------
-// Schema version
-// ---------------------------------------------------------------------------
+  it('health spec matches DEFAULT_SERVICES contract', () => {
+    const data = loadDefaultRegistryJson() as McpRegistry;
+    const specs = toServiceHealthSpecs(data);
+    expect(specs).toEqual([{
+      name: 'repo-context-mcp',
+      url: 'http://127.0.0.1:8811/health',
+      maxRetries: 10,
+      retryIntervalMs: 2000,
+    }]);
+  });
+
+  it('produces compose metadata for repo-context-mcp', () => {
+    const data = loadDefaultRegistryJson() as McpRegistry;
+    const services = getEnabledComposeServices(data);
+    expect(services).toHaveLength(1);
+    expect(services[0].id).toBe('repo-context-mcp');
+    expect(services[0].compose.hostPort).toBe(8811);
+    expect(services[0].compose.hostBind).toBe('127.0.0.1');
+  });
+});
 
 describe('schema version validation', () => {
   it('rejects missing schema_version', () => {
@@ -120,15 +133,10 @@ describe('schema version validation', () => {
     const result = validateRegistry(data);
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      // version 0 fails the positive integer check
       expect(result.errors.some((e) => e.field === 'schema_version')).toBe(true);
     }
   });
 });
-
-// ---------------------------------------------------------------------------
-// Required fields
-// ---------------------------------------------------------------------------
 
 describe('required field validation', () => {
   it('rejects missing services array', () => {
@@ -179,10 +187,6 @@ describe('required field validation', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Duplicate IDs
-// ---------------------------------------------------------------------------
-
 describe('duplicate ID validation', () => {
   it('rejects duplicate service IDs', () => {
     const data = validRegistry();
@@ -196,40 +200,33 @@ describe('duplicate ID validation', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// envFileRefs allowlist
-// ---------------------------------------------------------------------------
-
 describe('envFileRefs validation', () => {
-  it('accepts allowed env file refs', () => {
-    const data = validRegistry();
-    (data['services'] as Record<string, unknown>[])[0]['compose'] = {
-      ...((data['services'] as Record<string, unknown>[])[0]['compose'] as Record<string, unknown>),
-      envFileRefs: ['.env', '.env.local', '.env.test'],
-    };
-    const result = validateRegistry(data);
-    expect(result.ok).toBe(true);
-  });
+  it.each([...ALLOWED_ENV_FILE_REFS] as const)(
+    'accepts allowed ref: %s',
+    (ref) => {
+      const data = validRegistry();
+      (data['services'] as Record<string, unknown>[])[0]['compose'] = {
+        ...((data['services'] as Record<string, unknown>[])[0]['compose'] as Record<string, unknown>),
+        envFileRefs: [ref],
+      };
+      const result = validateRegistry(data);
+      expect(result.ok).toBe(true);
+    },
+  );
 
-  it('rejects env file refs outside the allowlist', () => {
-    const data = validRegistry();
-    (data['services'] as Record<string, unknown>[])[0]['compose'] = {
-      ...((data['services'] as Record<string, unknown>[])[0]['compose'] as Record<string, unknown>),
-      envFileRefs: ['.env', '.env.production'],
-    };
-    const result = validateRegistry(data);
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      const envError = result.errors.find((e) => e.field.includes('envFileRefs'));
-      expect(envError).toBeDefined();
-      expect(envError!.message).toContain('.env.production');
-    }
-  });
+  it.each(['.env.staging', '.env.production', '../.env', '/etc/env', ''] as const)(
+    'rejects disallowed ref: %s',
+    (ref) => {
+      const data = validRegistry();
+      (data['services'] as Record<string, unknown>[])[0]['compose'] = {
+        ...((data['services'] as Record<string, unknown>[])[0]['compose'] as Record<string, unknown>),
+        envFileRefs: [ref],
+      };
+      const result = validateRegistry(data);
+      expect(result.ok).toBe(false);
+    },
+  );
 });
-
-// ---------------------------------------------------------------------------
-// Volume path variable references
-// ---------------------------------------------------------------------------
 
 describe('volume path variable reference validation', () => {
   it('accepts valid ${VAR:-default} reference without resolving it', () => {
@@ -313,10 +310,6 @@ describe('volume path variable reference validation', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// buildContext path validation
-// ---------------------------------------------------------------------------
-
 describe('buildContext path validation', () => {
   it('accepts buildContext that resolves to repo root', () => {
     // runtime/docker/repo-context-mcp/Dockerfile + ../../.. = .
@@ -353,10 +346,6 @@ describe('buildContext path validation', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Static environment validation
-// ---------------------------------------------------------------------------
-
 describe('static environment validation', () => {
   it('rejects variable references in static environment values', () => {
     const data = validRegistry();
@@ -372,10 +361,6 @@ describe('static environment validation', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Kind validation
-// ---------------------------------------------------------------------------
-
 describe('kind validation', () => {
   it('rejects unsupported kind', () => {
     const data = validRegistry();
@@ -387,10 +372,6 @@ describe('kind validation', () => {
     }
   });
 });
-
-// ---------------------------------------------------------------------------
-// Validation error structure
-// ---------------------------------------------------------------------------
 
 describe('validation error structure', () => {
   it('includes field path and fix guidance', () => {
@@ -406,10 +387,6 @@ describe('validation error structure', () => {
     }
   });
 });
-
-// ---------------------------------------------------------------------------
-// File loading
-// ---------------------------------------------------------------------------
 
 describe('loadMcpRegistry', () => {
   it('returns error for non-existent file', async () => {

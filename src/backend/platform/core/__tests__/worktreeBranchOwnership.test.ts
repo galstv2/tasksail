@@ -9,6 +9,8 @@ import {
   isChildChainSourceBranchProtected,
   resolveTaskRepoBindingBranchOwnership,
 } from '../worktreeBranchOwnership.js';
+import { discardRetainedTaskWorktrees, finalizeTaskWorktreesWithReport } from '../worktreeFinalize.js';
+import { _clearPlatformConfigCache } from '../../platform-config/get.js';
 import { writeChildTaskChains, type ChildTaskChainsState } from '../../queue/childTaskChains.js';
 import type { TaskRepoBinding } from '../../queue/taskJson.js';
 
@@ -346,5 +348,134 @@ describe('worktree branch ownership helper', () => {
 
     expect(existsSync(binding.worktreeRoot)).toBe(false);
     expect(git(repoRoot, ['branch', '--list', 'task/root'])).toContain('task/root');
+  });
+});
+
+function writePlatformState(repoRoot: string, retain: boolean): void {
+  mkdirSync(path.join(repoRoot, '.platform-state'), { recursive: true });
+  writeFileSync(path.join(repoRoot, '.platform-state', 'platform.json'), JSON.stringify({
+    schema_version: 1,
+    container_runtime: 'docker',
+    max_parallel_tasks: 10,
+    retain_failed_task_worktrees: retain,
+    max_retained_failed_task_worktrees: 1,
+    max_retry_generations_per_slug: 5,
+    completed_task_runtime_retention_ms: 3600000,
+    mcp_port: 8811,
+    repo_context_mcp_external_mount_roots: [],
+  }, null, 2) + '\n');
+  _clearPlatformConfigCache();
+}
+
+function writeSidecarSingle(repoRoot: string, taskId: string, binding: Record<string, unknown>): void {
+  const taskDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
+  mkdirSync(taskDir, { recursive: true });
+  writeFileSync(path.join(taskDir, '.task.json'), JSON.stringify({
+    schema_version: 2,
+    taskId,
+    contextPackBinding: {
+      contextPackPath: null,
+      dataHostDir: null,
+      dataContainerDir: null,
+      repoBindings: [binding],
+    },
+    materialization: { strategy: 'copy', cloned: [], skipped: [] },
+    frozenAt: '2026-05-22T12:00:00.000Z',
+    finalizedAt: null,
+    state: 'active',
+  }, null, 2) + '\n');
+}
+
+describe('worktree finalize branch ownership (orchestrator integration)', () => {
+  let tmp: string;
+  let repoRoot: string;
+
+  beforeEach(() => {
+    tmp = mkdtempSync(path.join(tmpdir(), 'finalize-ownership-'));
+    repoRoot = path.join(tmp, 'repo');
+    mkdirSync(repoRoot, { recursive: true });
+    execSync('git init -b main', { cwd: repoRoot, encoding: 'utf-8' });
+    execSync('git config user.email test@example.com', { cwd: repoRoot, encoding: 'utf-8' });
+    execSync('git config user.name "Test User"', { cwd: repoRoot, encoding: 'utf-8' });
+    writeFileSync(path.join(repoRoot, 'README.md'), '# repo\n', 'utf-8');
+    execSync('git add README.md', { cwd: repoRoot, encoding: 'utf-8' });
+    execSync('git commit -m initial', { cwd: repoRoot, encoding: 'utf-8' });
+  });
+
+  afterEach(() => {
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('standard failed task with retention disabled still deletes task-owned branch', async () => {
+    writePlatformState(repoRoot, false);
+    const taskId = 'standard';
+    const branch = `task/${taskId}`;
+    const worktreeRoot = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'repo');
+    mkdirSync(path.dirname(worktreeRoot), { recursive: true });
+    execSync(`git worktree add -b ${branch} ${worktreeRoot}`, { cwd: repoRoot, encoding: 'utf-8' });
+    writeSidecarSingle(repoRoot, taskId, {
+      originalRoot: repoRoot,
+      worktreeRoot,
+      worktreeBranch: branch,
+      baseCommitSha: execSync('git rev-parse HEAD', { cwd: repoRoot, encoding: 'utf-8' }).trim(),
+      branchOwnership: 'task-owned',
+    });
+
+    await finalizeTaskWorktreesWithReport(taskId, 'failed', repoRoot);
+
+    expect(existsSync(worktreeRoot)).toBe(false);
+    expect(execSync(`git branch --list ${branch}`, { cwd: repoRoot, encoding: 'utf-8' }).trim()).toBe('');
+  });
+
+  it('chain-owned failed task rolls back and preserves the chain branch', async () => {
+    writePlatformState(repoRoot, false);
+    const base = execSync('git rev-parse HEAD', { cwd: repoRoot, encoding: 'utf-8' }).trim();
+    execSync('git branch task/root', { cwd: repoRoot, encoding: 'utf-8' });
+    const taskId = 'child';
+    const worktreeRoot = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'repo');
+    mkdirSync(path.dirname(worktreeRoot), { recursive: true });
+    execSync(`git worktree add ${worktreeRoot} task/root`, { cwd: repoRoot, encoding: 'utf-8' });
+    writeFileSync(path.join(worktreeRoot, 'failed.txt'), 'failed\n', 'utf-8');
+    execSync('git add failed.txt', { cwd: worktreeRoot, encoding: 'utf-8' });
+    execSync('git commit -m failed', { cwd: worktreeRoot, encoding: 'utf-8' });
+    writeSidecarSingle(repoRoot, taskId, {
+      originalRoot: repoRoot,
+      worktreeRoot,
+      worktreeBranch: 'task/root',
+      baseCommitSha: base,
+      branchOwnership: 'chain-owned',
+      branchChainRootTaskId: 'root',
+      branchChainTaskId: taskId,
+    });
+
+    const result = await finalizeTaskWorktreesWithReport(taskId, 'failed', repoRoot);
+
+    expect(result.chainRollbackReport?.status).toBe('completed');
+    expect(existsSync(worktreeRoot)).toBe(false);
+    expect(execSync('git rev-parse task/root', { cwd: repoRoot, encoding: 'utf-8' }).trim()).toBe(base);
+    expect(execSync('git branch --list task/root', { cwd: repoRoot, encoding: 'utf-8' })).toContain('task/root');
+  });
+
+  it('retained discard removes chain-owned worktree without deleting the branch', async () => {
+    writePlatformState(repoRoot, true);
+    execSync('git branch task/root', { cwd: repoRoot, encoding: 'utf-8' });
+    const taskId = 'child';
+    const worktreeRoot = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId, 'worktrees', 'repo');
+    mkdirSync(path.dirname(worktreeRoot), { recursive: true });
+    execSync(`git worktree add ${worktreeRoot} task/root`, { cwd: repoRoot, encoding: 'utf-8' });
+    writeSidecarSingle(repoRoot, taskId, {
+      originalRoot: repoRoot,
+      worktreeRoot,
+      worktreeBranch: 'task/root',
+      baseCommitSha: execSync('git rev-parse HEAD', { cwd: repoRoot, encoding: 'utf-8' }).trim(),
+      branchOwnership: 'chain-owned',
+      branchChainRootTaskId: 'root',
+      branchChainTaskId: taskId,
+    });
+
+    await discardRetainedTaskWorktrees(taskId, repoRoot);
+
+    expect(existsSync(worktreeRoot)).toBe(false);
+    expect(execSync('git branch --list task/root', { cwd: repoRoot, encoding: 'utf-8' })).toContain('task/root');
   });
 });

@@ -294,7 +294,7 @@ def main(argv: list[str] | None = None) -> int:
 
         payload, record_path, parent_record_path = build_archive_payload(repo_root, context_pack_dir, qmd_scope)
 
-        # --- Staging directory approach ---
+        # Stage archive writes before atomic promotion.
         archive_year_dir = record_path.parent.parent
         archive_year_dir.mkdir(parents=True, exist_ok=True)
         staging_dir = archive_year_dir / f".staging-{slugify(payload['task_id'])}"
@@ -390,7 +390,7 @@ def main(argv: list[str] | None = None) -> int:
             finally:
                 release_file_lock(lock_fd)
 
-            # --- Post-lock staged writes (crash-safe via _step) ---
+            # Continue crash-safe staged writes after releasing the shared-memory lock.
 
             def _write_planner_focus_snapshot() -> None:
                 try:
@@ -473,7 +473,7 @@ def main(argv: list[str] | None = None) -> int:
 
             # Agent-facing mirror: agents run with CWD confined to AgentWorkSpace/,
             # so they cannot read the canonical archive under contextpacks/. We copy
-            # archive.json, archive.md, the staged handoffs/ and ImplementationSteps/
+            # archive metadata, rendered archive content, staged handoffs/ and ImplementationSteps/
             # trees, and handoff-artifacts-manifest.json into the matching nested task
             # archive directory under AgentWorkSpace/qmd/context-packs/<pack>/archive/tasks/.
             #
@@ -643,7 +643,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"{exc}"
             ) from exc
 
-        # --- Promotion: the atomic commit ---
+        # Promote the staged archive record atomically.
         record_path.parent.mkdir(parents=True, exist_ok=True)
         os.replace(str(staging_dir / "archive.json"), str(record_path))
         record_md_path = task_archive_markdown_path(
@@ -655,7 +655,7 @@ def main(argv: list[str] | None = None) -> int:
         staged_md = staging_dir / "archive.md"
         if staged_md.exists():
             # Atomic promotion (temp + fsync + replace) so a crash mid-write
-            # cannot leave a truncated canonical archive.md, matching the
+            # cannot leave a truncated canonical archive, matching the
             # os.replace used for archive.json above.
             write_text_via_backend(
                 record_md_path, staged_md.read_text(encoding="utf-8")

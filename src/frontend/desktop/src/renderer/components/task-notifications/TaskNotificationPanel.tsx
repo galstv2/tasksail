@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from 'react';
+import { memo, useEffect, useRef, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 
 import type { TaskNotificationRecord } from '../../../shared/desktopContract';
@@ -15,7 +15,7 @@ export type TaskNotificationPanelProps = {
   isClosing?: boolean;
 };
 
-export function TaskNotificationPanel({
+export const TaskNotificationPanel = memo(function TaskNotificationPanel({
   notifications,
   onClose,
   onRefresh,
@@ -97,4 +97,4 @@ export function TaskNotificationPanel({
     </div>,
     document.body,
   );
-}
+});

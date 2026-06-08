@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from src.backend.mcp.pack_constants import WIZARD_ROLE_TO_REPO_CATEGORY
+from src.backend.mcp.pack.constants import WIZARD_ROLE_TO_REPO_CATEGORY
 from src.backend.mcp.pack_schemas import (
     canonicalize,
     dump_answers,
@@ -50,6 +50,47 @@ def test_answers_round_trip(fixture_path: Path) -> None:
     assert canonicalize(dumped) == canonicalize(raw)
 
 
+def test_answers_repo_category_preserved_and_omitted() -> None:
+    """Operator repo_category survives the answers round-trip when present, and is
+    omitted (not emitted as null) when absent.
+
+    Regression: BootstrapRepository previously had no repo_category field, so a
+    monolith root category was silently dropped from bootstrap-answers.json even
+    though the frontend submitted it and the manifest captured it. The omit-when-
+    None behavior keeps pre-existing answers (without the field) byte-for-byte.
+    """
+    base = {
+        "questionnaire_version": "v1",
+        "captured_at": "2026-06-06T00:00:00Z",
+        "context_pack_id": "mono",
+        "estate_name": "Mono",
+        "repository_count": 1,
+        "default_scope_mode": "focused",
+        "discovery_mode": "monolith",
+        "estate_type": "monolith",
+        "repositories": [
+            {
+                "repo_id": "mono",
+                "repo_name": "Mono",
+                "repo_root": "/tmp/mono",
+                "system_layer": "shared",
+                "repo_category": "service",
+                "repo_category_authored": True,
+            }
+        ],
+    }
+    repo = dump_answers(validate_answers(base))["repositories"][0]
+    assert repo["repo_category"] == "service"
+    assert repo["repo_category_authored"] is True
+
+    legacy = json.loads(json.dumps(base))
+    legacy["repositories"][0].pop("repo_category")
+    legacy["repositories"][0].pop("repo_category_authored")
+    legacy_repo = dump_answers(validate_answers(legacy))["repositories"][0]
+    assert "repo_category" not in legacy_repo
+    assert "repo_category_authored" not in legacy_repo
+
+
 @pytest.mark.parametrize("fixture_path", PLAN_FIXTURES, ids=lambda p: p.name)
 def test_plan_round_trip(fixture_path: Path) -> None:
     raw = json.loads(fixture_path.read_text())
@@ -76,7 +117,7 @@ def test_manifest_unknown_keys_accepted() -> None:
 
 
 def test_manifest_missing_required_raises() -> None:
-    raw = {"manifest_version": "qmd-repo-sources/v1"}  # missing most required fields
+    raw = {"manifest_version": "qmd-repo-sources/v1"}
     with pytest.raises(PackSchemaError) as exc_info:
         validate_manifest(raw)
     assert exc_info.value.validation_errors  # non-empty list
@@ -163,10 +204,6 @@ def test_real_packs_round_trip() -> None:
         assert canonicalize(dumped) == canonicalize(raw), f"Round-trip failed: {answers_path}"
 
 
-# ---------------------------------------------------------------------------
-# G1 constant alignment guard
-# ---------------------------------------------------------------------------
-
 def test_wizard_role_to_category_keys_match_role_options() -> None:
     """WIZARD_ROLE_TO_REPO_CATEGORY keys must exactly equal ROLE_OPTIONS.value strings.
 
@@ -174,14 +211,9 @@ def test_wizard_role_to_category_keys_match_role_options() -> None:
       src/frontend/desktop/src/renderer/components/creation-steps/buildWizardConstants.ts
     If ROLE_OPTIONS changes, update WIZARD_ROLE_TO_REPO_CATEGORY in pack_constants.py too.
     """
-    # Copied from ROLE_OPTIONS in buildWizardConstants.ts (keep in sync)
     expected_keys = {"backend", "frontend", "database", "infrastructure", "documents", "shared"}
     assert set(WIZARD_ROLE_TO_REPO_CATEGORY.keys()) == expected_keys
 
-
-# ---------------------------------------------------------------------------
-# G2 v2 manifest named round-trip tests
-# ---------------------------------------------------------------------------
 
 def test_manifest_v2_minimum_roundtrip() -> None:
     """minimum-v2.json round-trips through validate_manifest_v2 + dump_manifest_v2."""
@@ -199,7 +231,6 @@ def test_manifest_v2_distributed_roundtrip() -> None:
     model = validate_manifest_v2(raw, path=str(fixture_path))
     dumped = dump_manifest_v2(model)
     assert canonicalize(dumped) == canonicalize(raw), "Round-trip mismatch for distributed-v2.json"
-    # Spot-check that v2 fields are preserved in the dumped output
     repos = dumped.get("repositories") or []
     assert len(repos) == 2
     api_repo = next(r for r in repos if r.get("repo_id") == "api")

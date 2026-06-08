@@ -7,7 +7,9 @@ import {
   assertNoOriginalTargetRootsInTaskArtifacts,
   projectAgentRepoBindings,
 } from '../agentRootContainment.js';
+import { applyWorktreeInjectionToFocused } from '../worktreeInjection.js';
 import type { TaskReadonlyContextBinding, TaskRepoBinding } from '../../queue/taskJson.js';
+import type { FocusedRepoResult } from '../../context-pack/focusedRepo.js';
 
 describe('agent root containment', () => {
   const binding: TaskRepoBinding = {
@@ -48,6 +50,88 @@ describe('agent root containment', () => {
         agentCwd: '/repo/task/worktrees/tools',
         allowedDirs: ['/repo/task/worktrees/tools'],
         env: { COPILOT_TARGET_REPOS_JSON: JSON.stringify(['/repo/task/worktrees/tools']) },
+      },
+    })).not.toThrow();
+  });
+
+  it('allows injected Deep Focus support target repo roots', () => {
+    const focused: FocusedRepoResult = {
+      primaryRepoRoot: '/repo/task/worktrees/tools',
+      visibleRepoRoots: ['/repo/task/worktrees/tools'],
+      declaredRepoRoots: ['/repo/task/worktrees/tools'],
+      estateType: 'monolith',
+      primaryRepoId: 'tools',
+      primaryFocusId: 'platform',
+      primaryFocusRelativePath: 'platform',
+      deepFocusEnabled: true,
+      primaryFocusTargetKind: 'directory',
+      primaryFocusTargets: [
+        {
+          repoLocalPath: '/repo/task/worktrees/tools',
+          path: 'platform',
+          kind: 'directory',
+          focusId: 'platform',
+          role: 'anchor',
+        },
+      ],
+      supportTargets: [
+        {
+          repoLocalPath: '/repo/live/tools',
+          path: 'tools/Acme.Cli',
+          kind: 'directory',
+          focusId: 'tools',
+          effectiveScope: 'full-directory',
+        },
+      ],
+      writableRoots: [
+        {
+          repoLocalPath: '/repo/task/worktrees/tools',
+          path: 'platform',
+          kind: 'directory',
+          reason: 'selected-primary',
+        },
+      ],
+      readonlyContextRoots: [
+        {
+          repoLocalPath: '/repo/task/worktrees/tools',
+          path: 'tools/Acme.Cli',
+          kind: 'directory',
+          reason: 'support-target',
+        },
+      ],
+      selectedRepoIds: ['tools'],
+      selectedFocusIds: ['platform'],
+      authoritySource: 'active-task-sidecar',
+    };
+
+    expect(() => assertNoOriginalTargetRootsInAgentLaunch({
+      taskId: 'task-1',
+      agentId: 'dalton',
+      repoBindings: [binding],
+      platformRepoRoot: '/repo/platform',
+      surface: {
+        focused,
+        agentCwd: '/repo/task/worktrees/tools',
+        allowedDirs: ['/repo/task/worktrees/tools'],
+        env: {},
+      },
+    })).toThrow('focused.supportTargets[0].repoLocalPath contains selected original root');
+
+    const injected = applyWorktreeInjectionToFocused(focused, {
+      substitutions: new Map([['/repo/live/tools', '/repo/task/worktrees/tools']]),
+      applied: true,
+    });
+
+    expect(() => assertNoOriginalTargetRootsInAgentLaunch({
+      taskId: 'task-1',
+      agentId: 'dalton',
+      repoBindings: [binding],
+      platformRepoRoot: '/repo/platform',
+      surface: {
+        focused: injected,
+        agentCwd: injected.primaryRepoRoot,
+        allowedDirs: ['/repo/task/worktrees/tools'],
+        env: {},
       },
     })).not.toThrow();
   });

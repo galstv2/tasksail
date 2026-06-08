@@ -44,6 +44,28 @@ describe('task worktree selection support containment', () => {
     }, null, 2));
   }
 
+  function writeMonolithManifest(monolithRoot: string): void {
+    writeFileSync(path.join(packDir, 'qmd', 'repo-sources.json'), JSON.stringify({
+      manifest_version: 2,
+      manifest_status: 'active',
+      context_pack_id: 'crud-app-repo-dotnet-monolith-demo',
+      estate_type: 'monolith',
+      qmd_scope_root: 'qmd/context-packs/crud-app-repo-dotnet-monolith-demo',
+      primary_working_repo_ids: ['crud-app-repo-dotnet-monolith-demo'],
+      primary_focus_area_ids: ['platform'],
+      repositories: [{
+        repo_id: 'crud-app-repo-dotnet-monolith-demo',
+        local_paths: [monolithRoot],
+      }],
+      focusable_areas: [{
+        focus_id: 'platform',
+        repo_id: 'crud-app-repo-dotnet-monolith-demo',
+        repository_type: 'primary',
+        relative_path: 'platform',
+      }],
+    }, null, 2));
+  }
+
   it('keeps standard support repos in the selected source visibility set', async () => {
     const roots = {
       platform: repo('platform-repo'),
@@ -106,6 +128,75 @@ describe('task worktree selection support containment', () => {
       ['platform', 'primary', roots.platform],
       ['tools', 'support', roots.tools],
       ['tests', 'support', roots.tests],
+    ]);
+  });
+
+  it('resolves a Deep Focus monolith root when only the primary focus id was persisted', async () => {
+    const monolithRoot = repo('crud-app-repo-dotnet-monolith-demo');
+    writeMonolithManifest(monolithRoot);
+
+    const selected = await resolveSelectedMaterializationRoots({
+      repoRoot,
+      contextPackDir: packDir,
+      taskId: '2026-06-07_acme-api-handler-233709',
+      binding: {
+        contextPackDir: packDir,
+        contextPackId: 'crud-app-repo-dotnet-monolith-demo',
+        scopeMode: 'focus-selection',
+        primaryFocusId: 'platform',
+        selectedRepoIds: [],
+        selectedFocusIds: [],
+        deepFocusEnabled: true,
+        deepFocusPrimaryFocusId: 'platform',
+        selectedFocusTargets: [],
+        selectedSupportTargets: [],
+        selectedTestTarget: null,
+      },
+    });
+
+    expect(selected.map((root) => [root.repoId, root.role, root.originalRoot])).toEqual([
+      ['crud-app-repo-dotnet-monolith-demo', 'primary', monolithRoot],
+    ]);
+  });
+
+  it('infers the monolith repo root from Deep Focus primary targets that only carry focusId', async () => {
+    const monolithRoot = repo('crud-app-repo-dotnet-monolith-demo');
+    writeMonolithManifest(monolithRoot);
+
+    const selected = await resolveSelectedMaterializationRoots({
+      repoRoot,
+      contextPackDir: packDir,
+      taskId: '2026-06-08_acme-api-handler-005409',
+      binding: {
+        contextPackDir: packDir,
+        contextPackId: 'crud-app-repo-dotnet-monolith-demo',
+        scopeMode: 'focus-selection',
+        primaryFocusId: 'platform',
+        selectedRepoIds: [],
+        selectedFocusIds: [],
+        deepFocusEnabled: true,
+        deepFocusPrimaryFocusId: 'platform',
+        selectedFocusPath: 'platform',
+        selectedFocusTargetKind: 'directory',
+        selectedFocusTargets: [{
+          path: 'platform',
+          kind: 'directory',
+          focusId: 'platform',
+          role: 'anchor',
+          supportTargets: [],
+        }],
+        selectedSupportTargets: [{
+          path: 'tools',
+          kind: 'directory',
+          repoLocalPath: monolithRoot,
+          focusId: 'tools',
+        }],
+        selectedTestTarget: null,
+      },
+    });
+
+    expect(selected.map((root) => [root.repoId, root.role, root.originalRoot])).toEqual([
+      ['crud-app-repo-dotnet-monolith-demo', 'primary', monolithRoot],
     ]);
   });
 });

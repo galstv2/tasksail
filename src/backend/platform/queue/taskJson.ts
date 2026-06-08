@@ -1,5 +1,5 @@
 /**
- * §3.2 Per-task .task.json sidecar reader.
+ * Per-task .task.json sidecar reader.
  *
  * This is the SOLE module authorized to do inline readFileSync + JSON.parse
  * against the .task.json path. All other modules MUST import readTaskJson or
@@ -16,10 +16,6 @@ import type {
 import type { ContextPackRepositoryTypes } from './repositoryTypes.js';
 import type { SliceArtifactFormat } from '../platform-config/types.js';
 
-// ---------------------------------------------------------------------------
-// Schema types
-// ---------------------------------------------------------------------------
-
 export interface TaskRepoBinding {
   originalRoot: string;
   worktreeRoot: string;
@@ -29,14 +25,14 @@ export interface TaskRepoBinding {
   branchChainRootTaskId?: string;
   branchChainTaskId?: string;
   /**
-   * §B7-data (schema v2): wall-clock timestamp at which B7-sweep first
-   * observed the task branch as merged-into-head or branch-deleted in the
+   * Schema v2 merge-sweep timestamp for the first time the task branch was
+   * observed as merged-into-head or branch-deleted in the
    * originalRoot. Absent on schema v1 sidecars and on tasks that have not
    * yet been swept.
    */
   mergedAt?: string;
   /**
-   * §B7-data (schema v2): how the merge was detected.
+   * Schema v2 merge-sweep detection mode.
    *   - 'merged-into-head' — `git merge-base --is-ancestor <branch> HEAD` succeeded.
    *   - 'branch-deleted'   — `refs/heads/<branch>` no longer exists in originalRoot.
    */
@@ -94,8 +90,8 @@ export interface TaskJson {
   frozenAt: string;
   finalizedAt: string | null;
   /**
-   * §B7-data: 'merged' (schema v2) is stamped by B7-sweep once every binding
-   * has a `mergedAt` timestamp; the parent dir + sidecar are deleted on the
+   * 'merged' is stamped once every binding has a `mergedAt` timestamp; the
+   * parent dir + sidecar are deleted on the
    * next sweep pass.
    */
   state: 'active' | 'completed' | 'failed' | 'merged';
@@ -105,10 +101,6 @@ export interface TaskJson {
    */
   sliceArtifactFormat: SliceArtifactFormat;
 }
-
-// ---------------------------------------------------------------------------
-// Error types
-// ---------------------------------------------------------------------------
 
 export interface TaskSidecarErrorBase {
   code: 'task-sidecar-missing' | 'task-sidecar-corrupt' | 'task-sidecar-stale-schema';
@@ -136,10 +128,6 @@ export type TaskSidecarError =
   | TaskSidecarCorruptError
   | TaskSidecarStaleSchemaError;
 
-// ---------------------------------------------------------------------------
-// Internal constants
-// ---------------------------------------------------------------------------
-
 /**
  * Lowest on-disk schema version that the reader still accepts. Stays at 1 so
  * existing v1 sidecars continue to parse without an on-disk migration; the v2
@@ -149,16 +137,12 @@ export type TaskSidecarError =
 const MINIMUM_SCHEMA_VERSION = 1;
 
 /**
- * Schema version used for newly-written sidecars (B7-data). Bumped from 1 to
- * 2 when the per-binding mergedAt/mergedVia fields and the 'merged' state
+ * Schema version used for newly-written sidecars. Bumped from 1 to 2 when the
+ * per-binding mergedAt/mergedVia fields and the 'merged' state
  * landed. Reader-side normalization stamps this onto in-memory v1 records so
  * downstream consumers can treat the in-memory shape as v2 uniformly.
  */
 export const CURRENT_TASK_JSON_SCHEMA_VERSION = 2;
-
-// ---------------------------------------------------------------------------
-// Path helper
-// ---------------------------------------------------------------------------
 
 /**
  * Resolve the canonical path to a task's .task.json sidecar.
@@ -167,10 +151,6 @@ export function resolveTaskJsonPath(taskId: string, repoRoot?: string): string {
   const root = repoRoot ?? findRepoRoot();
   return path.join(root, 'AgentWorkSpace', 'tasks', taskId, '.task.json');
 }
-
-// ---------------------------------------------------------------------------
-// Error factory helpers
-// ---------------------------------------------------------------------------
 
 class TaskSidecarErrorImpl extends Error {
   readonly payload: TaskSidecarError;
@@ -201,10 +181,6 @@ function throwStaleSchema(taskId: string, sidecarPath: string, foundVersion: num
   };
   throw new TaskSidecarErrorImpl(payload);
 }
-
-// ---------------------------------------------------------------------------
-// Type guard helpers
-// ---------------------------------------------------------------------------
 
 function isValidContextPackBinding(value: unknown): value is TaskContextPackBinding {
   if (typeof value !== 'object' || value === null) return false;
@@ -240,7 +216,7 @@ function isValidRepoBindings(value: unknown): value is TaskRepoBinding[] {
   return value.every(isValidRepoBinding);
 }
 
-// SEC-TS-01: repoBinding string fields are interpolated into filesystem paths
+  // repoBinding string fields are interpolated into filesystem paths
 // (worktreeInjection realpath + confinement allowedDirs) and a git argv
 // (worktreeBranch). Validate the path-bearing fields per element so a malformed
 // sidecar is rejected as corrupt rather than flowing unchecked to those sinks —
@@ -269,10 +245,6 @@ function isValidReadonlyContextBinding(value: unknown): value is TaskReadonlyCon
     && binding['role'] === 'support';
 }
 
-// ---------------------------------------------------------------------------
-// Core reader
-// ---------------------------------------------------------------------------
-
 function strictTaskJsonReader(taskId: string, repoRoot?: string): TaskJson {
   const sidecarPath = resolveTaskJsonPath(taskId, repoRoot);
 
@@ -295,7 +267,7 @@ function strictTaskJsonReader(taskId: string, repoRoot?: string): TaskJson {
     throwCorrupt(taskId, sidecarPath, err instanceof Error ? err.message : String(err));
   }
 
-  // F33: absent/null schema_version defaults to 1 (do NOT throw for absence).
+  // absent/null schema_version defaults to 1 (do NOT throw for absence).
   if (json['schema_version'] === undefined || json['schema_version'] === null) {
     json['schema_version'] = 1;
   }
@@ -315,7 +287,7 @@ function strictTaskJsonReader(taskId: string, repoRoot?: string): TaskJson {
   }
   json['contextPackBinding'] = normalizeContextPackBinding(json['contextPackBinding']);
 
-  // §B7-data normalization: in-memory shape is uniformly v2 even when the
+  // Read-side normalization: in-memory shape is uniformly v2 even when the
   // on-disk file is v1. We do NOT write back to disk on read — that would
   // create surprising mtime churn and invalidate platform-config caches.
   // The v2 additions (per-binding mergedAt/mergedVia, state='merged') are
@@ -347,10 +319,6 @@ function normalizeContextPackBinding(value: TaskContextPackBinding): TaskContext
   };
 }
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
 /**
  * Read and validate the .task.json sidecar for a task.
  * Strict: throws TaskSidecarError (via TaskSidecarErrorImpl) on any error.
@@ -364,7 +332,7 @@ export function readTaskJson(taskId: string, repoRoot?: string): TaskJson {
  * Read the .task.json sidecar for a task without throwing.
  * Returns null on missing, corrupt, or stale-schema errors.
  * Only for callers that iterate multiple tasks and need to skip bad entries
- * (§4.15 retention scan, §5.2 recovery-path enumeration).
+ * (retention scan and recovery-path enumeration).
  */
 export function readTaskJsonSafe(taskId: string, repoRoot?: string): TaskJson | null {
   try {
@@ -383,7 +351,7 @@ export function isTaskSidecarError(err: unknown): err is TaskSidecarErrorImpl {
 }
 
 /**
- * §B7-sweep: persist a fully-formed sidecar back to disk.
+ * Persist a fully-formed sidecar back to disk.
  *
  * Always stamps `schema_version` to the current version — callers that mutate
  * v1-shaped sidecars in-place (e.g. via the read-side normalization shim) get

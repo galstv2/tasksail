@@ -1,17 +1,17 @@
-/* ═══════════════════════════════════════════════════════════════════════════
-   Platform Instructions — Browser & Editor
-   ═══════════════════════════════════════════════════════════════════════════
-   Aesthetic: Compact file-browser panels, terminal-grade editor
-   ─────────────────────────────────────────────────────────────────────────── */
+/* Platform Instructions Browser & Editor */
 
 
-/* ── Browser: stable shell sizing across tabs ────────────────────────── */
+/* Browser: stable shell sizing across tabs */
 
 .instructions-browser {
   min-height: 0;
 }
 
-/* ── Browser: Header with tabs ───────────────────────────────────────── */
+.instructions-browser .mcp-modal__close {
+  align-self: flex-start;
+}
+
+/* Browser: Header with tabs */
 
 .instructions-browser__header-main {
   display: flex;
@@ -100,7 +100,7 @@
   opacity: 1;
 }
 
-/* ── Browser: Body — min-height prevents collapse on short/empty tabs ── */
+/* Browser: Body min-height prevents collapse on short/empty tabs */
 
 .instructions-browser__body {
   flex: 1;
@@ -127,7 +127,7 @@
   line-height: 1.5;
 }
 
-/* ── File row — compact, sleek list item ──────────────────────────────── */
+/* File row compact, sleek list item */
 
 .instructions-browser__file-row {
   display: flex;
@@ -171,7 +171,7 @@
   to   { opacity: 1; }
 }
 
-/* ── File row content ─────────────────────────────────────────────────── */
+/* File row content */
 
 .instructions-browser__file-icon {
   flex-shrink: 0;
@@ -219,7 +219,7 @@
   opacity: 0.4;
 }
 
-/* ── Footer file count ────────────────────────────────────────────────── */
+/* Footer file count */
 
 .instructions-browser__file-count {
   font-family: var(--ts-font-sans);
@@ -229,7 +229,7 @@
   opacity: 0.6;
 }
 
-/* ── Shimmer loading ──────────────────────────────────────────────────── */
+/* Shimmer loading */
 
 .instructions-browser__shimmer-label {
   width: 80px;
@@ -269,11 +269,9 @@
 }
 
 
-/* ═════════════════════════════════════════════════════════════════════════
-   Editor styles
-   ═════════════════════════════════════════════════════════════════════════ */
+/* Editor styles */
 
-/* ── Editor: Dirty indicator ──────────────────────────────────────────── */
+/* Editor: Dirty indicator */
 
 .instructions-editor-shell {
   height: min(82vh, 680px);
@@ -296,7 +294,7 @@
   50% { opacity: 0.4; }
 }
 
-/* ── Editor: Textarea — dark code-editor surface ──────────────────────── */
+/* Editor: Textarea dark code-editor surface */
 
 .instructions-editor__textarea {
   width: 100%;
@@ -348,7 +346,7 @@
   background: var(--ts-scrollbar-thumb-hover);
 }
 
-/* ── Editor: Line count ───────────────────────────────────────────────── */
+/* Editor: Line count */
 
 .instructions-editor__line-count {
   display: flex;
@@ -372,7 +370,7 @@
   opacity: 0.5;
 }
 
-/* ── Editor: View pane — rendered markdown ────────────────────────────── */
+/* Editor: View pane rendered markdown */
 
 .instructions-editor__view-pane {
   flex: 1;
@@ -396,7 +394,7 @@
   background: var(--ts-scrollbar-thumb-hover);
 }
 
-/* ── Editor: Mode toggle ─────────────────────────────────────────────── */
+/* Editor: Mode toggle */
 
 .instructions-editor__mode-toggle {
   display: flex;
@@ -440,7 +438,7 @@
   border-left: 1px solid var(--ts-border);
 }
 
-/* ── Editor: Footer actions ───────────────────────────────────────────── */
+/* Editor: Footer actions */
 
 .instructions-editor__actions {
   display: flex;
@@ -449,7 +447,7 @@
   margin-left: auto;
 }
 
-/* ── Editor: Keyboard hint ────────────────────────────────────────────── */
+/* Editor: Keyboard hint */
 
 .instructions-editor__kbd {
   display: inline-block;

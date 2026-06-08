@@ -1,21 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../main.stream', () => ({
+vi.mock('../runtime/stream', () => ({
   emitStreamEvent: vi.fn(),
   withStreamEvent: vi.fn(async (p: Promise<unknown>) => p),
 }));
 
-vi.mock('../plannerSession', () => ({
+vi.mock('../tasks/board', () => ({
+  broadcastTaskBoardUpdate: vi.fn(async () => undefined),
+}));
+
+vi.mock('../planner/session', () => ({
   getObservability: vi.fn(() => ({ sessionId: null })),
   getSessionState: vi.fn(() => null),
 }));
 
-vi.mock('../main.staging', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../main.staging')>();
+vi.mock('../planner/staging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../planner/staging')>();
   return { ...actual, readOwnedStagedDraft: vi.fn(), readPlannerStagingSidecar: vi.fn(async () => null), readStagedDraft: vi.fn() };
 });
 
-vi.mock('../main.desktopActionHandlers', () => ({
+vi.mock('../ipc/desktopActionHandlers', () => ({
   createDefaultDesktopActionHandlers: vi.fn(() => ({
     getPlannerSessionState: vi.fn(() => null),
     endPlannerSession: vi.fn(async () => ({ ended: true })),
@@ -65,34 +69,34 @@ vi.mock('../log/logger', () => ({
   })),
 }));
 
-vi.mock('../main.contextPackTaskVisibility', () => ({
+vi.mock('../contextPack/taskVisibility', () => ({
   refreshCurrentActiveContextPackTaskScope: vi.fn(async () => undefined),
 }));
 
-vi.mock('../main.terminalScopeRefresh', () => ({
+vi.mock('../runtime/terminalScopeRefresh', () => ({
   refreshTerminalScopeCaches: vi.fn(async () => undefined),
 }));
 
-vi.mock('../main.services', () => ({
+vi.mock('../app/services', () => ({
   startBackendServices: vi.fn(),
   stopBackendServices: vi.fn(),
   checkBackendHealth: vi.fn(),
   readBackendServiceStatus: vi.fn(() => ({})),
 }));
 
-vi.mock('../plannerFocusValidation', () => ({
+vi.mock('../planner/focusValidation', () => ({
   PLANNER_FOCUS_FALLBACK_MESSAGE: 'fallback',
   PLANNER_FOCUS_VALID_MESSAGE: 'valid',
   validateChildTaskFocusSnapshot: vi.fn(),
 }));
 
-vi.mock('../plannerHistory', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../plannerHistory')>();
+vi.mock('../planner/history', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../planner/history')>();
   return { ...actual, commitPendingRecordToHistory: vi.fn(async () => undefined) };
 });
 
-vi.mock('../main.plannerTitle', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../main.plannerTitle')>();
+vi.mock('../planner/title', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../planner/title')>();
   return { ...actual, resolvePlannerTaskTitleFromDraft: vi.fn(() => 'test_task_title') };
 });
 
@@ -107,12 +111,12 @@ vi.mock('../main.markdown', async (importOriginal) => {
   };
 });
 
-vi.mock('../main.contextPackCatalog', () => ({
+vi.mock('../contextPack/catalog', () => ({
   listAvailableContextPacks: vi.fn(),
   readWorkspaceSyncStateSnapshot: vi.fn(),
 }));
 
-vi.mock('../main.childTaskChain', () => ({
+vi.mock('../archive/childTaskChain', () => ({
   resolveChildTaskChainCreationContext: vi.fn(),
 }));
 
@@ -151,14 +155,15 @@ vi.mock('../../../../backend/platform/queue/dirLock.js', async (importOriginal) 
   return { ...actual, withDirLock: vi.fn(actual.withDirLock) };
 });
 
-const { readWorkspaceSyncStateSnapshot } = await import('../main.contextPackCatalog');
-const { resolveChildTaskChainCreationContext } = await import('../main.childTaskChain');
+const { listAvailableContextPacks, readWorkspaceSyncStateSnapshot } = await import('../contextPack/catalog');
+const { resolveChildTaskChainCreationContext } = await import('../archive/childTaskChain');
 const { resolveFocusedRepoRoot, resolveSelectedPrimaryRepoRoot } = await import('../../../../backend/platform/context-pack/focusedRepo.js');
 const { createDropboxTask } = await import('../../../../backend/platform/queue/createDropboxTask.js');
 const { createFollowupTask } = await import('../../../../backend/platform/queue/createFollowupTask.js');
 const { publishPendingItem } = await import('../../../../backend/platform/queue/publishPendingItem.js');
 const { readdir, readFile } = await import('node:fs/promises');
 const { withDirLock } = await import('../../../../backend/platform/queue/dirLock.js');
+const { broadcastTaskBoardUpdate } = await import('../tasks/board');
 const {
   runDropboxTaskScript,
   runFollowUpTaskScript,
@@ -168,9 +173,9 @@ const {
   submitFollowUpViaHelper,
   validatePlannerDraftForSubmission,
   validateFollowUpDraftForSubmission,
-} = await import('../main.taskQueue');
-const { handleDesktopAction } = await import('../main.desktopActionRouter');
-const { readOwnedStagedDraft } = await import('../main.staging');
+} = await import('../tasks/queue');
+const { handleDesktopAction } = await import('../ipc/desktopActionRouter');
+const { readOwnedStagedDraft } = await import('../planner/staging');
 
 function buildUploadedSpec(extraSections = ''): string {
   return `
@@ -395,6 +400,7 @@ describe('main.taskQueue direct submission hardening', () => {
       selectedRepoIds: [],
       selectedFocusIds: ['api'],
       deepFocusEnabled: true,
+      deepFocusPrimaryFocusId: 'api',
       selectedFocusPath: 'src/orders',
       selectedFocusTargetKind: 'directory',
       selectedTestTarget: { path: 'tests/orders', kind: 'directory' },
@@ -404,6 +410,7 @@ describe('main.taskQueue direct submission hardening', () => {
       filePath: '/repo/AgentWorkSpace/dropbox/20260307T183000Z_backend-apps-api.md',
       title: 'backend / apps/api',
     });
+    expect(broadcastTaskBoardUpdate).toHaveBeenCalledWith(listAvailableContextPacks);
   });
 
   it('derives direct follow-up lineage from the active context-pack archive before creating the child task', async () => {
@@ -486,6 +493,7 @@ describe('main.taskQueue direct submission hardening', () => {
       title: 'backend / apps/api',
       rootTaskId: 'ROOT-001',
     });
+    expect(broadcastTaskBoardUpdate).toHaveBeenCalledWith(listAvailableContextPacks);
   });
 
   it('submits Bypass Lily uploads to dropbox without publishing directly to pendingitems', async () => {
@@ -532,6 +540,53 @@ The uploaded spec is written to AgentWorkSpace/dropbox and is not moved directly
       acceptanceSignals: '- The task appears in dropbox.',
     }));
     expect(publishPendingItem).not.toHaveBeenCalled();
+    expect(broadcastTaskBoardUpdate).toHaveBeenCalledWith(listAvailableContextPacks);
+  });
+
+  it('preserves monolith Deep Focus primary focus id for Bypass Lily uploads with no explicit targets', async () => {
+    vi.mocked(readWorkspaceSyncStateSnapshot).mockResolvedValue({
+      activeContextPackDir: '/context-packs/sample-pack',
+      activeContextPackId: 'sample-pack-id',
+      scopeMode: 'focused',
+      selectedRepoIds: [],
+      selectedFocusIds: [],
+      deepFocusEnabled: true,
+      deepFocusPrimaryRepoId: null,
+      deepFocusPrimaryFocusId: null,
+      selectedFocusPath: null,
+      selectedFocusTargetKind: null,
+      selectedFocusTargets: [],
+      selectedTestTarget: null,
+      selectedSupportTargets: [],
+      managedFolders: [],
+      status: 'active',
+      lastSyncedAt: '2026-03-07T18:30:00Z',
+      workspaceFolderCount: null,
+      workspaceFileCount: null,
+    });
+    vi.mocked(createDropboxTask).mockResolvedValue(
+      '/repo/AgentWorkSpace/dropbox/20260307T183000Z_monolith.md',
+    );
+
+    await submitUploadedSpecHelper(buildUploadedSpec());
+
+    expect(createDropboxTask).toHaveBeenCalledWith(expect.objectContaining({
+      contextPackDir: '/context-packs/sample-pack',
+      contextPackId: 'sample-pack-id',
+      scopeMode: 'focus-selection',
+      primaryRepoId: undefined,
+      primaryFocusId: 'api',
+      selectedRepoIds: [],
+      selectedFocusIds: ['api'],
+      deepFocusEnabled: true,
+      deepFocusPrimaryRepoId: undefined,
+      deepFocusPrimaryFocusId: 'api',
+      selectedFocusPath: null,
+      selectedFocusTargetKind: null,
+      selectedFocusTargets: [],
+      selectedTestTarget: null,
+      selectedSupportTargets: [],
+    }));
   });
 
   it('submits child-task Bypass Lily uploads from immutable sidecar lineage and focus instead of live workspace state', async () => {

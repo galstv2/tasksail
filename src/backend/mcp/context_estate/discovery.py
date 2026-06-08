@@ -14,7 +14,7 @@ from src.backend.mcp.context_estate.constants import (
     HIGH_SIGNAL_TYPE_ALIASES,
     SKIP_DIR_NAMES,
 )
-from src.backend.mcp.repo_category_probe import classify_repo_category
+from src.backend.mcp.probes.repo_category_probe import classify_repo_category
 from src.backend.mcp.repo_context_mcp.utils import (
     is_within,
     slugify,
@@ -361,6 +361,61 @@ def classify_focus_area_repository_type(focus_type: str) -> str:
     return _REPO_CATEGORY_TO_REPO_FOCUS.get(category) or DEFAULT_REPOSITORY_TYPE
 
 
+_ROOT_CATEGORY_PRECEDENCE = (
+    "service",
+    "application",
+    "frontend",
+    "data",
+    "infrastructure",
+    "library",
+    "tool",
+    "documentation",
+)
+
+
+def _most_frequent_focus_category(focus_categories: list[str]) -> str:
+    """Return the most frequent (dominant) focus-area category.
+
+    Single bounded pass over the already-discovered, finite focus-area list —
+    NOT a recursive walk. Counts each non-unknown category and returns the most
+    common one; ties are broken deterministically by _ROOT_CATEGORY_PRECEDENCE.
+    Returns 'unknown' when there is no usable signal.
+    """
+    counts: dict[str, int] = {}
+    for category in focus_categories:
+        if category and category != "unknown":
+            counts[category] = counts.get(category, 0) + 1
+    if not counts:
+        return "unknown"
+    max_count = max(counts.values())
+    for category in _ROOT_CATEGORY_PRECEDENCE:
+        if counts.get(category, 0) == max_count:
+            return category
+    # Defensive: a valid category absent from the precedence tuple still wins if
+    # it is the most frequent, rather than being silently discarded.
+    return max(counts, key=lambda category: counts[category])
+
+
+def resolve_monolith_root_category(
+    root: Path, focus_areas: list[dict[str, Any]]
+) -> tuple[str, str]:
+    """Resolve a monolith root's category from its focus areas (single pass).
+
+    Focus-area discovery runs first; the root's category is then the MOST
+    FREQUENT (dominant) focus-area category — the most common kind among the
+    monorepo's folders, ties broken by precedence. Only when there is no usable
+    focus-area signal does it fall back to a direct, bounded probe of the root.
+    No folder recursion; `focus_areas` is finite, so this terminates
+    unconditionally.
+    """
+    dominant = _most_frequent_focus_category(
+        [str(area.get("focus_category", "")) for area in focus_areas]
+    )
+    if dominant != "unknown":
+        return dominant, "medium"
+    return classify_repo_category(root)
+
+
 def build_focus_area(
     root: Path,
     focus_root: Path,
@@ -369,17 +424,22 @@ def build_focus_area(
     group: str | None = None,
 ) -> dict[str, str]:
     relative_path = focus_root.relative_to(root).as_posix()
-    repo_category = classify_focus_area_repo_category(focus_type)
-    # Keep repository_type for backward compat with v1 readers
-    repo_focus = _REPO_CATEGORY_TO_REPO_FOCUS.get(repo_category) or DEFAULT_REPOSITORY_TYPE
+    focus_category = classify_focus_area_repo_category(focus_type)
+    if focus_category == "unknown":
+        # The folder-name/type heuristic was inconclusive, so classify by the
+        # folder's CONTENTS — the same probe distributed repos use. This lets a
+        # generically-named monolith folder that actually contains a service,
+        # library, frontend, etc. be recognized instead of defaulting to
+        # 'unknown'.
+        probed_category, _confidence = classify_repo_category(focus_root)
+        focus_category = probed_category
     entry = {
         "focus_id": slugify(relative_path.replace("/", "-")),
         "focus_name": titleize_segment(focus_root.name),
         "focus_type": focus_type,
         "path": str(focus_root),
         "relative_path": relative_path,
-        "repo_category": repo_category,
-        "repository_type": repo_focus,
+        "focus_category": focus_category,
     }
     if group:
         entry["group"] = group
@@ -505,6 +565,8 @@ def discover_estate(
     candidate_repos: list[dict[str, Any]] = []
     candidate_focus_areas: list[dict[str, str]] = []
     skipped_repos_missing_git: list[dict[str, str]] = []
+    root_repo_category = "unknown"
+    root_repo_category_confidence = "low"
 
     if _canonical_scan_kind(estate_type) == "distributed":
         warnings.extend(auto_scan_warnings)
@@ -538,6 +600,9 @@ def discover_estate(
                 "No candidate focus areas were discovered under the provided "
                 "root."
             )
+        root_repo_category, root_repo_category_confidence = (
+            resolve_monolith_root_category(resolved_root, candidate_focus_areas)
+        )
         # Existing-source monolith roots are repositories: warn once if the
         # selected root itself lacks a Git marker. The allow_missing helper path
         # (new-project bootstrap) creates an empty root and must not warn.
@@ -557,6 +622,8 @@ def discover_estate(
         "root_path": str(resolved_root),
         "candidate_repos": candidate_repos,
         "candidate_focus_areas": candidate_focus_areas,
+        "root_repo_category": root_repo_category,
+        "root_repo_category_confidence": root_repo_category_confidence,
         "high_signal_paths": high_signal_paths,
         "skipped_repos_missing_git": skipped_repos_missing_git,
         "warnings": warnings,

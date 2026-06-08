@@ -233,8 +233,8 @@ export async function runRoleAgent(
 ): Promise<AgentRunResult> {
   const paths = resolvePaths({ repoRoot: options.repoRoot, taskId: options.taskId });
   // Launch-extension staging happens INSIDE runRoleAgentInner, after the existing
-  // authorization and workflow-policy gates and before provider arg/env construction
-  // (exactDataFlow steps 1 -> 4). The inner reports its resolution back here via the
+  // authorization and workflow-policy gates and before provider arg/env construction.
+  // The inner reports its resolution back here via the
   // callback so the stage is cleaned exactly once in this finally, however the inner
   // returns or throws. A launch that fails an earlier gate never resolves — the
   // resolution stays undefined and cleanup is a no-op, so no assignment read or stage
@@ -350,7 +350,7 @@ async function runRoleAgentInner(
   let agentCwd = paths.repoRoot;
   let focused;
   let preRunBoundarySnapshot: ChangedPathsSnapshot | undefined;
-  // §B1: when a per-task worktree exists, every downstream consumer of `focused`
+  // When a per-task worktree exists, every downstream consumer of `focused`
   // and `autonomyArgs.allowedDirs` must see worktreeRoot paths instead of
   // originalRoot. Build the substitution map once before resolving focused.
   const worktreeBindingMap = await buildWorktreeBindingMap(options.taskId, paths.repoRoot);
@@ -400,7 +400,7 @@ async function runRoleAgentInner(
           )
         : undefined;
 
-      // §B1: rewrite focused once, upstream of every consumer. Returns input
+      // Rewrite focused once, upstream of every consumer. Returns input
       // unchanged when the binding map is empty (legacy/recovery path).
       focused = resolvedFocused
         ? applyWorktreeInjectionToFocused(resolvedFocused, worktreeBindingMap)
@@ -455,7 +455,7 @@ async function runRoleAgentInner(
           .warn('focused_repo.resolve.skipped', { contextPackDir: options.contextPackDir });
       }
 
-    // §B1 defense-in-depth: rewrite any originalRoot path that may have leaked
+    // Defense-in-depth: rewrite any originalRoot path that may have leaked
     // into allowedDirs (no-op when bindingMap is empty or no allowedDir matches).
     // Preserve platform-owned metadata/runtime roots: when a monolith context
     // pack points at a subtree inside the platform repo, originalRoot is the

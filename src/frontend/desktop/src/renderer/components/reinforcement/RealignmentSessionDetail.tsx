@@ -1,5 +1,5 @@
 import type { ReinforcementRealignmentSessionEntry } from '../../../shared/desktopContract';
-import type { RealignmentAnalysisRunState } from '../../hooks/useRealignmentSessions';
+import type { RealignmentAnalysisRunState } from '../../hooks/reinforcement/useRealignmentSessions';
 import { realignmentRunMessage } from './realignmentSessionActions';
 
 type RealignmentSessionDetailProps = {

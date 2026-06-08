@@ -8,8 +8,8 @@
       "instruction_path": ".github/copilot/instructions/planning-agent.instructions.md",
       "agent_profile_path": ".github/agents/planning-agent.md",
       "autonomy_profile": "artifact-author",
-      "required_model": "auto",
-      "reward_multiplier": 1.0,
+      "required_model": "gpt-5.5",
+      "reward_multiplier": 1,
       "pre_task": true,
       "interactive": true,
       "idle_timeout_s": 600,
@@ -18,7 +18,8 @@
         "AgentWorkSpace/templates"
       ],
       "wall_clock_timeout_s": 1800,
-      "workflow_order": 0
+      "workflow_order": 0,
+      "reasoning_effort": "high"
     },
     {
       "agent_id": "product-manager",
@@ -63,7 +64,7 @@
       "agent_profile_path": ".github/agents/software-engineer-verify.md",
       "autonomy_profile": "repo-executor",
       "required_model": "auto",
-      "reward_multiplier": 0.0,
+      "reward_multiplier": 0,
       "deny_rules": [
         "shell(git add)",
         "shell(git commit)",
@@ -86,7 +87,7 @@
       "agent_profile_path": ".github/agents/qa.md",
       "autonomy_profile": "qa-executor",
       "required_model": "auto",
-      "reward_multiplier": 1.0,
+      "reward_multiplier": 1,
       "deny_rules": [
         "shell(git add)",
         "shell(git commit)",

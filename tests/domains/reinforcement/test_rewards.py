@@ -3,6 +3,10 @@ from __future__ import annotations
 
 import pytest
 
+from .registry_skip import skip_if_agent_registry_missing
+
+skip_if_agent_registry_missing()
+
 from src.backend.mcp.reinforcement.rewards import RewardCalculator
 
 from .conftest import make_entry

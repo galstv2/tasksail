@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, existsSync, readFileSync, statSync } from 'node:fs';
 import { rmSync } from 'node:fs';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
-import { parseEnv, loadEnv, ensureEnvFile, upsertEnvVar, readEnvAssignment } from '../env.js';
+import { parseEnv, loadEnv, ensureEnvFile, upsertEnvVar, readEnvAssignment, secureEnvToken, PLACEHOLDER_MCP_TOKEN } from '../env.js';
 
 describe('parseEnv', () => {
   it('parses key=value pairs', () => {
@@ -137,5 +137,72 @@ describe('upsertEnvVar', () => {
     await upsertEnvVar(envPath, 'NEW_KEY', 'value');
     const content = readFileSync(envPath, 'utf-8');
     expect(content).toContain('NEW_KEY=value');
+  });
+});
+
+describe('secureEnvToken', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(path.join(tmpdir(), 'env-test-'));
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  const tokenOf = (dir: string): string | undefined => {
+    const content = readFileSync(path.join(dir, '.env'), 'utf-8');
+    const m = content.match(/^REPO_CONTEXT_MCP_AUTH_TOKEN=(.*)$/m);
+    return m ? m[1] : undefined;
+  };
+
+  it('generates a random token when the value is the public placeholder', async () => {
+    writeFileSync(path.join(tmpDir, '.env'), `REPO_CONTEXT_MCP_AUTH_TOKEN=${PLACEHOLDER_MCP_TOKEN}\n`);
+    const result = await secureEnvToken(tmpDir);
+    expect(result.rotated).toBe(true);
+    const token = tokenOf(tmpDir);
+    expect(token).not.toBe(PLACEHOLDER_MCP_TOKEN);
+    expect(token).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('generates a token when the value is empty', async () => {
+    writeFileSync(path.join(tmpDir, '.env'), 'REPO_CONTEXT_MCP_AUTH_TOKEN=\n');
+    const result = await secureEnvToken(tmpDir);
+    expect(result.rotated).toBe(true);
+    expect(tokenOf(tmpDir)).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('generates a token when the key is absent', async () => {
+    writeFileSync(path.join(tmpDir, '.env'), 'OTHER=value\n');
+    const result = await secureEnvToken(tmpDir);
+    expect(result.rotated).toBe(true);
+    expect(tokenOf(tmpDir)).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('leaves a custom token untouched and is idempotent', async () => {
+    const custom = 'my-real-secret-123';
+    writeFileSync(path.join(tmpDir, '.env'), `REPO_CONTEXT_MCP_AUTH_TOKEN=${custom}\n`);
+    const first = await secureEnvToken(tmpDir);
+    expect(first.rotated).toBe(false);
+    expect(tokenOf(tmpDir)).toBe(custom);
+    const second = await secureEnvToken(tmpDir);
+    expect(second.rotated).toBe(false);
+    expect(tokenOf(tmpDir)).toBe(custom);
+  });
+
+  it('is a no-op when .env does not exist', async () => {
+    const result = await secureEnvToken(tmpDir);
+    expect(result).toEqual({ rotated: false, restricted: false });
+    expect(existsSync(path.join(tmpDir, '.env'))).toBe(false);
+  });
+
+  it('restricts the file to mode 0600 on POSIX', async () => {
+    if (process.platform === 'win32') return; // POSIX mode bits do not apply
+    const envPath = path.join(tmpDir, '.env');
+    writeFileSync(envPath, `REPO_CONTEXT_MCP_AUTH_TOKEN=${PLACEHOLDER_MCP_TOKEN}\n`, { mode: 0o644 });
+    const result = await secureEnvToken(tmpDir);
+    expect(result.restricted).toBe(true);
+    expect(statSync(envPath).mode & 0o777).toBe(0o600);
   });
 });

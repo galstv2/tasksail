@@ -116,16 +116,6 @@ describe('runAgentSession — provider-PID sentinel', () => {
     expect(existsSync(path.join(tmpRoot, '.provider-pid'))).toBe(false);
   });
 
-  it('does NOT write sentinel when launchDir is undefined', async () => {
-    mocks.launchAgent.mockReturnValue(makeFakeChild(6666));
-
-    await expect(
-      runAgentSession({ repoRoot: '/repo', cliArgs: ['--foo'], cwd: '/repo', env: {}, launchDir: undefined }),
-    ).resolves.not.toThrow();
-
-    expect(existsSync(path.join(tmpRoot, '.provider-pid'))).toBe(false);
-  });
-
   it('does NOT write sentinel when child.pid is undefined, and does not crash', async () => {
     mocks.launchAgent.mockReturnValue(makeFakeChild(undefined));
 

@@ -32,10 +32,6 @@ logger = bind(
     module="scripts/python/activate-context-pack-helper",
 )
 
-# ---------------------------------------------------------------------------
-# Subcommand: infer-git-remote-owner
-# ---------------------------------------------------------------------------
-
 def cmd_infer_git_remote_owner(args: argparse.Namespace) -> None:
     remote = args.remote_url.strip()
     owner = ""
@@ -54,10 +50,6 @@ def cmd_infer_git_remote_owner(args: argparse.Namespace) -> None:
 
     write_protocol_stdout(str(owner) + '\n')
 
-
-# ---------------------------------------------------------------------------
-# Subcommand: collect-bootstrap-answers — main handler
-# ---------------------------------------------------------------------------
 
 def cmd_collect_bootstrap_answers(args: argparse.Namespace) -> None:
     output_path = Path(args.output_path)
@@ -142,10 +134,6 @@ def cmd_collect_bootstrap_answers(args: argparse.Namespace) -> None:
     write_protocol_stdout(str(str(output_path)) + '\n')
 
 
-# ---------------------------------------------------------------------------
-# Subcommand: extract-json-field
-# ---------------------------------------------------------------------------
-
 def cmd_extract_json_field(args: argparse.Namespace) -> None:
     path = Path(args.file_path)
     field = args.field_name
@@ -166,18 +154,10 @@ def cmd_extract_json_field(args: argparse.Namespace) -> None:
     write_protocol_stdout(str(value) + '\n')
 
 
-# ---------------------------------------------------------------------------
-# Subcommand: parse-seed-status
-# ---------------------------------------------------------------------------
-
 def cmd_parse_seed_status(args: argparse.Namespace) -> None:
     payload = json.loads(args.seed_output)
     write_protocol_stdout(str(payload.get("overall_status", "unknown")) + '\n')
 
-
-# ---------------------------------------------------------------------------
-# Subcommand: extract-json-stdin-field
-# ---------------------------------------------------------------------------
 
 def cmd_extract_json_stdin_field(args: argparse.Namespace) -> None:
     try:
@@ -196,10 +176,6 @@ def cmd_extract_json_stdin_field(args: argparse.Namespace) -> None:
 
     write_protocol_stdout(str(value) + '\n')
 
-
-# ---------------------------------------------------------------------------
-# Subcommand: emit-json (workspace-sync JSON envelope helper)
-# ---------------------------------------------------------------------------
 
 def cmd_emit_json(args: argparse.Namespace) -> None:
     workspace_payload: dict[str, object] | object = {}
@@ -236,10 +212,6 @@ def cmd_emit_json(args: argparse.Namespace) -> None:
     write_protocol_stdout(str(json.dumps(payload, indent=2)) + '\n')
 
 
-# ---------------------------------------------------------------------------
-# CLI definition
-# ---------------------------------------------------------------------------
-
 def main() -> None:
     configure_logging(stack="py", service="activate-context-pack-helper")
     parser = argparse.ArgumentParser(
@@ -247,7 +219,6 @@ def main() -> None:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # -- infer-git-remote-owner ------------------------------------------------
     sp_infer = subparsers.add_parser(
         "infer-git-remote-owner",
         help="Parse a git remote URL and print the owner/org.",
@@ -255,7 +226,6 @@ def main() -> None:
     sp_infer.add_argument("remote_url", help="The git remote URL to parse.")
     sp_infer.set_defaults(func=cmd_infer_git_remote_owner)
 
-    # -- collect-bootstrap-answers ---------------------------------------------
     sp_collect = subparsers.add_parser(
         "collect-bootstrap-answers",
         help="Run the bootstrap questionnaire and write answers JSON.",
@@ -268,7 +238,6 @@ def main() -> None:
     sp_collect.add_argument("--answers-file", default="", help="Path to a pre-filled answers JSON file (optional).")
     sp_collect.set_defaults(func=cmd_collect_bootstrap_answers)
 
-    # -- extract-json-field ----------------------------------------------------
     sp_extract = subparsers.add_parser(
         "extract-json-field",
         help="Read a JSON file and print a top-level field value.",
@@ -277,7 +246,6 @@ def main() -> None:
     sp_extract.add_argument("field_name", help="Top-level field name to extract.")
     sp_extract.set_defaults(func=cmd_extract_json_field)
 
-    # -- parse-seed-status -----------------------------------------------------
     sp_seed = subparsers.add_parser(
         "parse-seed-status",
         help="Parse QMD seed output JSON and print the overall_status.",
@@ -285,7 +253,6 @@ def main() -> None:
     sp_seed.add_argument("seed_output", help="The seed output JSON string.")
     sp_seed.set_defaults(func=cmd_parse_seed_status)
 
-    # -- extract-json-stdin-field ----------------------------------------------
     sp_stdin = subparsers.add_parser(
         "extract-json-stdin-field",
         help="Read JSON from stdin and print a field value.",
@@ -294,7 +261,6 @@ def main() -> None:
     sp_stdin.add_argument("--default", default=None, help="Default value if field is missing (default: empty string).")
     sp_stdin.set_defaults(func=cmd_extract_json_stdin_field)
 
-    # -- emit-json ---------------------------------------------------------------
     sp_emit = subparsers.add_parser(
         "emit-json",
         help="Build and print a structured JSON response payload.",

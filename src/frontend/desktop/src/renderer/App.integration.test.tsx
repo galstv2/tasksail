@@ -655,7 +655,7 @@ describe("App", () => {
       url: 'https://mcp.test.example/sse',
     };
 
-    // Track list call count to return empty first, then with server after add.
+    // Count list calls to return empty first, then with server after add.
     let listCallCount = 0;
     window.desktopShell.listExternalMcpServers = vi.fn().mockImplementation(async () => {
       listCallCount++;

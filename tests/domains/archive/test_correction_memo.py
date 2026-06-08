@@ -1,8 +1,11 @@
 """Correction memo builder unit tests."""
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(REPO_ROOT) not in sys.path:
@@ -17,6 +20,16 @@ from lib.archive.correction_memo import (
     _extract_shared_items,
 )
 from lib.archive.retrospective import is_actionable
+
+_REGISTRY_SKIP_REASON = (
+    "TASKSAIL_AGENT_REGISTRY_PATH is not set; skipping correction memo tests "
+    "that require workflow roles from the active CLI provider agent registry."
+)
+
+
+def _skip_if_agent_registry_missing() -> None:
+    if not os.environ.get("TASKSAIL_AGENT_REGISTRY_PATH", "").strip():
+        pytest.skip(_REGISTRY_SKIP_REASON)
 
 
 def _make_cycle_summary(
@@ -42,10 +55,8 @@ def _make_cycle_summary(
     }
 
 
-# --- Original tests ---
-
-
 def test_build_correction_memo_produces_all_sections() -> None:
+    _skip_if_agent_registry_missing()
     summary = _make_cycle_summary(
         bottlenecks=[("Slow reviews delayed the entire pipeline for multiple tasks", ["T-1", "T-2"])],
         action_items=[("Speed up the review process by adding automated pre-checks to the pipeline", ["T-1"])],
@@ -67,6 +78,7 @@ def test_build_correction_memo_produces_all_sections() -> None:
 
 
 def test_escalated_anti_patterns_from_shared_memory() -> None:
+    _skip_if_agent_registry_missing()
     shared_md = "\n".join([
         "# Shared Retrospective Memory",
         "",
@@ -93,6 +105,7 @@ def test_escalated_anti_patterns_from_shared_memory() -> None:
 
 
 def test_reinforced_improvements_from_shared_memory() -> None:
+    _skip_if_agent_registry_missing()
     shared_md = "\n".join([
         "# Shared Retrospective Memory",
         "",
@@ -113,6 +126,7 @@ def test_reinforced_improvements_from_shared_memory() -> None:
 
 
 def test_per_agent_corrections_rendered() -> None:
+    _skip_if_agent_registry_missing()
     summary = _make_cycle_summary(
         per_role={"Software Engineer": [("Fix lint warnings before opening pull requests to avoid blocking CI", ["T-1", "T-2"])]},
     )
@@ -125,6 +139,7 @@ def test_per_agent_corrections_rendered() -> None:
 
 
 def test_no_shared_memory_produces_empty_escalations() -> None:
+    _skip_if_agent_registry_missing()
     summary = _make_cycle_summary(
         anti_patterns=[("Something bad happened during the integration testing phase of the pipeline", ["T-1"])],
     )
@@ -152,9 +167,6 @@ def test_extract_shared_items_strips_task_counts() -> None:
     assert "Bad pattern that keeps showing up across multiple tasks" in result
 
 
-# --- Phase 1: Actionability filter tests ---
-
-
 def test_actionable_rejects_short_text() -> None:
     assert not is_actionable("Too short")
     assert not is_actionable("Only five words here today")
@@ -167,9 +179,6 @@ def test_actionable_accepts_sufficient_text() -> None:
         "This is a properly detailed retrospective item "
         "that describes the problem and its impact clearly"
     )
-
-
-# --- Phase 2: Shared memory expiry tests ---
 
 
 def test_extract_shared_items_filters_by_active_task_ids() -> None:
@@ -207,9 +216,6 @@ def test_extract_shared_items_no_filter_when_none() -> None:
     ])
     result = _extract_shared_items(md, "Anti-Patterns To Avoid", active_task_ids=None)
     assert "Ancient pattern from the very first cycle of the project" in result
-
-
-# --- Phase 3: Correction memo diffing tests ---
 
 
 def test_diff_identifies_new_items() -> None:
@@ -259,6 +265,7 @@ def test_diff_skipped_when_no_previous() -> None:
 
 
 def test_diff_section_appears_in_memo() -> None:
+    _skip_if_agent_registry_missing()
     previous_md = "\n".join([
         "## Technical Corrections",
         "",

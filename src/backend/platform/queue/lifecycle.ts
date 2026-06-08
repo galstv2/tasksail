@@ -94,7 +94,7 @@ export async function initializeTaskArtifacts(
     try { await unlink(publishMarker); } catch { /* best-effort */ }
 
     // Copy the active-format slice template into ImplementationSteps/ if specified.
-    // Markdown mode copies slice-template.md; XML mode copies slice-template.xml.
+    // Markdown and XML modes each copy their active-format slice template.
     if (implementationStepsDir) {
       await ensureDir(implementationStepsDir);
       const templateFilename = sliceArtifactFormat === 'xml'
@@ -149,8 +149,8 @@ export async function resetHandoffArtifacts(
     await unlink(publishMarker);
   }
 
-  // Clear ImplementationSteps/ if specified: remove .md and .xml files only.
-  // This preserves both markdown slice cleanup behavior and removes stale XML artifacts.
+  // Clear ImplementationSteps/ if specified: remove known slice artifact formats only.
+  // This preserves markdown slice cleanup behavior and removes stale XML artifacts.
   if (options?.implementationStepsDir && existsSync(options.implementationStepsDir)) {
     const files = await readdir(options.implementationStepsDir);
     for (const file of files) {
@@ -282,7 +282,7 @@ export function handoffPublishInProgress(handoffsDir: string): boolean {
 }
 
 /**
- * Check if final-summary.md has meaningful (non-template) content.
+ * Check if the final summary handoff has meaningful non-template content.
  */
 export async function finalSummaryHasContent(
   handoffsDir: string,

@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { splitCommandOutputLines } from '../core/commandOutput.js';
-import { createLogger, findRepoRoot, ensureEnvFile, ensureDir, getErrorMessage } from '../core/index.js';
+import { createLogger, findRepoRoot, ensureEnvFile, secureEnvToken, ensureDir, getErrorMessage } from '../core/index.js';
 import { classifyPythonVersion, formatPythonVersion, resolveRuntimePython } from '../core/pythonResolver.js';
 import { createRuntimeFromConfig } from '../container/runtime.js';
 import { createSharedMcpComposeBootstrapEnv, sweepLegacyPortAllocationsOnce } from '../container/sharedMcp.js';
@@ -157,6 +157,25 @@ export async function setupRepo(options?: SetupOptions): Promise<SetupResult> {
   } catch (err) {
     steps.push({
       name: 'ensure-env',
+      status: 'failed',
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  // 2b. Harden .env: rotate the public placeholder MCP token + restrict perms (POSIX)
+  try {
+    const secured = await secureEnvToken(root);
+    const notes: string[] = [];
+    if (secured.rotated) notes.push('generated random REPO_CONTEXT_MCP_AUTH_TOKEN');
+    if (secured.restricted) notes.push('set mode 0600');
+    steps.push({
+      name: 'secure-env',
+      status: 'ok',
+      message: notes.length > 0 ? notes.join('; ') : 'already secured',
+    });
+  } catch (err) {
+    steps.push({
+      name: 'secure-env',
       status: 'failed',
       message: err instanceof Error ? err.message : String(err),
     });

@@ -3,7 +3,7 @@
  * Owns selection-detail selectors plus plan-section selectors
  * used for selected file and plan metadata in the sidebar.
  */
-/* ── §8  Selection Detail ────────────────────────────────────────────── */
+/* Selection Detail */
 
 .sidebar-selection-detail {
   display: grid;
@@ -28,7 +28,7 @@
 }
 
 
-/* ── §8a  Plan Section ──────────────────────────────────────────────── */
+/* Plan Section */
 
 .sidebar-plan-divider {
   margin-top: 0.35rem;

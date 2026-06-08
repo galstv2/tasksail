@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from src.backend.mcp.pack_constants import ALLOWED_REPO_CATEGORIES
-from src.backend.mcp.repo_category_probe import (
+from src.backend.mcp.pack.constants import ALLOWED_REPO_CATEGORIES
+from src.backend.mcp.probes.repo_category_probe import (
     _rglob_any,
     classify_repo_category,
     repo_category_for_wizard_role,
@@ -67,6 +67,17 @@ _CATEGORY_CASES = [
     ("library/vite-library", "library"),
     ("application/python", "application"),
     ("application/cli-go", "application"),
+    ("application/flutter", "application"),
+    ("service/dotnet-multiproject", "service"),
+    ("service/deno", "service"),
+    ("tool/dotnet-console", "tool"),
+    ("tool/cpp-cmake", "tool"),
+    ("tool/swift-cli", "tool"),
+    ("tool/go-cli", "tool"),
+    ("library/dart", "library"),
+    ("library/cpp-lib", "library"),
+    ("library/swift-lib", "library"),
+    ("library/rust-workspace", "library"),
 ]
 
 
@@ -90,7 +101,7 @@ def test_classify_repo_category_fixture(subpath: str, expected_category: str) ->
 
 
 def test_classify_unknown_empty_returns_low() -> None:
-    """An empty directory falls through all detection steps → unknown, low."""
+    """An empty directory falls through all detection checks as unknown, low."""
     fixture_path = FIXTURE_BASE / "unknown" / "empty"
     category, confidence = classify_repo_category(fixture_path)
     assert category == "unknown"
@@ -98,7 +109,7 @@ def test_classify_unknown_empty_returns_low() -> None:
 
 
 def test_classify_unknown_ambiguous_returns_low() -> None:
-    """A directory with only a README falls through all detection steps → unknown, low."""
+    """A README-only directory falls through all detection checks as unknown, low."""
     fixture_path = FIXTURE_BASE / "unknown" / "ambiguous"
     category, confidence = classify_repo_category(fixture_path)
     assert category == "unknown"
@@ -113,6 +124,22 @@ def test_dotnet_test_sdk_returns_unknown_without_test_layer_category() -> None:
     assert confidence in ("low", "medium")
 
 
+def test_dotnet_multiproject_solution_does_not_resolve_to_unknown() -> None:
+    """Regression: a multi-project .NET solution that also contains test projects
+    must classify by its non-test projects, not short-circuit to 'unknown'.
+
+    Mirrors the real crud-app-repo-dotnet-distributed-demo failure: a services/
+    layout → service; root-level console exe projects → tool.
+    """
+    svc_cat, svc_conf = classify_repo_category(FIXTURE_BASE / "service" / "dotnet-multiproject")
+    assert svc_cat == "service"
+    assert svc_conf in ("high", "medium")
+
+    tool_cat, tool_conf = classify_repo_category(FIXTURE_BASE / "tool" / "dotnet-console")
+    assert tool_cat == "tool"
+    assert tool_conf in ("high", "medium")
+
+
 def test_github_actions_alone_is_not_infrastructure() -> None:
     """CI workflow files alone are not enough to classify a repo as infrastructure."""
     fixture_path = FIXTURE_BASE / "unknown" / "github-actions-only"
@@ -120,10 +147,6 @@ def test_github_actions_alone_is_not_infrastructure() -> None:
     assert category == "unknown"
     assert confidence == "low"
 
-
-# ---------------------------------------------------------------------------
-# repo_category_for_wizard_role
-# ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("role,expected", [
     ("backend", "service"),
@@ -144,9 +167,7 @@ def test_wizard_role_unknown_returns_none(bad_role: str) -> None:
     assert repo_category_for_wizard_role(bad_role) is None
 
 
-# ---------------------------------------------------------------------------
-# _rglob_any — bounded recursive scan (EH-4)
-# ---------------------------------------------------------------------------
+# _rglob_any is a bounded recursive scan.
 
 
 def test_rglob_any_finds_nested_match(tmp_path: Path) -> None:

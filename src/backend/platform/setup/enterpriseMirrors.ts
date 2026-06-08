@@ -24,6 +24,8 @@ export const ENTERPRISE_MIRROR_ENV_KEYS = [
   'TASKSAIL_PYPI_INDEX_URL',
   'TASKSAIL_PYTHON_BASE_IMAGE',
   'TASKSAIL_ALPINE_BASE_IMAGE',
+  'TASKSAIL_ELECTRON_MIRROR',
+  'TASKSAIL_ELECTRON_BUILDER_BINARIES_MIRROR',
 ] as const;
 
 export type MirrorEnvKey = (typeof ENTERPRISE_MIRROR_ENV_KEYS)[number];
@@ -80,6 +82,14 @@ export interface ResolvedMirrors {
   pypi?: PypiMirrorConfig;
   pythonBaseImage?: string;
   alpineBaseImage?: string;
+  // Electron downloads its large platform binary outside the npm package.
+  // electronMirror feeds desktop .npmrc, while electronBuilderBinariesMirror is
+  // surfaced for shell export/preflight because builder tools read it from env.
+  // Both values are sanitized to strip URL-embedded credentials.
+  electronMirror?: string;
+  electronMirrorHadCredentials?: boolean;
+  electronBuilderBinariesMirror?: string;
+  electronBuilderBinariesMirrorHadCredentials?: boolean;
   errors: MirrorValidationError[];
   warnings: string[];
 }
@@ -213,8 +223,39 @@ export function resolveEnterpriseMirrors(env: MirrorEnv): ResolvedMirrors {
   result.pythonBaseImage = firstNonEmpty(env.TASKSAIL_PYTHON_BASE_IMAGE);
   result.alpineBaseImage = firstNonEmpty(env.TASKSAIL_ALPINE_BASE_IMAGE);
 
+  const electronMirror = firstNonEmpty(env.TASKSAIL_ELECTRON_MIRROR);
+  if (electronMirror) {
+    const url = parseUrlOrError('Electron mirror', electronMirror, errors);
+    if (url) {
+      const { sanitized, hadCredentials } = stripUrlCredentials(electronMirror);
+      result.electronMirror = sanitized;
+      result.electronMirrorHadCredentials = hadCredentials;
+    }
+  }
+
+  const electronBuilderBinariesMirror = firstNonEmpty(
+    env.TASKSAIL_ELECTRON_BUILDER_BINARIES_MIRROR,
+  );
+  if (electronBuilderBinariesMirror) {
+    const url = parseUrlOrError(
+      'Electron Builder binaries mirror',
+      electronBuilderBinariesMirror,
+      errors,
+    );
+    if (url) {
+      const { sanitized, hadCredentials } = stripUrlCredentials(electronBuilderBinariesMirror);
+      result.electronBuilderBinariesMirror = sanitized;
+      result.electronBuilderBinariesMirrorHadCredentials = hadCredentials;
+    }
+  }
+
   result.configured = Boolean(
-    result.npm || result.pypi || result.pythonBaseImage || result.alpineBaseImage,
+    result.npm
+    || result.pypi
+    || result.pythonBaseImage
+    || result.alpineBaseImage
+    || result.electronMirror
+    || result.electronBuilderBinariesMirror,
   );
   return result;
 }
@@ -243,6 +284,13 @@ export function renderNpmrcManagedLines(npm: NpmMirrorConfig): string[] {
     lines.push(`replace-registry-host=${npm.replaceRegistryHost}`);
   }
   return lines;
+}
+
+// Electron's binary download (@electron/get) honors the npm-config key
+// `electron_mirror`. Scoped to the desktop .npmrc since `electron` only installs
+// there. Sanitized so no URL-embedded credential is ever written.
+export function renderElectronNpmrcLine(electronMirror: string): string {
+  return `electron_mirror=${stripUrlCredentials(electronMirror).sanitized}`;
 }
 
 export function renderPipConfManagedLines(pypi: PypiMirrorConfig): string[] {
@@ -312,8 +360,6 @@ export function renderPipConfContent(
 ): string {
   return mergeManagedBlock(existing, pypi ? renderPipConfManagedLines(pypi) : null);
 }
-
-// --- Section B: idempotent local config application -------------------------
 
 // Generated runtime files (all git-ignored). Relative to repoRoot.
 const NPMRC_TARGETS = ['.npmrc', 'src/frontend/desktop/.npmrc'] as const;
@@ -386,9 +432,25 @@ export async function applyEnterpriseMirrors(
       'npm registry URL contained embedded credentials; they were not written to .npmrc. Authenticate with TASKSAIL_NPM_AUTH_TOKEN or shell-exported credentials.',
     );
   }
-  const npmLines = resolved.npm ? renderNpmrcManagedLines(resolved.npm) : null;
+  if (resolved.electronMirrorHadCredentials) {
+    warnings.push(
+      'Electron mirror URL contained embedded credentials; they were not written to .npmrc. Provide @electron/get credentials via your shell environment instead.',
+    );
+  }
+  // electron_mirror is scoped to the desktop .npmrc (electron only installs there);
+  // the root .npmrc (pnpm) gets only the npm registry block.
+  const npmManagedLines = resolved.npm ? renderNpmrcManagedLines(resolved.npm) : [];
   for (const target of NPMRC_TARGETS) {
-    if (await applyManagedFile(repoRoot, target, npmLines)) changedFiles.push(target);
+    const isDesktopNpmrc = target.startsWith('src/frontend/desktop');
+    const targetLines: string[] = [
+      ...npmManagedLines,
+      ...(isDesktopNpmrc && resolved.electronMirror
+        ? [renderElectronNpmrcLine(resolved.electronMirror)]
+        : []),
+    ];
+    if (await applyManagedFile(repoRoot, target, targetLines.length > 0 ? targetLines : null)) {
+      changedFiles.push(target);
+    }
   }
 
   // PyPI: a credential-bearing index URL is never persisted to pip.conf. Skipping
@@ -417,6 +479,21 @@ export async function applyEnterpriseMirrors(
       `PyPI helper config written to ${PIP_CONF_TARGET} (set PIP_CONFIG_FILE to use it): ${redactUrl(resolved.pypi.indexUrl)}`,
     );
   }
+  if (resolved.electronMirror) {
+    messages.push(
+      `Electron binary mirror configured (electron_mirror in src/frontend/desktop/.npmrc): ${redactUrl(resolved.electronMirror)}`,
+    );
+  }
+  if (resolved.electronBuilderBinariesMirror) {
+    if (resolved.electronBuilderBinariesMirrorHadCredentials) {
+      warnings.push(
+        'Electron Builder binaries mirror URL contained embedded credentials; export ELECTRON_BUILDER_BINARIES_MIRROR in your shell so the secret is not surfaced in setup output.',
+      );
+    }
+    messages.push(
+      `Electron Builder binaries mirror configured; export it before \`npm run package:*\` (electron-builder reads it from the environment, not .npmrc): ELECTRON_BUILDER_BINARIES_MIRROR=${redactUrl(resolved.electronBuilderBinariesMirror)}`,
+    );
+  }
   for (const err of resolved.errors) {
     messages.push(`${err.message} (${err.redactedValue})`);
   }
@@ -437,8 +514,6 @@ export async function applyEnterpriseMirrors(
     resolved,
   };
 }
-
-// --- Section C: setup integration and reachability preflight ----------------
 
 const DEFAULT_PREFLIGHT_TIMEOUT_MS = 2000;
 
@@ -530,6 +605,10 @@ export async function runEnterpriseMirrorsStep(
     const urls: string[] = [];
     if (applied.resolved.npm?.registry) urls.push(applied.resolved.npm.registry);
     if (applied.resolved.pypi?.indexUrl) urls.push(applied.resolved.pypi.indexUrl);
+    if (applied.resolved.electronMirror) urls.push(applied.resolved.electronMirror);
+    if (applied.resolved.electronBuilderBinariesMirror) {
+      urls.push(applied.resolved.electronBuilderBinariesMirror);
+    }
 
     for (const url of urls) {
       const preflight = await checkMirrorReachability(url, {

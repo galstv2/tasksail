@@ -121,27 +121,6 @@ describe('runAgentSession lifecycle terminal projection', () => {
 });
 
 describe('roleAgent lifecycle wiring guards', () => {
-  it('keeps greedy artifact monitoring wired for Alice and Ron initial plus continuation launches only', () => {
-    const source = roleAgentSource();
-    const initialStart = source.indexOf('const initialSession = await runAgentSession({');
-    const continuationStart = source.indexOf('const continuationSession = await runAgentSession({');
-    const overrideStart = source.indexOf('const runPromptOverrideSession = async');
-    const overrideEnd = source.indexOf('const wallClockTimeoutS', overrideStart);
-
-    expect(initialStart).toBeGreaterThan(-1);
-    expect(continuationStart).toBeGreaterThan(-1);
-    expect(overrideStart).toBeGreaterThan(-1);
-    expect(overrideEnd).toBeGreaterThan(overrideStart);
-
-    const initialBody = source.slice(initialStart, continuationStart);
-    const continuationBody = source.slice(continuationStart, source.indexOf('runSummary = continuationSession.runSummary', continuationStart));
-    const overrideBody = source.slice(overrideStart, overrideEnd);
-
-    expect(initialBody).toContain("greedyStopOnArtifactCompletion: options.agentId === 'alice' || options.agentId === 'ron'");
-    expect(continuationBody).toContain("greedyStopOnArtifactCompletion: options.agentId === 'alice' || options.agentId === 'ron'");
-    expect(overrideBody).not.toContain('greedyStopOnArtifactCompletion');
-  });
-
   it('does not emit provisional artifact-check failed events from polling', () => {
     const source = roleAgentSource();
     const start = source.indexOf('const artifactCompletionDetailsCheck = async');

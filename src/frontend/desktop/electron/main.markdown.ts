@@ -1,5 +1,5 @@
 import type { PlannerEditableDraftModel } from '../src/shared/desktopContract';
-import type { PlannerStagingSidecar } from './main.staging';
+import type { PlannerStagingSidecar } from './planner/staging';
 import { stripMarkdownComments } from './main.textUtils';
 
 export type PlannerEditableDraft = PlannerEditableDraftModel;
@@ -169,12 +169,12 @@ export function validatePlanningIntakeDraft(
     (section) => stripMarkdownComments(sections.get(section) ?? '').length === 0,
   );
   if (missingSections.length > 0) {
-    return `Staged draft is missing required section content: ${missingSections.join(', ')}. Ask Lily to complete the planning intake before finalizing.`;
+    return `Staged draft is missing required section content: ${missingSections.join(', ')}. Ask the planner to complete the planning intake before finalizing.`;
   }
 
   const requestSummary = stripMarkdownComments(sections.get('Request Summary') ?? '');
   if (requestSummary.length < 20) {
-    return 'Staged draft Request Summary is too short. Ask Lily to provide a fuller planning intake before finalizing.';
+    return 'Staged draft Request Summary is too short. Ask the planner to provide a fuller planning intake before finalizing.';
   }
 
   const acceptanceSignals = stripMarkdownComments(sections.get('Acceptance Signals') ?? '');
@@ -185,7 +185,7 @@ export function validatePlanningIntakeDraft(
   if (taskKind === 'child-task' && !options?.allowEmptyCarryForward) {
     const carryForwardSummary = stripMarkdownComments(sections.get('Parent Task Carry-Forward Summary') ?? '');
     if (carryForwardSummary.length === 0) {
-      return 'Child-task staged draft is missing Parent Task Carry-Forward Summary content. Ask Lily to complete the intake before finalizing.';
+      return 'Child-task staged draft is missing Parent Task Carry-Forward Summary content. Ask the planner to complete the intake before finalizing.';
     }
   }
 
@@ -195,7 +195,7 @@ export function validatePlanningIntakeDraft(
 // The H1 title, Context Pack Binding section, and Source section are all
 // regenerated programmatically from sidecar metadata when createDropboxTask
 // writes the canonical dropbox markdown. Validating the staged draft's
-// rendered copy of those sections only gates finalize on Lily preserving
+// rendered copy of those sections only gates finalize on the planner preserving
 // platform-owned text byte-for-byte — which she frequently won't — without
 // any benefit to the dropbox output. Lineage fields remain validated because
 // they are sidecar-authoritative and we want a clear error if the staged
@@ -213,15 +213,15 @@ export function validatePlannerProtectedMetadata(
   const sections = preParsedSections ?? parseMarkdownSections(content);
   const taskLineageSection = sections.get('Task Lineage');
   if (taskLineageSection === undefined) {
-    return 'Staged draft is missing the platform-owned Task Lineage section. Ask Lily to restore the staged shell before finalizing.';
+    return 'Staged draft is missing the platform-owned Task Lineage section. Ask the planner to restore the staged shell before finalizing.';
   }
 
   const authoritativeTaskKind = metadata.lineage.taskKind;
   const taskKind = extractSectionField(taskLineageSection, 'Task Kind').toLowerCase();
   if (taskKind !== authoritativeTaskKind) {
     return taskKind
-      ? `Platform expected ${authoritativeTaskKind} but staged draft declares ${taskKind}. Ask Lily to correct the Task Kind field before finalizing.`
-      : 'Staged draft Task Lineage is missing the platform-owned Task Kind field. Ask Lily to restore the staged shell before finalizing.';
+      ? `Platform expected ${authoritativeTaskKind} but staged draft declares ${taskKind}. Ask the planner to correct the Task Kind field before finalizing.`
+      : 'Staged draft Task Lineage is missing the platform-owned Task Kind field. Ask the planner to restore the staged shell before finalizing.';
   }
 
   const lineageFieldChecks: Array<[string, string]> = [
@@ -235,14 +235,14 @@ export function validatePlannerProtectedMetadata(
     .filter(([label, expectedValue]) => extractSectionField(taskLineageSection, label) !== expectedValue)
     .map(([label]) => label);
   if (mismatchedLineageFields.length > 0) {
-    return `Staged draft Task Lineage no longer matches the platform-owned planner metadata for: ${mismatchedLineageFields.join(', ')}. Ask Lily to restore the staged shell before finalizing.`;
+    return `Staged draft Task Lineage no longer matches the platform-owned planner metadata for: ${mismatchedLineageFields.join(', ')}. Ask the planner to restore the staged shell before finalizing.`;
   }
 
   return null;
 }
 
 // Canonical user-facing vocabulary is "Simple"/"Complex" — the staging shell
-// (main.staging.ts), the planning-intake template, Lily's and Alice's
+// (main.staging.ts), the planning-intake template, planner and PM
 // instructions, and the workflow-policy validator (rules/intake.ts) all use
 // those tokens. The "sequential"/"parallel" keys are kept as defensive
 // tolerance: legacy dropbox files written by older code carried those raw
@@ -261,7 +261,7 @@ function resolveSuggestedPath(rawValue: string): 'sequential' | 'parallel' {
   if (SUGGESTED_PATH_MAP[normalized]) {
     return SUGGESTED_PATH_MAP[normalized];
   }
-  // Try the leading word, in case Lily wrote something like
+  // Try the leading word, in case the planner wrote something like
   // "Simple — one coherent ask" or "Complex (multi-slice)".
   const leadingWord = normalized.split(/[\s(–—\-]/)[0] ?? '';
   return SUGGESTED_PATH_MAP[leadingWord] ?? 'sequential';

@@ -1,6 +1,6 @@
 import type { ContextPackDiscoveryMode } from '../../../shared/desktopContract';
-import type { ContextPackCreationModalProps } from '../../contextPackCreationTypes';
-import { isDistributedEstateMode } from '../../contextPackModeUtils';
+import type { ContextPackCreationModalProps } from '../../contextPack/contextPackCreationTypes';
+import { isDistributedEstateMode } from '../../contextPack/contextPackModeUtils';
 import { classNames } from '../../utils/classNames';
 import BuildWizard from './BuildWizard';
 

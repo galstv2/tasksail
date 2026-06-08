@@ -1,12 +1,5 @@
-/*
- * Covers modal controls: segmented options, toggle pills, inline selects, language controls, buttons, disclosure, footer, and responsive sizing.
- * Owns .context-pack-modal__* control selectors that layer on top of the shell and include the original tail overrides.
- * Preserve this file between shell and wizard imports to match the source cascade.
- */
-/* ── Segmented control (canonical Apple-style: one primitive for all radio
-       groups in this modal — origin toggle, application shape, infrastructure
-       repos, etc.). Active option = neutral white pill with theme-aware
-       elevation. Single visual signal for selection. ────────────────── */
+/* Context-pack modal controls. Keep between shell and wizard imports to preserve cascade ownership. */
+/* Segmented control shared by the modal's radio-like choices. */
 
 .context-pack-modal__seg-control {
   display: inline-flex;
@@ -81,12 +74,7 @@
   color: var(--ts-text);
 }
 
-/* ── Primary toggle pill ────────────────────────────────────────────
-   Chip-style toggle that mirrors `__repo-chip--primary` aesthetics so
-   the interactive control and its read-only chip counterpart share one
-   visual language. Inactive: outlined neutral pill. Active: filled
-   accent-tinted chip. Selection state rides on fill, not border + color
-   + glow. */
+/* Primary toggle pill mirrors `__repo-chip--primary`; fill carries selection state. */
 
 .context-pack-modal__toggle-pill {
   display: inline-flex;
@@ -242,7 +230,7 @@
   min-width: 0;
 }
 
-/* ── Wizard sub-step header (question + quiet helper) ──────────────── */
+/* Wizard sub-step header (question + quiet helper) */
 
 .context-pack-modal__wizard-section-header {
   display: grid;
@@ -250,7 +238,7 @@
   margin: 0;
 }
 
-/* ── Project type: two-question layout ───────────────────────────── */
+/* Project type: two-question layout */
 
 .context-pack-modal__project-type {
   gap: 0.8rem;
@@ -314,8 +302,8 @@
   padding: 0;
 }
 
-/* ── Part card: summary row (always visible) ─────────────────────── */
-/* ── Inline select (minimal dropdown) ────────────────────────────── */
+/* Part card: summary row (always visible) */
+/* Inline select (minimal dropdown) */
 
 .context-pack-modal__inline-select {
   flex: 1;
@@ -363,7 +351,7 @@
   color: var(--ts-text-soft);
 }
 
-/* ── Language selector row ───────────────────────────────────────── */
+/* Language selector row */
 
 .context-pack-modal__lang-selector {
   display: flex;
@@ -420,7 +408,7 @@
   letter-spacing: 0;
 }
 
-/* ── Icon buttons (edit, remove) ─────────────────────────────────── */
+/* Icon buttons (edit, remove) */
 
 .context-pack-modal__icon-btn {
   display: grid;
@@ -452,7 +440,7 @@
   cursor: default;
 }
 
-/* ── Text buttons (done, add part) ───────────────────────────────── */
+/* Text buttons (done, add part) */
 
 .context-pack-modal__text-btn {
   display: inline-flex;
@@ -548,7 +536,7 @@
   gap: 0.15rem;
 }
 
-/* ── Advanced fields disclosure ──────────────────────────────────────── */
+/* Advanced fields disclosure */
 
 .context-pack-modal__advanced-toggle {
   display: flex;
@@ -586,10 +574,7 @@
   margin-top: 0.4rem;
 }
 
-/* ── §21  Context Pack Modal (sizing & elevation) ──────────────────── */
-/* Container sizing, overlay, header, close, and footer chrome are owned
-   by ModalShell; the modal is configured via `maxWidth="680px"` on the
-   ContextPackCreationModal component. Body content rules live below. */
+/* ModalShell owns chrome and sizing; body content rules live below. */
 
 .context-pack-modal .panel__lede {
   margin: 0;
@@ -612,7 +597,7 @@
   color: var(--ts-danger);
 }
 
-/* ── Scoped refinements for compact modal feel ────────────────────── */
+/* Scoped refinements for compact modal feel */
 
 .context-pack-modal .composer-field input:focus,
 .context-pack-modal .composer-field textarea:focus,
@@ -669,7 +654,7 @@
   gap: 0.45rem;
 }
 
-/* ── Warning modal (multi-primary guard) ─────────────────────────── */
+/* Warning modal (multi-primary guard) */
 
 .context-pack-warning-modal {
   position: relative;

@@ -323,9 +323,9 @@ function implementationSpecMissingRequiredSections(spec: WorkspaceArtifact): str
 function parallelOkIndependentSliceIds(artifact: WorkspaceArtifact, format: SliceArtifactFormat): string[] {
   const lines = stripBoilerplate(artifact.sections['Independent Slices'] ?? []);
   const normalizeRef = (s: string): string => s.replace(/\.(md|xml)$/i, '');
-  // When raw bullets exist, normalize them format-aware (XML mode rejects a
-  // slice-N.md reference to ''); do not fall back to the free-text regex, which
-  // would strip the extension and silently re-accept the wrong-format reference.
+  // When raw bullets exist, normalize them format-aware. XML mode rejects
+  // markdown slice references; falling back to the free-text regex would strip
+  // the extension and silently re-accept the wrong-format reference.
   const rawBullets = extractBulletItems(lines);
   if (rawBullets.length > 0) {
     return [...new Set(
@@ -491,8 +491,7 @@ async function productManagerArtifactCompletionDetails(
   if (invalidSlices.length > 0) {
     reasons.push(`ImplementationSteps invalid slice filenames: ${invalidSlices.join(', ')}`);
   }
-  // Wrong-format active slice files (slice-N.md in XML mode, slice-N.xml in markdown
-  // mode) are invalid even when a valid-format slice also exists; reject them at the
+  // Wrong-format active slice files are invalid even when a valid-format slice also exists; reject them at the
   // completion gate rather than deferring to archive filing.
   const wrongFormatSlices = await listWrongFormatSliceFiles(options.implStepsDir, format);
   if (wrongFormatSlices.length > 0) {
@@ -625,7 +624,7 @@ export async function checkAgentArtifactCompletionDetails(
 
   if (roleKind === 'pm') {
     const format = resolveSliceFormat(options.taskId, options.repoRoot);
-    // For markdown: use listSliceFiles (all .md non-template) so invalid names are detected.
+    // For markdown: use listSliceFiles so invalid names are detected.
     // For XML: use listSliceArtifactFiles (pattern-matched); XML invalid-name detection is a
     //          wrong-format check rather than a naming check.
     const slices = format === 'xml'
@@ -639,8 +638,8 @@ export async function checkAgentArtifactCompletionDetails(
     return { complete: true, reasons: [] };
   }
 
-  // For QA, check if issues.md has a blocking outcome first. When blocking,
-  // only issues.md is required — final-summary.md and retrospective-input.md
+  // For QA, check the issues handoff for a blocking outcome first. When blocking,
+  // only that handoff is required; summary and retrospective handoffs
   // must NOT be written (the remediation loop handles next steps).
   if (roleKind === 'qa') {
     return qaArtifactCompletionDetails(options);

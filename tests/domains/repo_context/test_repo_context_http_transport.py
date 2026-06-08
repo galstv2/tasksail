@@ -89,7 +89,6 @@ class _MutableCallbacks:
 
 
 class RepoContextHttpTransportTests(unittest.TestCase):
-    # --------------------------------------------------------------------------
     # WHY IN-PROCESS HANDLER CALLS:
     #
     # The handler class produced by RepoContextHttpHandler.make_handler_class()
@@ -101,7 +100,6 @@ class RepoContextHttpTransportTests(unittest.TestCase):
     #
     # _MutableCallbacks allows per-test callback reconfiguration.
     # _RuntimeStateStub.reset() clears counters so tests stay isolated.
-    # --------------------------------------------------------------------------
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -506,6 +504,10 @@ class RepoContextHttpTransportTests(unittest.TestCase):
         self.assertEqual(body["stale_after_seconds"], 3600)
         self.assertTrue(body["message"])
         self.assertEqual(self._runtime.released, 1)
+        self.assertEqual(
+            self._runtime.released_scopes,
+            ["/workspace/context-pack"],
+        )
 
     def test_lineage_and_carry_forward_routes_cover_validation(self) -> None:
         lineage_calls: list[dict[str, object]] = []

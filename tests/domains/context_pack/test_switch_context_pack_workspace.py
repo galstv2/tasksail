@@ -96,29 +96,6 @@ class SwitchContextPackWorkspaceTests(unittest.TestCase):
             json.dumps(payload, indent=2) + "\n",
         )
 
-    @unittest.skip(
-        "Activation orchestration was handled by the removed shell wrapper; "
-        "the Python sync CLI does not perform activation."
-    )
-    def test_apply_runs_activation_before_sync_and_returns_stable_json(
-        self,
-    ) -> None:
-        pass
-
-    @unittest.skip(
-        "Activation failure propagation was handled by the removed shell "
-        "wrapper; the Python sync CLI does not perform activation."
-    )
-    def test_activation_failure_propagates_with_real_exit_code(self) -> None:
-        pass
-
-    @unittest.skip(
-        "Post-activation sync failure was handled by the removed shell "
-        "wrapper; the Python sync CLI does not perform activation."
-    )
-    def test_workspace_sync_failure_propagates_after_activation(self) -> None:
-        pass
-
     def test_monolith_focus_selection_round_trips_through_wrapper(
         self,
     ) -> None:

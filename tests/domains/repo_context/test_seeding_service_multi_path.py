@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from src.backend.mcp.path_resolution import ContainerPathMissing
+from src.backend.mcp.probes.path_resolution import ContainerPathMissing
 from src.backend.mcp.repo_context_mcp.services.seeding_service import SeedingService
 
 

@@ -1,5 +1,5 @@
-// Hand-written TS interfaces mirroring src/backend/mcp/pack_schemas/{manifest,answers,plan}.py
-// These are NOT generated. When the Python dataclasses change, update both files in the same PR.
+// Hand-written TS interfaces mirroring backend pack_schemas dataclasses.
+// Keep these in sync with the Python shapes.
 
 export interface ManifestRepository {
   repo_id: string;
@@ -9,9 +9,8 @@ export interface ManifestRepository {
   default_focusable: boolean;
   activation_priority: number;
   repository_type: string;
-  /** @deprecated Superseded by repository_type; removal deferred (Phase 6 Gate G7). */
+  /** @deprecated Superseded by repository_type; kept for backward compatibility. */
   repo_role: string;
-  // optional fields
   languages?: string[];
   artifact_roots?: string[];
   document_paths?: string[];
@@ -93,7 +92,6 @@ export interface RepoSourcesManifestV2 extends Omit<RepoSourcesManifestV1, 'repo
  */
 export type RepoSourcesManifest = RepoSourcesManifestV1 | RepoSourcesManifestV2;
 
-// Required fields used by the runtime guard
 export const MANIFEST_REQUIRED_FIELDS = [
   'manifest_version',
   'manifest_status',
@@ -106,14 +104,13 @@ export const MANIFEST_REQUIRED_FIELDS = [
 
 export type ManifestRequiredKey = (typeof MANIFEST_REQUIRED_FIELDS)[number];
 
-// BootstrapAnswers
 export interface BootstrapRepository {
   repo_id: string;
   repo_name: string;
   repo_root: string;
   system_layer: string;
   owner: string;
-  /** @deprecated Superseded by repository_type; removal deferred (Phase 6 Gate G7). */
+  /** @deprecated Superseded by repository_type; kept for backward compatibility. */
   repo_role: string;
   repository_type: string | null;
   languages: string[];
@@ -204,15 +201,8 @@ export const PLAN_REQUIRED_FIELDS = [
 
 export type PlanRequiredKey = (typeof PLAN_REQUIRED_FIELDS)[number];
 
-// ---------------------------------------------------------------------------
-// Type-level drift guards
-//
-// These compile-time assertions ensure the REQUIRED_FIELDS constants stay in
-// sync with the interface key sets. A `tsc --noEmit` error fires if someone
-// adds/removes an interface key without updating the field-list constant, or
-// vice versa. The drift test does NOT catch changes to packSchemas.runtime.ts
-// guard logic — that's what the runtime round-trip test covers.
-// ---------------------------------------------------------------------------
+// Type-level drift guards for REQUIRED_FIELDS constants and interface keys.
+// Runtime guard behavior is covered by the round-trip tests.
 
 /** Asserts T and U are the exact same type. Produces `never` on mismatch. */
 type AssertEqual<T, U> = T extends U ? (U extends T ? true : never) : never;
@@ -250,7 +240,6 @@ type _PlanOptionalKeys =
   | 'warning_count'
   | 'next_steps';
 
-// tsc --noEmit will fail if any interface key drifts from these union types.
 declare const _manifestDriftGuard: AssertEqual<
   keyof RepoSourcesManifest,
   ManifestRequiredKey | _ManifestOptionalKeys
@@ -264,13 +253,7 @@ declare const _planDriftGuard: AssertEqual<
   PlanRequiredKey | _PlanOptionalKeys
 >;
 
-// ---------------------------------------------------------------------------
-// PackSeedStateRecord — mirrors the on-disk seed-state.json shape.
-//
-// Uses snake_case per the existing pack-schema convention (manifest_version,
-// local_paths, etc.).  Translation to camelCase desktop-contract fields
-// (packSeedState) happens in main.contextPackCatalog.ts.
-// ---------------------------------------------------------------------------
+// Mirrors seed-state.json; camelCase translation happens at the desktop-contract boundary.
 
 export interface PackSeedStateRecord {
   state: 'seeded' | 'bootstrap-empty';

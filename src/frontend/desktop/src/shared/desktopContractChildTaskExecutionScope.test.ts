@@ -100,7 +100,7 @@ function startSessionWithScope(childTaskExecutionScope: unknown) {
   });
 }
 
-function startSessionWithReloadScope(lilyPlanningReloadScope: unknown, overrides: Record<string, unknown> = {}) {
+function startSessionWithReloadScope(plannerPlanningReloadScope: unknown, overrides: Record<string, unknown> = {}) {
   return validateDesktopActionRequest({
     action: 'planner.startSession',
     payload: {
@@ -108,7 +108,7 @@ function startSessionWithReloadScope(lilyPlanningReloadScope: unknown, overrides
       childTaskFocusSnapshot,
       childTaskLineage,
       childTaskExecutionScope: distributedScope,
-      lilyPlanningReloadScope,
+      plannerPlanningReloadScope,
       ...overrides,
     },
   });
@@ -121,16 +121,16 @@ describe('desktopContract childTaskExecutionScope', () => {
     expect(startSessionWithScope(deepFocusScope)).toEqual([]);
   });
 
-  it('accepts a Lily Planning Reload Scope only with child execution authority', () => {
+  it('accepts a Planner Planning Reload Scope only with child execution authority', () => {
     expect(startSessionWithReloadScope({
       ...distributedScope,
       schemaVersion: 1,
-      purpose: 'lily-planning-read-context',
+      purpose: 'planner-planning-read-context',
       selectedRepoIds: ['orders-api', 'billing-api'],
     })).toEqual([]);
   });
 
-  it('rejects malformed Lily Planning Reload Scope with scoped errors', () => {
+  it('rejects malformed Planner Planning Reload Scope with scoped errors', () => {
     const errors = startSessionWithReloadScope({
       contextPackDir: '/tmp/context-packs/orders-estate',
       contextPackId: 'orders-estate',
@@ -138,41 +138,41 @@ describe('desktopContract childTaskExecutionScope', () => {
       purpose: 'child-task-authority',
     });
 
-    expect(errors).toContain('payload.lilyPlanningReloadScope.schemaVersion must be 1.');
-    expect(errors).toContain('payload.lilyPlanningReloadScope.purpose must be lily-planning-read-context.');
-    expect(errors).toContain('payload.lilyPlanningReloadScope.scopeMode must be a non-empty string.');
-    expect(errors).toContain('payload.lilyPlanningReloadScope.selectedRepoIds must be an array.');
+    expect(errors).toContain('payload.plannerPlanningReloadScope.schemaVersion must be 1.');
+    expect(errors).toContain('payload.plannerPlanningReloadScope.purpose must be planner-planning-read-context.');
+    expect(errors).toContain('payload.plannerPlanningReloadScope.scopeMode must be a non-empty string.');
+    expect(errors).toContain('payload.plannerPlanningReloadScope.selectedRepoIds must be an array.');
   });
 
-  it('rejects Lily Planning Reload Scope without child mode authority or with conflicting session modes', () => {
+  it('rejects Planner Planning Reload Scope without child mode authority or with conflicting session modes', () => {
     expect(startSessionWithReloadScope({
       ...distributedScope,
       schemaVersion: 1,
-      purpose: 'lily-planning-read-context',
+      purpose: 'planner-planning-read-context',
     }, {
       childTaskExecutionScope: undefined,
-    })).toContain('payload.lilyPlanningReloadScope requires payload.childTaskExecutionScope.');
+    })).toContain('payload.plannerPlanningReloadScope requires payload.childTaskExecutionScope.');
 
     expect(startSessionWithReloadScope({
       ...distributedScope,
       schemaVersion: 1,
-      purpose: 'lily-planning-read-context',
+      purpose: 'planner-planning-read-context',
     }, {
       replayConversationId: 'replay-1',
-    })).toContain('payload.replayConversationId cannot be combined with payload.lilyPlanningReloadScope.');
+    })).toContain('payload.replayConversationId cannot be combined with payload.plannerPlanningReloadScope.');
   });
 
-  it('requires Lily Planning Reload Scope to stay in the parent context pack', () => {
+  it('requires Planner Planning Reload Scope to stay in the parent context pack', () => {
     const errors = startSessionWithReloadScope({
       ...distributedScope,
       schemaVersion: 1,
-      purpose: 'lily-planning-read-context',
+      purpose: 'planner-planning-read-context',
       contextPackDir: '/tmp/context-packs/other',
       contextPackId: 'other',
     });
 
-    expect(errors).toContain('payload.lilyPlanningReloadScope.contextPackDir must match payload.childTaskFocusSnapshot.contextPackDir.');
-    expect(errors).toContain('payload.lilyPlanningReloadScope.contextPackId must match payload.childTaskFocusSnapshot.contextPackId.');
+    expect(errors).toContain('payload.plannerPlanningReloadScope.contextPackDir must match payload.childTaskFocusSnapshot.contextPackDir.');
+    expect(errors).toContain('payload.plannerPlanningReloadScope.contextPackId must match payload.childTaskFocusSnapshot.contextPackId.');
   });
 
   it('rejects omitted required child execution scope fields with scoped errors', () => {

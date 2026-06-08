@@ -1,16 +1,21 @@
-# TaskSail — Global Instructions
+# TaskSail Workflow Protocol Instructions
 
-> Be precise and deterministic. Do not guess at workflow state, code behavior, APIs, or repository access. Prefer current repo artifacts over chat memory.
+## Task Subject Boundary
 
-## Repo Purpose
+These instructions describe the TaskSail workflow protocol. They are not evidence that the TaskSail source repository is the task subject.
 
-This repository is the control plane for a repo-based local agent workflow on Windows, macOS, and Linux. It owns the workflow instructions, prompts, queue, handoffs, implementation slices, runtime guardrails, and closeout artifacts.
+When a launch has an active Context Pack Binding, the active context pack is the task subject. Use its selected repos, selected focus, writable roots, read-only context roots, handoffs, and runtime path manifest as task authority.
 
-When a role is launched for a task with an active Context Pack Binding, that context pack is the task subject. This control-plane repository description is operating context only. Do not recommend, plan, or execute work against this repository's queue, workflow policy, agent runner, prompts, or platform infrastructure unless the active context pack points at this repository or the Guide explicitly asks for platform workflow changes.
+Do not recommend, plan, inspect, modify, or execute work against the TaskSail platform repo, queue, workflow policy, agent runner, prompts, or platform infrastructure unless one of these is true:
+
+- the active Context Pack Binding points at TaskSail itself;
+- the Guide explicitly asks for TaskSail platform or workflow changes.
+
+For broad prompts such as "what should I work on next?", recommend only within the active context pack. If the active context-pack scope is unavailable or too thin, ask a scoping question instead of proposing TaskSail platform work.
 
 ## Team Roster
 
-Use roster names in handoffs. Canonical source: `.github/agents/registry.json`.
+Use these labels only for workflow handoff and routing metadata:
 
 | Name | Role | Agent ID | Autonomy | Order |
 |---|---|---|---|---|
@@ -20,9 +25,11 @@ Use roster names in handoffs. Canonical source: `.github/agents/registry.json`.
 | Ron | QA and Closeout | qa | qa-executor | 3 |
 | Dalton (Verify) | Verification Engineer | software-engineer-verify | repo-executor | 99 |
 
-Dalton Verify (`software-engineer-verify`) is an out-of-band verification instance invoked externally by the platform; it is not part of the standard pipeline sequence and never appears in agent-to-agent handoffs.
+Dalton Verify (`software-engineer-verify`) is invoked out of band by the workflow and never appears in normal agent-to-agent handoffs.
 
 ## Context-Pack Runtime Signals
+
+These signals are launch metadata, not task subjects.
 
 | Signal | When available | Otherwise |
 |---|---|---|
@@ -61,7 +68,7 @@ If Ron blocks, the remediation loop is `Ron → Dalton → Ron`. On pass or advi
 
 ## Artifact Rules
 
-`AgentWorkSpace/templates/` contains canonical read-only templates. Do not modify templates during task execution.
+`AgentWorkSpace/templates/` is workflow template storage only. Do not treat it as task source and do not modify templates during task execution.
 
 Durable workflow artifacts:
 
@@ -77,7 +84,7 @@ Rules:
 
 - Every role must finish its required artifacts in the required order before handoff. Do not rely on partial handoffs or chat summaries.
 - Treat child tasks as new queued tasks, not reopened parent tasks. Preserve child-task lineage explicitly in artifacts.
-- Use parent-task QMD only as scoped carry-forward context. Current repo state and fresh handoffs win on conflict.
+- Use parent-task QMD only as scoped carry-forward context. Active context-pack source and fresh handoffs win on conflict.
 - Persist important state to files, not chat.
 - Treat `handoffs/` as active task state, not as permanent archive.
 - Do not edit another role's required artifact unless the current workflow explicitly assigns you to update it.
@@ -85,6 +92,6 @@ Rules:
 ## Operating Rules
 
 - Keep outputs task-specific, repo-specific, and reviewable.
-- Conflict resolution order: current workspace state > active handoffs > context-pack memory > summary artifacts > parent-task memory > chat history.
+- Conflict resolution order: active context-pack source > active handoffs > context-pack memory > summary artifacts > parent-task memory > chat history.
 - `.platform-state/runtime/guardrails/` is runtime evidence, not editable truth.
 - Do not run workflow validation, archival, or cleanup scripts manually. The pipeline automates these.

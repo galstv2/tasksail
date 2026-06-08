@@ -9,6 +9,6 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 if __name__ == "__main__":
-    from src.backend.mcp.workspace_context_sync_cli import main
+    from src.backend.mcp.workspace_context_sync.cli import main
 
     raise SystemExit(main())

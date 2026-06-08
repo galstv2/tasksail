@@ -113,9 +113,7 @@ def test_acquire_reseed_marker_reclaims_corrupt_marker(tmp_path: Path) -> None:
     assert payload["pid"] == os.getpid()
 
 
-# ---------------------------------------------------------------------------
-# Track F: O_EXCL exclusive-create and owner-checked clear tests
-# ---------------------------------------------------------------------------
+# Exclusive-create and owner-checked clear tests.
 
 
 def test_acquire_raises_when_marker_pre_exists_o_excl(tmp_path: Path) -> None:

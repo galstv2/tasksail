@@ -106,17 +106,6 @@ class SeedRuntimeStateTests(unittest.TestCase):
         state.release_seed_run()
 
 
-    def test_snapshot_returns_frozen_reference_directly(self) -> None:
-        """Two snapshots must return the same frozen object — no deepcopy."""
-        state = SeedRuntimeState()
-        state.set_latest_run({"overall_status": "success", "repos": [1, 2]})
-
-        snap1 = state.snapshot()
-        snap2 = state.snapshot()
-
-        self.assertIs(snap1.latest_run, snap2.latest_run)
-
-
 class SeedingPreviewFailureLoggingTests(unittest.TestCase):
     """Verify that unreadable files produce a debug log, not a silent swallow."""
 

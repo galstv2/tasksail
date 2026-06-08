@@ -180,8 +180,8 @@ describe('electron main — planner finalization', () => {
 
   it('blocks finalize when the staged draft is missing required intake sections', async () => {
     vi.resetModules();
-    vi.doMock('./main.staging', async (importOriginal) => {
-      const actual = await importOriginal<typeof import('./main.staging')>();
+    vi.doMock('./planner/staging', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./planner/staging')>();
       return {
         ...actual,
         clearStagingArtifacts: vi.fn(async () => undefined),
@@ -258,14 +258,14 @@ Not bullet shaped
     ).resolves.toEqual({
       ok: false,
       action: 'planner.finalizeSpec',
-      error: 'Staged draft Request Summary is too short. Ask Lily to provide a fuller planning intake before finalizing.',
+      error: 'Staged draft Request Summary is too short. Ask the planner to provide a fuller planning intake before finalizing.',
     });
   });
 
   it('blocks finalize when acceptance signals lack bulleted content', async () => {
     vi.resetModules();
-    vi.doMock('./main.staging', async (importOriginal) => {
-      const actual = await importOriginal<typeof import('./main.staging')>();
+    vi.doMock('./planner/staging', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./planner/staging')>();
       return {
         ...actual,
         clearStagingArtifacts: vi.fn(async () => undefined),
@@ -345,8 +345,8 @@ All signals are written as plain text without bullets or numbered items.
 
   it('rejects finalize when expectedTaskKind disagrees with platform-owned staged metadata', async () => {
     vi.resetModules();
-    vi.doMock('./main.staging', async (importOriginal) => {
-      const actual = await importOriginal<typeof import('./main.staging')>();
+    vi.doMock('./planner/staging', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./planner/staging')>();
       return {
         ...actual,
         clearStagingArtifacts: vi.fn(async () => undefined),
@@ -428,8 +428,8 @@ None
 
   it('rejects finalize when the platform-owned Task Lineage section is missing from the staged draft', async () => {
     vi.resetModules();
-    vi.doMock('./main.staging', async (importOriginal) => {
-      const actual = await importOriginal<typeof import('./main.staging')>();
+    vi.doMock('./planner/staging', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./planner/staging')>();
       return {
         ...actual,
         clearStagingArtifacts: vi.fn(async () => undefined),
@@ -491,7 +491,7 @@ Ship something useful.
     ).resolves.toEqual({
       ok: false,
       action: 'planner.finalizeSpec',
-      error: 'Staged draft is missing the platform-owned Task Lineage section. Ask Lily to restore the staged shell before finalizing.',
+      error: 'Staged draft is missing the platform-owned Task Lineage section. Ask the planner to restore the staged shell before finalizing.',
     });
   });
 
@@ -499,8 +499,8 @@ Ship something useful.
     vi.resetModules();
     const clearStagingArtifacts = vi.fn(async () => undefined);
     const createDropboxTask = vi.fn(async () => '/repo/AgentWorkSpace/dropbox/20260321T040000Z_backend-apps-api.md');
-    vi.doMock('./main.staging', async (importOriginal) => {
-      const actual = await importOriginal<typeof import('./main.staging')>();
+    vi.doMock('./planner/staging', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./planner/staging')>();
       return {
         ...actual,
         clearStagingArtifacts,
@@ -631,8 +631,8 @@ Review final queued markdown.
     vi.resetModules();
     const createDropboxTask = vi.fn(async () => '/repo/AgentWorkSpace/dropbox/20260321T040001Z_backend-apps-api.md');
     const endPlannerSession = vi.fn(async () => ({ ended: true }));
-    vi.doMock('./main.staging', async (importOriginal) => {
-      const actual = await importOriginal<typeof import('./main.staging')>();
+    vi.doMock('./planner/staging', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./planner/staging')>();
       return {
         ...actual,
         clearStagingArtifacts: vi.fn(async () => undefined),
@@ -720,8 +720,8 @@ None
   it('threads Deep Focus staging metadata through planner finalization submission', async () => {
     vi.resetModules();
     const createDropboxTask = vi.fn(async () => '/repo/AgentWorkSpace/dropbox/20260321T040002Z_backend-src-handler-ts-file.md');
-    vi.doMock('./main.staging', async (importOriginal) => {
-      const actual = await importOriginal<typeof import('./main.staging')>();
+    vi.doMock('./planner/staging', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./planner/staging')>();
       return {
         ...actual,
         clearStagingArtifacts: vi.fn(async () => undefined),
@@ -825,8 +825,8 @@ Do not widen the selected boundary.
   it('passes Lily-authored H1 canonical title to createFollowupTask for child-task finalization', async () => {
     vi.resetModules();
     const createFollowupTask = vi.fn(async () => '/repo/AgentWorkSpace/dropbox/20260321T040003Z_child-title.md');
-    vi.doMock('./main.staging', async (importOriginal) => {
-      const actual = await importOriginal<typeof import('./main.staging')>();
+    vi.doMock('./planner/staging', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./planner/staging')>();
       return {
         ...actual,
         clearStagingArtifacts: vi.fn(async () => undefined),
@@ -891,7 +891,7 @@ Carry forward the parent constraints.
     vi.doMock('../../../backend/platform/queue/createFollowupTask.js', () => ({
       createFollowupTask,
     }));
-    vi.doMock('./main.childTaskChain', () => ({
+    vi.doMock('./archive/childTaskChain', () => ({
       resolveChildTaskChainCreationContext: vi.fn(async () => ({
         branchChain: {
           schemaVersion: 1,
@@ -945,8 +945,8 @@ Carry forward the parent constraints.
   it('falls back to content-derived title when staged H1 is still the placeholder', async () => {
     vi.resetModules();
     const createDropboxTask = vi.fn(async () => '/repo/AgentWorkSpace/dropbox/20260321T040004Z_fallback.md');
-    vi.doMock('./main.staging', async (importOriginal) => {
-      const actual = await importOriginal<typeof import('./main.staging')>();
+    vi.doMock('./planner/staging', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./planner/staging')>();
       return {
         ...actual,
         clearStagingArtifacts: vi.fn(async () => undefined),
@@ -1029,8 +1029,8 @@ None
 
   it('blocks finalize when a child-task staged draft is missing carry-forward summary', async () => {
     vi.resetModules();
-    vi.doMock('./main.staging', async (importOriginal) => {
-      const actual = await importOriginal<typeof import('./main.staging')>();
+    vi.doMock('./planner/staging', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./planner/staging')>();
       return {
         ...actual,
         clearStagingArtifacts: vi.fn(async () => undefined),
@@ -1114,7 +1114,7 @@ Complete the child-task intake with preserved lineage.
     ).resolves.toEqual({
       ok: false,
       action: 'planner.finalizeSpec',
-      error: 'Child-task staged draft is missing Parent Task Carry-Forward Summary content. Ask Lily to complete the intake before finalizing.',
+      error: 'Child-task staged draft is missing Parent Task Carry-Forward Summary content. Ask the planner to complete the intake before finalizing.',
     });
   });
 

@@ -3,60 +3,32 @@ import { describe, expect, it } from 'vitest';
 import { parseRealignmentAnalysis } from '../parser.js';
 
 describe('parseRealignmentAnalysis', () => {
-  it('parses required sections, action bullets, optional meeting notes, and ignores behavioral guidance', () => {
-    const parsed = parseRealignmentAnalysis([
-      '## Failure Analysis',
-      '',
-      'Ron observed recurring closure gaps.',
-      '',
-      '## Root Cause',
-      '',
-      'The workflow lacked explicit validation ownership.',
-      '',
-      '## Corrective Actions',
-      '',
-      '- Add reusable validation ownership guidance.',
-      '* Keep analysis abstract.',
-      '',
-      '## Validation Notes',
-      '',
-      'Validated against recent retrospectives.',
-      '',
-      '## Behavioral Guidance',
-      '',
-      '- This must not be parsed separately.',
-      '',
-      '## Meeting Notes',
-      '',
-      'Operator requested expedited handling.',
-      '',
-    ].join('\n'));
-
-    expect(parsed).toEqual({
-      failureAnalysis: 'Ron observed recurring closure gaps.',
-      rootCause: 'The workflow lacked explicit validation ownership.',
-      correctiveActions: [
-        'Add reusable validation ownership guidance.',
-        'Keep analysis abstract.',
-      ],
-      validationNotes: 'Validated against recent retrospectives.',
-      meetingNotes: 'Operator requested expedited handling.',
-    });
-  });
-
-  it('defaults meeting notes to empty', () => {
-    const parsed = parseRealignmentAnalysis([
-      '## Failure Analysis',
-      'Failure.',
-      '## Root Cause',
-      'Cause.',
-      '## Corrective Actions',
-      '- Action.',
-      '## Validation Notes',
-      'Validated.',
-    ].join('\n'));
-
-    expect(parsed.meetingNotes).toBe('');
+  it.each([
+    [
+      'with optional meeting notes and behavioral guidance ignored',
+      [
+        '## Failure Analysis', '', 'Ron observed recurring closure gaps.', '',
+        '## Root Cause', '', 'The workflow lacked explicit validation ownership.', '',
+        '## Corrective Actions', '', '- Add reusable validation ownership guidance.', '* Keep analysis abstract.', '',
+        '## Validation Notes', '', 'Validated against recent retrospectives.', '',
+        '## Behavioral Guidance', '', '- This must not be parsed separately.', '',
+        '## Meeting Notes', '', 'Operator requested expedited handling.', '',
+      ].join('\n'),
+      {
+        failureAnalysis: 'Ron observed recurring closure gaps.',
+        rootCause: 'The workflow lacked explicit validation ownership.',
+        correctiveActions: ['Add reusable validation ownership guidance.', 'Keep analysis abstract.'],
+        validationNotes: 'Validated against recent retrospectives.',
+        meetingNotes: 'Operator requested expedited handling.',
+      },
+    ] as const,
+    [
+      'defaults meeting notes to empty when section is absent',
+      ['## Failure Analysis', 'Failure.', '## Root Cause', 'Cause.', '## Corrective Actions', '- Action.', '## Validation Notes', 'Validated.'].join('\n'),
+      { failureAnalysis: 'Failure.', rootCause: 'Cause.', correctiveActions: ['Action.'], validationNotes: 'Validated.', meetingNotes: '' },
+    ] as const,
+  ])('parses required sections %s', (_label, markdown, expected) => {
+    expect(parseRealignmentAnalysis(markdown)).toEqual(expected);
   });
 
   it('accepts numbered corrective action lists from Ron output', () => {

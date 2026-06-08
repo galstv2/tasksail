@@ -410,7 +410,7 @@ describe('retrospectiveFlag', () => {
     expect(loserContent).toContain('- Retrospective Required: false');
   });
 
-  // ── §4.8 concurrency tests ────────────────────────────────────────────────
+  // Concurrency tests.
 
   it('two concurrent completions with same contextPackId increment counter to N+2, exactly one required=true', async () => {
     // Start at completed_count=8 so the 9th completion (0-indexed position 9)
@@ -537,7 +537,7 @@ describe('retrospectiveFlag', () => {
       'utf-8',
     );
 
-    // Each pack needs its own handoffs dir so retrospective-input.md doesn't conflict
+    // Each pack needs its own handoffs dir so retrospective input does not conflict.
     const handoffsDirA = path.join(repoRoot, 'AgentWorkSpace', 'handoffs-a');
     const handoffsDirB = path.join(repoRoot, 'AgentWorkSpace', 'handoffs-b');
     mkdirSync(handoffsDirA, { recursive: true });

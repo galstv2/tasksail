@@ -1,6 +1,10 @@
 """Tests for reinforcement validation functions."""
 from __future__ import annotations
 
+from .registry_skip import skip_if_agent_registry_missing
+
+skip_if_agent_registry_missing()
+
 from src.backend.mcp.reinforcement.validation import (
     validate_feedback,
     validate_settlement_eligibility,

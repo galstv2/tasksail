@@ -2,7 +2,7 @@
 
 /**
  * Deterministic Python-version policy scanner used by the OS-agnosticism gate
- * runner (section-3) and runnable standalone.
+ * runner and runnable standalone.
  *
  * Policy: Python 3.12 is the preferred/default interpreter and the compatibility
  * floor; Python below 3.12 is rejected; Python above 3.12 is a compatible
@@ -38,11 +38,20 @@ const RULES: PolicyRule[] = [
     require: [{ pattern: /3\.12/, message: 'README.md must state Python 3.12 as the preferred interpreter.' }],
   },
   {
-    file: 'docs/cross-os-setup.md',
+    file: 'docs/getting-started/01-install-prerequisites.md',
     forbid: [
-      { pattern: /3\.11/, message: 'docs/cross-os-setup.md references Python 3.11.' },
-      { pattern: /Python 3\.13/, message: 'docs/cross-os-setup.md states Python 3.13 as the interpreter; use Python 3.12.' },
+      { pattern: /3\.11/, message: 'docs/getting-started/01-install-prerequisites.md references Python 3.11.' },
+      { pattern: /Python 3\.13/, message: 'docs/getting-started/01-install-prerequisites.md states Python 3.13 as the interpreter; use Python 3.12.' },
     ],
+    require: [{ pattern: /3\.12/, message: 'docs/getting-started/01-install-prerequisites.md must state Python 3.12 as the preferred interpreter.' }],
+  },
+  {
+    file: 'docs/technical/operations/container-runtime.md',
+    forbid: [
+      { pattern: /3\.11/, message: 'docs/technical/operations/container-runtime.md references Python 3.11.' },
+      { pattern: /Python 3\.13/, message: 'docs/technical/operations/container-runtime.md states Python 3.13 as the interpreter; use Python 3.12.' },
+    ],
+    require: [{ pattern: /3\.12/, message: 'docs/technical/operations/container-runtime.md must state Python 3.12 as the preferred interpreter.' }],
   },
   {
     file: '.claude/CLAUDE.md',
@@ -63,7 +72,7 @@ const RULES: PolicyRule[] = [
     require: [{ pattern: /python:3\.12/, message: 'Podman base image must be python:3.12.' }],
   },
   {
-    file: 'src/backend/mcp/pack_preflight.py',
+    file: 'src/backend/mcp/pack/preflight.py',
     forbid: [
       { pattern: /PYTHON_MIN_VERSION[^\n]*\(\s*3\s*,\s*(11|13)\s*\)/, message: 'pack_preflight.py PYTHON_MIN_VERSION is not (3, 12).' },
     ],
@@ -100,8 +109,8 @@ export async function runCheck(repoRoot: string): Promise<{ ok: boolean; message
     }
   }
 
-  // Agent instruction docs (e.g. .github/*-instructions.md) are discovered by
-  // glob so this scanner stays provider-agnostic and contains no provider-name
+  // Agent instruction docs are discovered by glob so this scanner stays
+  // provider-agnostic and contains no provider-name
   // literal; the filename is read from disk, not hardcoded.
   const githubDir = path.join(repoRoot, '.github');
   if (existsSync(githubDir)) {

@@ -6,6 +6,7 @@ import type {
   ContextPackPrimaryFocusTarget,
   WorkspaceScopeMode,
 } from '../../shared/desktopContract';
+import { isDistributedEstateMode } from '../contextPack/contextPackModeUtils';
 
 export const EMPTY_CONTEXT_PACK_DEEP_FOCUS_STATE: ContextPackDeepFocusState = {
   deepFocusEnabled: false,
@@ -206,7 +207,7 @@ export function selectPreferredWorkingRepoIds(
 ): string[] {
   if (
     !contextPack ||
-    contextPack.estateType !== 'distributed-platform' ||
+    !isDistributedEstateMode(contextPack.estateType) ||
     contextPack.focusTargets.length === 0
   ) {
     return [];
@@ -244,7 +245,7 @@ export function selectPreferredWorkingFocusIds(
 ): string[] {
   if (
     !contextPack ||
-    contextPack.estateType === 'distributed-platform' ||
+    isDistributedEstateMode(contextPack.estateType) ||
     contextPack.focusTargets.length === 0
   ) {
     return [];

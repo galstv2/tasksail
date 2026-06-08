@@ -1,5 +1,5 @@
 /**
- * §6.2B + F35 — per-task runtime-state GC and startup sweep.
+ * Per-task runtime-state GC and startup sweep.
  *
  * Covers: gcTaskRuntime sentinel write, opportunistic setTimeout deletion,
  * retain-indefinitely skip, sweepRuntimeGC expired-epoch reclaim.
@@ -31,9 +31,6 @@ import { tmpdir } from 'node:os';
 import { gcTaskRuntime, sweepRuntimeGC } from '../worktreeFinalize.js';
 import { _clearPlatformConfigCache } from '../../platform-config/get.js';
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function writePlatformJson(
   repoRoot: string,
@@ -67,9 +64,6 @@ function seedRuntimeTaskDir(repoRoot: string, taskId: string): string {
   return dir;
 }
 
-// ---------------------------------------------------------------------------
-// gcTaskRuntime
-// ---------------------------------------------------------------------------
 
 describe('§6.2B gcTaskRuntime', () => {
   let tmpRoot: string;
@@ -91,7 +85,7 @@ describe('§6.2B gcTaskRuntime', () => {
     const beforeTs = Date.now();
     await gcTaskRuntime(taskId, 'completed', tmpRoot);
 
-    // F35: sentinel MUST be written authoritatively before the timer fires.
+    // Sentinel MUST be written authoritatively before the timer fires.
     const sentinelPath = path.join(runtimeDir, '.gc-after-ts');
     expect(existsSync(sentinelPath)).toBe(true);
     const epoch = Number(readFileSync(sentinelPath, 'utf-8'));
@@ -142,9 +136,6 @@ describe('§6.2B gcTaskRuntime', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// sweepRuntimeGC — restart-side reclaim
-// ---------------------------------------------------------------------------
 
 describe('§6.2B sweepRuntimeGC', () => {
   let tmpRoot: string;

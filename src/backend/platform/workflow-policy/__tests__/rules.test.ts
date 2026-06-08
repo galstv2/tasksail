@@ -19,9 +19,6 @@ import {
   createDefaultRuleEvaluators,
 } from '../index.js';
 
-// ---------------------------------------------------------------------------
-// Fixtures
-// ---------------------------------------------------------------------------
 
 const TEST_TASK_ID = 'task-test-001';
 
@@ -125,9 +122,6 @@ function writeActiveTask(repoRoot: string): void {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Evaluation order tests
-// ---------------------------------------------------------------------------
 
 describe('createDefaultRuleEvaluators()', () => {
   const roots: string[] = [];
@@ -237,19 +231,12 @@ describe('createDefaultRuleEvaluators()', () => {
       expect(registry).toHaveProperty(name);
       expect(typeof registry[name]).toBe('function');
     }
-  });
-
-  it('createDefaultRuleEvaluators returns all lightweight rule names', () => {
-    const registry = createDefaultRuleEvaluators();
     for (const name of LIGHTWEIGHT_EVALUATION_SEQUENCE) {
       expect(registry).toHaveProperty(name);
     }
   });
 });
 
-// ---------------------------------------------------------------------------
-// Representative rule family parity tests
-// ---------------------------------------------------------------------------
 
 describe('boundary rules — parity', () => {
   const roots: string[] = [];
@@ -413,7 +400,7 @@ describe('closeout rules — parity', () => {
     roots.push(repoRoot);
     writeRegistry(repoRoot);
 
-    // Manually create workspace WITHOUT issues.md
+    // Manually create workspace without the issues handoff.
     const handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
     mkdirSync(handoffsDir, { recursive: true });
     writeFileSync(
@@ -424,7 +411,7 @@ describe('closeout rules — parity', () => {
     for (const f of ['implementation-spec.md', 'retrospective-input.md', 'final-summary.md']) {
       writeFileSync(path.join(handoffsDir, f), '', 'utf-8');
     }
-    // issues.md is NOT created
+    // The issues handoff is not created.
 
     const validator = new PolicyValidator({
       rootDir: repoRoot,
@@ -434,7 +421,7 @@ describe('closeout rules — parity', () => {
     });
 
     const result = await validator.evaluate();
-    // Should fail with closeout.qa-review-approved because issues.md doesn't exist
+    // Should fail with closeout.qa-review-approved because the issues handoff does not exist.
     expect(result.violations.some((v) => v.rule_id === 'closeout.qa-review-approved')).toBe(true);
   });
 
@@ -444,13 +431,13 @@ describe('closeout rules — parity', () => {
     writeRegistry(repoRoot);
     writeActiveTask(repoRoot);
 
-    // Write issues.md with passing review
+    // Write the issues handoff with passing review.
     writeFileSync(
       path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs', 'issues.md'),
       '## Review Outcome\npass\n',
       'utf-8',
     );
-    // final-summary.md remains blank
+    // The final summary handoff remains blank.
 
     const validator = new PolicyValidator({
       rootDir: repoRoot,
@@ -812,7 +799,7 @@ describe('queue rules — parity', () => {
     writeRegistry(repoRoot);
     writeHandoffsReset(repoRoot);
     // No active-items/ marker, no pending items.
-    // §4.1B: taskId is required for queue-advance mode so the rule can check activeItemsDir.
+  // taskId is required for queue-advance mode so the rule can check activeItemsDir.
 
     const validator = new PolicyValidator({
       rootDir: repoRoot,
@@ -838,7 +825,7 @@ describe('workflow path rules — parity', () => {
     roots.push(repoRoot);
     writeRegistry(repoRoot);
     writeActiveTask(repoRoot);
-    // implementation-spec.md is blank (already written by writeActiveTask)
+    // The implementation spec artifact is blank (already written by writeActiveTask).
 
     const validator = new PolicyValidator({
       rootDir: repoRoot,
@@ -964,13 +951,13 @@ describe('retrospectiveCompletionGaps()', () => {
     roots.push(repoRoot);
     writeRegistry(repoRoot);
 
-    // Create workspace WITHOUT retrospective-input.md
+    // Create workspace without the retrospective input handoff.
     const handoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
     mkdirSync(handoffsDir, { recursive: true });
     for (const f of ['professional-task.md', 'implementation-spec.md', 'final-summary.md', 'issues.md']) {
       writeFileSync(path.join(handoffsDir, f), '', 'utf-8');
     }
-    // retrospective-input.md is deliberately absent
+    // The retrospective input handoff is deliberately absent.
 
     const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'lint', taskId: TEST_TASK_ID });
     await validator.initialize();

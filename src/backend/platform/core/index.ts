@@ -35,6 +35,8 @@ export {
   readEnvAssignment,
   ensureEnvFile,
   upsertEnvVar,
+  secureEnvToken,
+  PLACEHOLDER_MCP_TOKEN,
 } from './env.js';
 
 export { loadLogConfig, type LogConfig } from './logConfig.js';

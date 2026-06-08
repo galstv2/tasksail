@@ -2,8 +2,8 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ComponentProps } from 'react';
 
-import type { BuildWizardStep, ContextPackCreationDraft, PartDraft } from '../../contextPackCreationTypes';
-import { INITIAL_DRAFT } from '../../hooks/useContextPackDraft';
+import type { BuildWizardStep, ContextPackCreationDraft, PartDraft } from '../../contextPack/contextPackCreationTypes';
+import { INITIAL_DRAFT } from '../../hooks/context-pack/useContextPackDraft';
 import BuildWizard from './BuildWizard';
 
 afterEach(() => {

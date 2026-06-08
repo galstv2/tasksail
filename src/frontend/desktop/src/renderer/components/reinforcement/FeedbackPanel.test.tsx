@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { ReinforcementTaskEntry } from '../../../shared/desktopContract';
-import type { FeedbackDraft, SubmitState } from '../../hooks/useFeedbackSubmission';
+import type { FeedbackDraft, SubmitState } from '../../hooks/reinforcement/useFeedbackSubmission';
 import FeedbackPanel from './FeedbackPanel';
 
 afterEach(() => {

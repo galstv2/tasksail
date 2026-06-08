@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { copilotProvider } from '../../../../../../backend/platform/cli-provider/providers/copilot/copilotProvider.js';
 import { buildCopilotEnv } from '../../../../../../backend/platform/cli-provider/providers/copilot/envMapper.js';
 import type { PlannerLaunchOptions, PlannerLaunchSpec } from '../../../../../../backend/platform/cli-provider/types.js';
-import { buildPlannerCliInvocation } from '../../../plannerCliProcess';
+import { buildPlannerCliInvocation } from '../../../planner/cliProcess';
 import { REPO_ROOT } from '../../../paths';
 
 const SKILL_DIRS_ENV = 'COPILOT_SKILLS_DIRS';
@@ -196,7 +196,7 @@ describe('buildPlannerCliInvocation planner env contract', () => {
     }
   });
 
-  // Phase 2 confirmation: env contract for skill/plugin launch-extension rendering.
+  // Env contract for skill/plugin launch-extension rendering.
 
   it('phase2: COPILOT_SKILLS_DIRS is set only by the provider, not by inheritedPlannerEnv, when skillDirs present', () => {
     // Confirms COPILOT_SKILLS_DIRS is in COPILOT_CONTROLLED_ENV_KEYS (stripped from inherited

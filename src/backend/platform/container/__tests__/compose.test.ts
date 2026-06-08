@@ -22,7 +22,7 @@ vi.mock('../../core/index.js', async (importOriginal) => {
   };
 });
 
-import { buildComposeCommand } from '../compose.js';
+import { buildComposeBaseCommand, buildComposeCommand } from '../compose.js';
 import { DEFAULT_COMPOSE_FILE, resolveDefaultComposeFile } from '../types.js';
 
 describe('buildComposeCommand', () => {
@@ -186,6 +186,32 @@ describe('buildComposeCommand', () => {
   it('resolves the default compose file for podman', () => {
     expect(resolveDefaultComposeFile('podman')).toBe(
       'runtime/podman/compose/podman-compose.yml',
+    );
+  });
+
+  it('returns undefined for direct runtime', () => {
+    expect(resolveDefaultComposeFile('direct')).toBeUndefined();
+  });
+});
+
+describe('buildComposeBaseCommand', () => {
+  it('docker backend uses integrated [docker, compose] form', () => {
+    expect(buildComposeBaseCommand('docker', {})).toEqual(['docker', 'compose']);
+  });
+
+  it('podman backend uses integrated [podman, compose] form', () => {
+    expect(buildComposeBaseCommand('podman', {})).toEqual(['podman', 'compose']);
+  });
+
+  it('WSL engine mode wraps docker with [wsl.exe, -d, distro, --, docker, compose]', () => {
+    expect(buildComposeBaseCommand('docker', { engineHost: 'wsl', wslDistro: 'Ubuntu' })).toEqual(
+      ['wsl.exe', '-d', 'Ubuntu', '--', 'docker', 'compose'],
+    );
+  });
+
+  it('WSL engine mode wraps podman with [wsl.exe, -d, distro, --, podman, compose]', () => {
+    expect(buildComposeBaseCommand('podman', { engineHost: 'wsl', wslDistro: 'Debian' })).toEqual(
+      ['wsl.exe', '-d', 'Debian', '--', 'podman', 'compose'],
     );
   });
 });

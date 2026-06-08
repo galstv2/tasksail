@@ -35,7 +35,7 @@ root_dir = Path({root_dir!r})
 instance_id = {instance_id!r}
 slice_id = {slice_id!r}
 
-# Ensure tests.md parent dir exists (normally created by workspace setup).
+# Ensure the test-output parent dir exists (normally created by workspace setup).
 from lib.workspace_paths import handoffs_dir
 handoffs_dir(root_dir).mkdir(parents=True, exist_ok=True)
 

@@ -244,6 +244,11 @@ describe('selectPreferredWorkingRepoIds', () => {
     expect(selectPreferredWorkingRepoIds(pack, [['unknown-repo']])).toEqual(['orders-api']);
   });
 
+  it('treats plain distributed packs as repo-based selection', () => {
+    const pack = makePack({ estateType: 'distributed' });
+    expect(selectPreferredWorkingRepoIds(pack, [['billing-api']])).toEqual(['billing-api']);
+  });
+
   it('falls back to first focus target repoId when primaryWorkingRepoIds has no match', () => {
     const pack = makePack({ primaryWorkingRepoIds: ['missing'] });
     expect(selectPreferredWorkingRepoIds(pack, [null])).toEqual(['orders-api']);
@@ -277,8 +282,9 @@ describe('selectPreferredWorkingFocusIds', () => {
     expect(selectPreferredWorkingFocusIds(monolithPack, [['utils']])).toEqual(['utils']);
   });
 
-  it('returns empty array for distributed-platform packs', () => {
+  it('returns empty array for distributed packs', () => {
     expect(selectPreferredWorkingFocusIds(makePack(), [['orders-api']])).toEqual([]);
+    expect(selectPreferredWorkingFocusIds(makePack({ estateType: 'distributed' }), [['orders-api']])).toEqual([]);
   });
 
   it('falls back to all default-focusable focus targets', () => {

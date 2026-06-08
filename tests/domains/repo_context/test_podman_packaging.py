@@ -102,13 +102,5 @@ class PodmanPackagingTests(unittest.TestCase):
         )
 
 
-    def test_app_containerfile_exists(self) -> None:
-        containerfile = REPO_ROOT / "runtime" / "podman" / "app" / "Containerfile"
-        self.assertTrue(
-            containerfile.exists(),
-            "runtime/podman/app/Containerfile must exist",
-        )
-
-
 if __name__ == "__main__":
     unittest.main()

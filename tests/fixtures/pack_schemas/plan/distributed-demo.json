@@ -3,8 +3,8 @@
   "plan_version": "qmd-seeding-dry-run/v1",
   "manifest_version": "qmd-repo-sources/v1",
   "context_pack_id": "crud-app-repo-dotnet-distributed-demo",
-  "context_pack_dir": "/Users/victorgalstyan2/Desktop/AgenticHarness/TaskSail/contextpacks/crud-app-repo-dotnet-distributed-demo",
-  "manifest_path": "/Users/victorgalstyan2/Desktop/AgenticHarness/TaskSail/contextpacks/crud-app-repo-dotnet-distributed-demo/qmd/repo-sources.json",
+  "context_pack_dir": "/tmp/tasksail-fixtures/contextpacks/crud-app-repo-dotnet-distributed-demo",
+  "manifest_path": "/tmp/tasksail-fixtures/contextpacks/crud-app-repo-dotnet-distributed-demo/qmd/repo-sources.json",
   "qmd_scope_root": "qmd/context-packs/crud-app-repo-dotnet-distributed-demo",
   "overall_status": "ready",
   "repository_count": 2,
@@ -24,12 +24,12 @@
       ],
       "tags": [],
       "existing_roots": [
-        "/Users/victorgalstyan2/Desktop/AgenticHarness/crud-app-repo-dotnet-distributed-demo/platform"
+        "/tmp/tasksail-fixtures/crud-app-repo-dotnet-distributed-demo/platform"
       ],
       "missing_roots": [],
       "scan_targets": [
-        "/Users/victorgalstyan2/Desktop/AgenticHarness/crud-app-repo-dotnet-distributed-demo/platform/libs",
-        "/Users/victorgalstyan2/Desktop/AgenticHarness/crud-app-repo-dotnet-distributed-demo/platform/services"
+        "/tmp/tasksail-fixtures/crud-app-repo-dotnet-distributed-demo/platform/libs",
+        "/tmp/tasksail-fixtures/crud-app-repo-dotnet-distributed-demo/platform/services"
       ],
       "qmd_targets": {
         "canonical_repo_summary": "qmd/context-packs/crud-app-repo-dotnet-distributed-demo/canonical/repos/platform/repo-summary.md",
@@ -57,11 +57,11 @@
       ],
       "tags": [],
       "existing_roots": [
-        "/Users/victorgalstyan2/Desktop/AgenticHarness/crud-app-repo-dotnet-distributed-demo/tools"
+        "/tmp/tasksail-fixtures/crud-app-repo-dotnet-distributed-demo/tools"
       ],
       "missing_roots": [],
       "scan_targets": [
-        "/Users/victorgalstyan2/Desktop/AgenticHarness/crud-app-repo-dotnet-distributed-demo/tools"
+        "/tmp/tasksail-fixtures/crud-app-repo-dotnet-distributed-demo/tools"
       ],
       "qmd_targets": {
         "canonical_repo_summary": "qmd/context-packs/crud-app-repo-dotnet-distributed-demo/canonical/repos/tools/repo-summary.md",

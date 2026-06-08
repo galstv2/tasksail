@@ -1,347 +1,46 @@
 # TaskSail
 
-TaskSail is a local desktop application that manages a team of AI agents to do software engineering work for you. You describe what you want built or fixed, and TaskSail's agents plan, code, test, and review the work automatically.
+TaskSail is a local, operator-controlled workbench for running AI coding agents through a disciplined engineering workflow. You describe the work, keep control from the desktop app, and TaskSail coordinates planning, implementation, verification, queue state, guardrails, MCP services, and local memory on your machine.
 
-## What this repo is
+The current product documentation starts at [TaskSail docs](docs/README.md).
 
-This repository is the local control plane for approved workflow roles, queue state, handoff artifacts, MCP services, and QMD memory.
+## Start Here
 
-## How it works
+- New operators: [Getting Started](docs/getting-started/00-what-is-tasksail.md)
+- Engineers: [Technical Reference](docs/technical/architecture/overview.md)
+- Desktop contributors: [Desktop shell README](src/frontend/desktop/README.md)
 
-TaskSail runs entirely on your computer. When you give it a task:
+## Requirements
 
-1. **Lily** (Planning Agent) helps you clarify what needs to be done
-2. **Alice** (Product Manager) breaks the task into clear, actionable steps
-3. **Dalton** (Software Engineer) writes the code
-4. **Ron** (QA) reviews the code, runs tests, and either approves or sends it back to Dalton for fixes
+TaskSail is developed against Node.js 24, pnpm, Python 3.12+, Git, and the local desktop package. The checked-in runtime default is direct local execution; Docker and Podman are optional compose runtimes.
 
-You watch the progress in a desktop app that shows what each agent is doing in real time.
+Use the Getting Started path for the full setup sequence and first-task walkthrough.
 
-## Prerequisites
-
-- **A Mac, Windows, or Linux computer**
-- **Git** installed ([download here](https://git-scm.com/downloads))
-- **Node.js 20+** installed ([download here](https://nodejs.org/))
-- **pnpm** installed (run `npm install -g pnpm` after installing Node.js)
-- **Python 3.12** (preferred) installed ([download here](https://www.python.org/downloads/)) — Python 3.12+ is compatible
-- **Docker Desktop** or **Podman** (≥ 4.0) installed and running — TaskSail uses the integrated `docker compose` / `podman compose` subcommands (not standalone `docker-compose` or `podman-compose`)
-- **GitHub Copilot CLI** access for your GitHub account (the shipped TaskSail CLI provider is `copilot`)
-
-See [docs/cross-os-setup.md](docs/cross-os-setup.md) for macOS / Linux / Windows setup details.
-Windows operators: see the [Dev Drive / ReFS section](docs/cross-os-setup.md#windows-copy-on-write-refs-dev-drive) to enable Copy-on-Write task activation.
-
-## Installation
-
-Use `pnpm run setup` for the default installation path, or follow the manual install commands below when debugging local dependencies.
-
-## Quick start
-
-### 1. Clone and install
+## Local Commands
 
 ```bash
-# Clone the repo
-git clone https://github.com/galstv2/tasksail.git
-cd tasksail
-
-# Install backend (Node.js) dependencies
 pnpm install
-
-# Run platform setup (creates .env, sets up git hooks, queue directories, etc.)
 pnpm run setup
-
-# Create Python virtual environment and install dev tools
-# macOS/Linux:
-python3 -m venv .venv
-source .venv/bin/activate
-# Windows (PowerShell or cmd):
-# python -m venv .venv
-# .venv\Scripts\activate
-pip install -r requirements-dev.txt
-
-# Install frontend (Electron/React) dependencies
+pnpm run validate
 cd src/frontend/desktop
 npm install
-cd ../../..
-```
-
-### Enterprise mirrors / internal registries (optional)
-
-Air-gapped or firewalled environments can route npm, PyPI, and container base
-images through an internal mirror (such as JFrog Artifactory) instead of the
-public registries. If you set none of these variables, TaskSail uses the public
-defaults and behavior is unchanged.
-
-Package managers do not read the repo `.env` file before dependencies exist, so
-export the package-manager-native variables in your shell before the first
-install (before `pnpm install`, `npm ci`, or `pip install`):
-
-```bash
-# macOS / Linux (POSIX shell)
-export NPM_CONFIG_REGISTRY="https://artifactory.example.internal/api/npm/npm-virtual/"
-export NPM_CONFIG_REPLACE_REGISTRY_HOST=npmjs
-export PIP_INDEX_URL="https://artifactory.example.internal/api/pypi/pypi-virtual/simple/"
-```
-
-```powershell
-# Windows (PowerShell)
-$env:NPM_CONFIG_REGISTRY = "https://artifactory.example.internal/api/npm/npm-virtual/"
-$env:NPM_CONFIG_REPLACE_REGISTRY_HOST = "npmjs"
-$env:PIP_INDEX_URL = "https://artifactory.example.internal/api/pypi/pypi-virtual/simple/"
-```
-
-Once `.env` exists, `pnpm run setup` reads the TaskSail alias variables
-(`TASKSAIL_NPM_REGISTRY`, `TASKSAIL_NPM_AUTH_TOKEN`, `TASKSAIL_PYPI_INDEX_URL`)
-and writes the generated, git-ignored helper files (`.npmrc`,
-`src/frontend/desktop/.npmrc`, and credential-free `.platform-state/pip.conf`).
-Credential-bearing PyPI URLs stay shell-exported through `PIP_INDEX_URL` and are
-not persisted. `process.env` always wins over `.env`. For Docker/Podman, override the build base images with
-`TASKSAIL_PYTHON_BASE_IMAGE` (default `python:3.12-alpine`) and, for direct
-`docker build` / `podman build`, `TASKSAIL_ALPINE_BASE_IMAGE` (default
-`alpine:3.20`); private base-image registries still authenticate with
-`docker login` / `podman login`. Do not hand-edit tracked lockfiles, tracked
-Dockerfiles, or the generated local config files. See
-[`docs/cross-os-setup.md`](docs/cross-os-setup.md) for the full enterprise-mirror
-walkthrough, and
-[`docs/reference/environment-variables.md`](docs/reference/environment-variables.md)
-for every supported environment variable.
-
-### 2. Verify everything works
-
-```bash
-# Build the backend
-pnpm run build
-
-# Run backend tests (should see all tests pass)
-pnpm run test
-
-# Build and test the frontend
-cd src/frontend/desktop
-npm run build
-npm test
-cd ../../..
-```
-
-### 3. Start the background services
-
-```bash
-npx tsx src/backend/platform/container/cli.ts bootstrap
-
-# Check that services are healthy
-npx tsx src/backend/platform/container/cli.ts healthcheck
-```
-
-The active container runtime is controlled by `.platform-state/platform.json`
-(`container_runtime`). The checked-in default is `docker`; `podman` is also
-supported. `direct` is an explicit operator override (runs the MCP as a local
-process without a container engine) and is supported on Windows, macOS, and
-Linux. Use `CONTAINER_RUNTIME=...` only as a temporary session override.
-
-The active CLI provider defaults to `copilot`, which is the only provider shipped
-in this repository. Advanced operators may set `cli_provider` in
-`.platform-state/platform.json` or use `TASKSAIL_CLI_PROVIDER` as a temporary
-session override; both must resolve to a registered provider.
-
-### 4. Launch the desktop app
-
-```bash
-cd src/frontend/desktop
 npm run dev
 ```
 
-This opens the TaskSail desktop app.
-
-### 5. Create your first task
-
-In the desktop app:
-1. Connect a **context pack** (this tells TaskSail which codebase to work on)
-2. Create a new task describing what you want done
-3. Watch the agents plan, code, test, and deliver
-
-## Local auth expectations
-
-Agents run through the compliant repository-managed entrypoint: `pnpm run agent -- --agent-id <agent-id>`. Raw provider CLI invocation, currently `copilot --agent <agent-id>`, is reserved for controlled internal orchestrators; the wrapper writes guardrail receipts under `.platform-state/runtime/guardrails/`.
-
-## How to start services
-
-Run `npx tsx src/backend/platform/container/cli.ts bootstrap`, then `npx tsx src/backend/platform/container/cli.ts healthcheck`.
-
-## How to validate local setup
-
-Use `pnpm run test:smoke`, `pnpm run test:domain -- --domain <name>`, `pnpm run test:contracts`, and `pnpm run local-checks`. CI mirrors this with a changed-path domain lane for pull requests, the full Python suite, and Docs Check.
-
-On Unix/macOS/Linux, `make` shim aliases are also available (e.g. `make test-smoke`, `make test-domain DOMAIN=...`, `make test-contracts`, `make local-checks`). These `make` targets are not available by default on native Windows — use the `pnpm run ...` forms instead.
-
-## How to start the queue and seed a starter task
-
-Create an intake item with `pnpm run plan-dropbox-task -- --title "Starter" --summary "..."`. Context packs can be activated with `tsx src/backend/platform/context-pack/cli.ts --context-pack-dir /path/to/context-pack --bootstrap-answers-file /path/to/answers.json`.
-
-## Workflow and handoff rules
-
-Workflow agents are declared in `.github/agents/` and `.github/agents/registry.json`. Each launch resolves the active CLI provider and starts a fresh task-scoped provider subprocess, currently `copilot --agent`, and does not add a task-end `/compact` hook. The registry-backed autonomy profile controls tool access: `repo-executor` and `artifact-author` are the key profiles, with dangerous commands such as `git add`, `git commit`, `git push`, `rm` denied for executor profiles. If no active context pack is present, broad
-  autonomous execution is denied.
-
-## QA routing rule
-
-QA findings route back to Software Engineer, then return to QA. Closeout requires `AgentWorkSpace/tasks/<taskId>/handoffs/retrospective-input.md`; the retrospective target is target 1 minute and hard cap 2 minutes. Retrospectives are archived under `qmd/context-packs/{context-pack-id}/archive/retrospectives/{repo}/{year}/{task-id}/retrospective.md`, global history under `qmd/global/retrospectives/history/{year}/{task-id}/retrospective.md`, and synthesis under `qmd/global/retrospectives/shared-retrospective-memory.md`.
-
-## Security expectations
-
-Use the repository-managed entrypoint for approved workflow roles. The canonical workflow policy CLI is `src/backend/platform/workflow-policy/cli.ts`; guarded checks fail closed. Direct shell, git, and filesystem access is constrained by role autonomy policy and workflow guardrails.
-
-## MCP endpoint config
-
-Internal MCP services are configured through `.env`, `.platform-state/platform.json`, and container compose files. External MCP visibility is configured separately from internal platform MCPs.
-
-## External context packs
-
-For out-of-tree context packs, bind the host directory through the bootstrap layer; see `docs/cross-os-setup.md` for host/container path rules.
-
-## Tech stack
-
-| Layer | Technology | Third-party dependencies |
-|---|---|---|
-| Backend platform | TypeScript 5.8, Node.js | **None** — pure stdlib |
-| Backend services | Python 3.12, http.server, SSE | **None** — pure stdlib |
-| Frontend | React 18, TypeScript, Electron 35, Vite 6 | React only — no UI framework, no state library, plain CSS |
-| Testing | Vitest (TS), pytest (Python) | Dev-only |
-| Services | `docker compose` / `podman compose` (integrated subcommands) | Podman supported (configure via `.platform-state/platform.json`) |
-
-The platform is intentionally dependency-free at runtime to stay enterprise-safe.
-
-## Project structure
-
-```
-tasksail/
-  src/
-    backend/
-      platform/          # Agent orchestration engine (TypeScript)
-      mcp/               # Background services for repo indexing (Python)
-      scripts/           # Helper scripts
-    frontend/
-      desktop/           # Desktop app (React + Electron)
-        electron/        #   Main process
-        src/renderer/    #   React UI
-  .github/
-    agents/              # Agent profiles and roster
-    copilot/             # Copilot provider instructions and prompts
-  AgentWorkSpace/        # Task artifacts (handoffs, slices, queue)
-  runtime/
-    docker/              # Docker Compose and image assets
-    podman/              # Podman Compose and image assets
-  docs/                  # Documentation
-```
-
-## Useful commands
-
-### Platform (run from repo root)
-
-| Command | What it does |
-|---|---|
-| `pnpm install` | Install backend Node.js dependencies |
-| `pnpm run setup` | First-time setup (env, hooks, directories) |
-| `pnpm run build` | Build backend TypeScript |
-| `pnpm run test` | Run all backend tests |
-| `pnpm run lint` | TypeScript type checking |
-| `pnpm run validate` | Check repo structure is correct |
-| `pnpm run local-checks` | Full validation gate (run before committing) |
-| `pnpm run queue-status` | Show current task queue state |
-| `pnpm run repair -- --auto-fix` | Recover safe queue inconsistencies after inspection |
-| `pnpm run complete-pending-item` | Archive a completed task and advance the queue |
-
-### Desktop app (run from `src/frontend/desktop/`)
-
-| Command | What it does |
-|---|---|
-| `npm install` | Install frontend dependencies |
-| `npm run dev` | Start in development mode |
-| `npm run build` | Production build |
-| `npm test` | Run frontend tests |
-| `npm run lint` | TypeScript type checking |
-| `npm run package:mac` | Package for macOS |
-| `npm run package:win` | Package for Windows |
-| `npm run package:linux` | Package for Linux |
-
-### Python (run from repo root with `.venv` activated)
-
-| Command | What it does |
-|---|---|
-| `python3 -m venv .venv` (macOS/Linux) or `python -m venv .venv` (Windows) | Create virtual environment |
-| `source .venv/bin/activate` (macOS/Linux) or `.venv\Scripts\activate` (Windows) | Activate virtual environment |
-| `pip install -r requirements-dev.txt` | Install Python dev tools |
-| `pnpm run lint:python` | Run ruff linter on Python files |
-| `pnpm run test:domain -- --domain <name>` | Test a specific Python domain |
-
-## How tasks flow through the system
-
-```
-You create a task
-    |
-    v
-Lily (Planning) -- helps clarify scope
-    |
-    v
-Alice (Product Manager) -- breaks work into steps called "slices"
-    |
-    v
-Dalton (Software Engineer) -- writes code for each slice
-    |
-    v
-Ron (QA) -- reviews code and runs tests
-    |
-    +--> If issues found: Dalton fixes them, Ron re-reviews
-    |
-    v
-Task complete -- archived to long-term memory
-```
-
-## Context packs
-
-A **context pack** tells TaskSail about the codebase you want to work on. It includes:
-- Which repositories to target
-- Project-specific knowledge and conventions
-- Memory from past tasks
-
-You can work on any codebase -- a single repo, a monolith with many folders, or a multi-repo project. TaskSail adapts based on the context pack you activate.
-
-## Troubleshooting
-
-**`tsx: command not found` or `vite: command not found`?**
-You need to install dependencies first:
-```bash
-# From repo root:
-pnpm install
-
-# From src/frontend/desktop/:
-npm install
-```
-
-**Task stuck in the queue?**
-Run `pnpm run queue-status` and inspect the active marker state.
-
-**Agents not starting?**
-Check that your configured container runtime (Docker or Podman) is running and
-services are healthy:
-```bash
-npx tsx src/backend/platform/container/cli.ts healthcheck
-```
-
-**Tests failing?**
-Run the full validation to see what's wrong:
-```bash
-pnpm run local-checks
-```
-
-**Python linting or tests failing?**
-Make sure the virtual environment is active (macOS/Linux: `source .venv/bin/activate`; Windows: `.venv\Scripts\activate`).
-
-## More documentation
-
-- [Getting started guide](docs/getting-started/onboarding.md)
-- [How the workflow operates](docs/workflow/operating-model.md)
-- [Platform architecture](docs/architecture/platform-spec.md)
-- [Context pack model](docs/architecture/context-pack-model.md)
-- [Full docs index](docs/README.md)
+The shipped CLI provider is GitHub Copilot behind the provider abstraction. Configure provider access locally before launching agent work.
 
 ## License
 
-MIT License. See [LICENSE](LICENSE).
+TaskSail is licensed under the MIT License. See [LICENSE](LICENSE).
+
+## Repository Shape
+
+```text
+src/backend/platform/     TypeScript platform control plane
+src/backend/mcp/          Python MCP and QMD services
+src/frontend/desktop/     Electron and React desktop app
+AgentWorkSpace/           Local queue, task, and template workspace
+docs/                     Getting Started and technical reference
+```
+
+TaskSail runtime state stays local to the checkout and generated platform state. Do not commit secrets, generated runtime state, or local package artifacts.

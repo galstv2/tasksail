@@ -1,4 +1,4 @@
-/* ── §2  Base & Reset ──────────────────────────────────────────────────── */
+/* Base & Reset */
 
 * {
   box-sizing: border-box;
@@ -29,7 +29,7 @@ select {
 }
 
 
-/* ── §10  Panels & Cards ─────────────────────────────────────────────── */
+/* Panels & Cards */
 
 .panel {
   border: 1px solid var(--ts-border);
@@ -80,7 +80,7 @@ select {
 
 
 
-/* ── §12  Status Chips ───────────────────────────────────────────────── */
+/* Status Chips */
 
 .status-chip-row {
   display: flex;
@@ -178,7 +178,7 @@ select {
 }
 
 
-/* ── §13  Grids & Lists ─────────────────────────────────────────────── */
+/* Grids & Lists */
 
 .mapping-list,
 .artifact-list,
@@ -227,7 +227,7 @@ select {
 }
 
 
-/* ── §15  Notes & Artifact Blocks ────────────────────────────────────── */
+/* Notes & Artifact Blocks */
 
 .notes-block h3,
 .summary-panel__title {
@@ -298,7 +298,7 @@ select {
 }
 
 
-/* ── §18  Lists ──────────────────────────────────────────────────────── */
+/* Lists */
 
 .review-list {
   margin: 0;
@@ -350,7 +350,7 @@ select {
 }
 
 
-/* ── §20  Toast Notifications ────────────────────────────────────────── */
+/* Toast Notifications */
 
 .toast-container {
   position: fixed;
@@ -404,7 +404,7 @@ select {
 }
 
 
-/* ── Panel chrome title (shared by terminal + task board) ────────────── */
+/* Panel chrome title (shared by terminal + task board) */
 
 .terminal-feed__title,
 .task-board__title {
@@ -416,7 +416,7 @@ select {
 }
 
 
-/* ── §23  Observability Drawer ───────────────────────────────────────── */
+/* Observability Drawer */
 
 .observability-drawer {
   border-top: 1px solid var(--terminal-border);
@@ -504,7 +504,7 @@ select {
   max-height: 40vh;
 }
 
-/* ── Observability sections ──────────────────────────────────────────── */
+/* Observability sections */
 
 .obs-section {
   padding: 0.75rem;
@@ -558,7 +558,7 @@ select {
   font-style: italic;
 }
 
-/* ── Observability badges ────────────────────────────────────────────── */
+/* Observability badges */
 
 .obs-badge {
   font-size: 0.66rem;
@@ -574,7 +574,7 @@ select {
 .obs-badge--error { background: color-mix(in srgb, var(--ts-danger) 15%, transparent);  color: var(--ts-danger); }
 .obs-badge--idle  { background: color-mix(in srgb, var(--ts-brand-gray) 12%, transparent); color: var(--ts-brand-gray); }
 
-/* ── Observability stat row ──────────────────────────────────────────── */
+/* Observability stat row */
 
 .obs-stat-row {
   display: flex;
@@ -596,7 +596,7 @@ select {
 .obs-stat--warn  { color: var(--ts-warning); background: color-mix(in srgb, var(--ts-warning) 10%, transparent); }
 .obs-stat--error { color: var(--ts-danger);   background: color-mix(in srgb, var(--ts-danger) 10%, transparent); }
 
-/* ── Observability timeline ──────────────────────────────────────────── */
+/* Observability timeline */
 
 .obs-timeline {
   display: grid;
@@ -637,7 +637,7 @@ select {
   color: var(--terminal-text-muted);
 }
 
-/* ── Observability file list ─────────────────────────────────────────── */
+/* Observability file list */
 
 .obs-file-list {
   display: grid;
@@ -698,7 +698,7 @@ select {
   margin-top: 0.1rem;
 }
 
-/* ── Observability key-value list ────────────────────────────────────── */
+/* Observability key-value list */
 
 .obs-kv-list {
   display: grid;
@@ -885,7 +885,7 @@ select {
 }
 
 
-/* ── Dark mode status chip overrides ─────────────────────────────────── */
+/* Dark mode status chip overrides */
 
 :root.theme-dark .status-chip { background: var(--ts-bg-hover); }
 :root.theme-dark .status-chip--active { background: var(--ts-accent-subtle); color: var(--ts-accent); }

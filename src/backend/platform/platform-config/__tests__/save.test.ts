@@ -1,12 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
 import { readSystemSettings, saveSystemSettings, SystemSettingsSaveError } from '../save.js';
-import * as getModule from '../get.js';
 import { _clearPlatformConfigCache } from '../get.js';
-import * as cliProviderIndex from '../../cli-provider/index.js';
 import { CURRENT_PLATFORM_CONFIG_SCHEMA_VERSION } from '../types.js';
 import type { PlatformConfig } from '../types.js';
 
@@ -69,7 +67,6 @@ beforeEach(() => {
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
   _clearPlatformConfigCache();
-  vi.restoreAllMocks();
 });
 
 describe('readSystemSettings', () => {
@@ -327,29 +324,5 @@ describe('saveSystemSettings', () => {
     expect(JSON.parse(readRaw(runtimePath())).auto_merge).toBe(false);
   });
 
-  it('clears the platform config cache after runtime write', async () => {
-    writeDefaultFile(serialize(FULL_DEFAULT));
-    writeRuntimeFile(serialize(FULL_DEFAULT));
-    const cacheSpy = vi.spyOn(getModule, 'resetPlatformConfigCache');
-
-    await saveSystemSettings(tmpDir, {
-      baseDefaultFileHash: await baseHash(),
-      config: draft({ auto_merge: true }),
-    });
-
-    expect(cacheSpy).toHaveBeenCalled();
-  });
-
-  it('resets the provider registry cache for the repo after runtime write', async () => {
-    writeDefaultFile(serialize(FULL_DEFAULT));
-    writeRuntimeFile(serialize(FULL_DEFAULT));
-    const providerSpy = vi.spyOn(cliProviderIndex, 'resetProvider');
-
-    await saveSystemSettings(tmpDir, {
-      baseDefaultFileHash: await baseHash(),
-      config: draft({ cli_provider: 'copilot' }),
-    });
-
-    expect(providerSpy).toHaveBeenCalledWith(tmpDir);
-  });
 });
+

@@ -442,7 +442,7 @@ export async function formatSliceSections(
   return { files: sliceFiles, formatted: parts.join('\n') };
 }
 
-// Invariant: implStepsDir, handoffsDir, and every sub-Dalton runRoleAgent call MUST be per-task (§4.12).
+    // Invariant: implStepsDir, handoffsDir, and every sub-Dalton runRoleAgent call MUST be per-task.
 export async function buildFleetPrompt(
   implStepsDir: string,
   handoffsDir: string,
@@ -680,8 +680,8 @@ async function acquirePipelineLock(taskRuntime: string): Promise<PipelineLock> {
 }
 
 /**
- * Read the task-bound context pack dir from the per-task .task.json sidecar
- * (§3.2). When taskId is set, reads AgentWorkSpace/tasks/<taskId>/.task.json
+ * Read the task-bound context pack dir from the per-task .task.json sidecar.
+ * When taskId is set, reads AgentWorkSpace/tasks/<taskId>/.task.json
  * via readTaskJsonSafe and derives the directory from contextPackPath.
  *
  * Returns undefined when no taskId is provided or when no context pack is configured.
@@ -702,7 +702,7 @@ async function resolveTaskBoundContextPackDir(
   return undefined;
 }
 
-/** Fast path is retired, so workflow routing always resolves to standard. */
+/** Workflow routing currently resolves to the standard path. */
 export async function detectWorkflowPath(
   _handoffsDir: string,
 ): Promise<'standard'> {

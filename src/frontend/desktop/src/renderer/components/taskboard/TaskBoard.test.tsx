@@ -3,8 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { ArchivedTaskEntry, TaskBoardReadChildChainBranchInventoryResponse } from '../../../shared/desktopContract';
 import { formatLocalTimeShort, formatRelativeDay } from '../../utils/localTimestamp';
-import type { TaskBoardState } from '../../hooks/useTaskBoard';
-import TaskBoard from './TaskBoard';
+import type { TaskBoardState } from '../../hooks/taskboard/useTaskBoard';
+import TaskBoard, { type TaskBoardProps } from './TaskBoard';
 
 function archivedTask(taskId: string, title: string, archivedAt: string | null): ArchivedTaskEntry {
   return {
@@ -313,7 +313,7 @@ describe('TaskBoard artifact explorer', () => {
     { relativePath: 'handoffs/final-summary.md', label: 'handoffs/final-summary.md', sizeBytes: 24 },
   ];
 
-  function renderCompleted(readTaskContent: ReturnType<typeof vi.fn>) {
+  function renderCompleted(readTaskContent: TaskBoardProps['readTaskContent']) {
     return render(
       <TaskBoard
         board={board([archivedTask('DONE-A', 'Done A', '2026-05-23T03:58:37Z')])}
@@ -467,7 +467,7 @@ describe('TaskBoard artifact explorer', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Artifact Explorer' }));
     fireEvent.click(screen.getByRole('option', { name: 'handoffs/final-summary.md' }));
 
-    // The previous successful archive.md content stays; the modal does not blank.
+    // The previous successful archive content stays; the modal does not blank.
     expect(await screen.findByText('ARCHIVE_BODY_TEXT')).toBeInTheDocument();
     expect(readTaskContent).toHaveBeenCalledWith('DONE-A.md', 'completed', 'handoffs/final-summary.md');
   });
@@ -702,7 +702,7 @@ describe('TaskBoard View Branches', () => {
     return entry;
   }
 
-  function renderRegular(entry: ArchivedTaskEntry, readChildChain?: ReturnType<typeof vi.fn>) {
+  function renderRegular(entry: ArchivedTaskEntry, readChildChain?: TaskBoardProps['readChildChainBranchInventory']) {
     return render(
       <TaskBoard
         board={board([entry])}

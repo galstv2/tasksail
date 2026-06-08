@@ -12,7 +12,7 @@ import {
   deriveWorkflowMode,
   selectFollowUpTask,
 } from './appViewModel';
-import { createFollowUpDraft, createLocalDraft, type PlannerDraftSeed } from '../plannerComposer';
+import { createFollowUpDraft, createLocalDraft, type PlannerDraftSeed } from '../planner/plannerComposer';
 
 const EMPTY_DRAFT_SEED: PlannerDraftSeed = {
   title: 'Test draft',

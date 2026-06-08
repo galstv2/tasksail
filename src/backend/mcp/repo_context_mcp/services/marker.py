@@ -1,9 +1,8 @@
 """Reseed marker and pack seed-state lifecycle helpers for SeedingService.
 
-These are extracted from seeding_service.py (Phase 6 Gate G1) to keep the
-main service module below the 500-LOC limit.  All callers reside within the
-``repo_context_mcp.services`` package; do not import this module from
-``app.py``, ``transport/``, or frontend code.
+These helpers keep the main service module below the 500-LOC limit.  All
+callers reside within the ``repo_context_mcp.services`` package; do not import
+this module from ``app.py``, ``transport/``, or frontend code.
 """
 from __future__ import annotations
 

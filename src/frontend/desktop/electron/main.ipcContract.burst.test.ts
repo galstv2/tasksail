@@ -1,5 +1,5 @@
 // @vitest-environment node
-// Deterministic IPC burst evidence test (Track G / R21).
+// Deterministic IPC burst evidence test.
 //
 // Proves that the normal frontend shell-mount + 10-task-board-refresh burst
 // pattern stays at or below IPC_RATE_LIMIT_MAX (60 per second) without
@@ -13,15 +13,11 @@
 
 import { describe, expect, it } from 'vitest';
 
-// ---------------------------------------------------------------------------
-// Constants — must match main.ipcContract.ts exactly.
-// ---------------------------------------------------------------------------
+// Constants — must match ipc/contract.ts exactly.
 const IPC_RATE_LIMIT_MAX = 60;
 const IPC_RATE_LIMIT_WINDOW_MS = 1000;
 
-// ---------------------------------------------------------------------------
 // Simulated call patterns
-// ---------------------------------------------------------------------------
 
 // IPC invocations fired during a normal shell mount:
 //   - useObservedState initial refresh: queue.readStatus, environment.readStatus,
@@ -56,7 +52,7 @@ const REINFORCEMENT_MODAL_CALLS = [
 ];
 
 // ---------------------------------------------------------------------------
-// Simulated IPC rate-limiter (matches main.ipcContract.ts logic exactly)
+// Simulated IPC rate-limiter (matches ipc/contract.ts logic exactly)
 // ---------------------------------------------------------------------------
 //
 // Each call is assigned a simulated timestamp so that `now` advances across
@@ -140,21 +136,21 @@ describe('IPC burst evidence — normal 10-task shell pattern (R21)', () => {
 
     const { accepted: _accepted, rejected, peakPerWindow } = simulateBurst(allCalls);
 
-    // Evidence gate: if this fails, the burst exceeds 60/s and a follow-up
-    // coalescing track is needed. Do NOT raise IPC_RATE_LIMIT_MAX — instead,
+    // If this fails, the burst exceeds 60/s and a follow-up
+    // coalescing follow-up is needed. Do NOT raise IPC_RATE_LIMIT_MAX — instead,
     // add coalescing for the high-frequency callers listed below.
     //
     // Remediation note (required if this assertion fails):
-    //   Files needing coalescing in a follow-up track:
+    //   Files needing coalescing in a follow-up:
     //     - src/frontend/desktop/src/renderer/hooks/useObservedState.ts
     //       (debounce the 10s interval trigger on rapid refreshKey changes)
     //     - src/frontend/desktop/src/renderer/hooks/useTaskBoard.ts
     //       (coalesce concurrent readTaskBoard calls into one in-flight promise)
-    //     - src/frontend/desktop/electron/main.taskBoard.ts
-    //       (broadcastTaskBoardUpdate already coalesces in Track A; verify it
+    //     - src/frontend/desktop/electron/tasks/board.ts
+    //       (broadcastTaskBoardUpdate already coalesces; verify it
     //        does not trigger redundant per-task content reads)
     //
-    // Track G must NOT edit those files — they are out of scope.
+    // This test must not edit those files; they need a focused follow-up.
     if (rejected > 0 || peakPerWindow > IPC_RATE_LIMIT_MAX) {
       throw new Error(
         `IPC burst EXCEEDS limit: ${peakPerWindow} calls in one window ` +
@@ -162,7 +158,7 @@ describe('IPC burst evidence — normal 10-task shell pattern (R21)', () => {
         'Follow-up coalescing track required. Files: ' +
         'useObservedState.ts (debounce interval), ' +
         'useTaskBoard.ts (in-flight coalescing), ' +
-        'main.taskBoard.ts (broadcast dedup). ' +
+        'tasks/board.ts (broadcast dedup). ' +
         'Do NOT raise IPC_RATE_LIMIT_MAX.',
       );
     }

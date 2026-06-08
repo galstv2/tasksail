@@ -75,67 +75,6 @@ class ActivateContextPackTests(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
 
-    def write_bootstrap_answers(self, path: Path, *, context_pack_id: str, repo_root: Path) -> None:
-        payload = {
-            "context_pack_id": context_pack_id,
-            "estate_name": "Greenfield Estate",
-            "repositories": [
-                {
-                    "repo_name": "Greenfield Service",
-                    "repo_id": "greenfield-service",
-                    "owner": "sample-org",
-                    "system_layer": "backend",
-                    "languages": ["python"],
-                    "artifact_roots": ["src"],
-                    "document_paths": ["docs"],
-                    "bounded_context": "payments",
-                    "service_name": "greenfield-api",
-                    "repo_root": str(repo_root.resolve()),
-                }
-            ],
-        }
-        self.write_file(path, json.dumps(payload) + "\n")
-
-    def write_multi_repo_bootstrap_answers(
-        self,
-        path: Path,
-        *,
-        context_pack_id: str,
-        backend_root: Path,
-        frontend_root: Path,
-    ) -> None:
-        payload = {
-            "context_pack_id": context_pack_id,
-            "estate_name": "Distributed Greenfield Estate",
-            "repositories": [
-                {
-                    "repo_name": "Orders API",
-                    "repo_id": "orders-api",
-                    "owner": "sample-org",
-                    "system_layer": "backend",
-                    "languages": ["python"],
-                    "artifact_roots": ["src"],
-                    "document_paths": ["docs"],
-                    "bounded_context": "orders",
-                    "service_name": "orders-api",
-                    "repo_root": str(backend_root.resolve()),
-                },
-                {
-                    "repo_name": "Orders Web",
-                    "repo_id": "orders-web",
-                    "owner": "sample-org",
-                    "system_layer": "frontend",
-                    "languages": ["typescript"],
-                    "artifact_roots": ["web"],
-                    "document_paths": ["docs"],
-                    "bounded_context": "orders",
-                    "service_name": "orders-web",
-                    "repo_root": str(frontend_root.resolve()),
-                },
-            ],
-        }
-        self.write_file(path, json.dumps(payload) + "\n")
-
     def test_activation_succeeds_with_qmd_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as temp_root:
             context_pack_dir = Path(temp_root) / "sample-pack"
@@ -265,54 +204,6 @@ class ActivateContextPackTests(unittest.TestCase):
             )
             self.assertEqual(rows[-1]["extra"]["field_name"], "status")
 
-    @unittest.skip(
-        "TS CLI activate does not support --write-plan; "
-        "dry-run plan generation is not yet ported to TypeScript."
-    )
-    def test_activation_generates_dry_run_plan_with_write_plan(self) -> None:
-        pass
-
-    @unittest.skip(
-        "TS CLI activate does not report existing dry-run plan status; "
-        "QMD plan reporting is not yet ported to TypeScript."
-    )
-    def test_activation_reports_existing_dry_run_plan(self) -> None:
-        pass
-
-    @unittest.skip(
-        "TS CLI activate does not support bootstrap-and-seed workflow; "
-        "bootstrap is not yet ported to TypeScript."
-    )
-    def test_activation_bootstraps_and_seeds_new_single_repo_context_pack(self) -> None:
-        pass
-
-    @unittest.skip(
-        "TS CLI activate does not support bootstrap-and-seed workflow; "
-        "bootstrap is not yet ported to TypeScript."
-    )
-    def test_activation_bootstrap_supports_multi_repo_estate_answers(self) -> None:
-        pass
-
-    @unittest.skip(
-        "TS CLI activate does not support bootstrap-and-seed workflow; "
-        "bootstrap is not yet ported to TypeScript."
-    )
-    def test_activation_bootstrap_supports_monolith_focus_contracts(self) -> None:
-        pass
-
-    @unittest.skip(
-        "TS CLI activate does not support bootstrap-and-seed workflow; "
-        "bootstrap is not yet ported to TypeScript."
-    )
-    def test_bootstrap_requires_structured_answers_when_not_interactive(self) -> None:
-        pass
-
-    @unittest.skip(
-        "TS CLI activate does not support bootstrap-and-seed workflow; "
-        "bootstrap contract mismatch checking is not yet ported to TypeScript."
-    )
-    def test_activation_blocks_bootstrap_contract_mismatch(self) -> None:
-        pass
 
 
 

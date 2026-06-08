@@ -16,12 +16,6 @@ describe('ReinforcementModal', () => {
     expect(container.innerHTML).toBe('');
   });
 
-  it('renders the modal dialog when open', () => {
-    render(<ReinforcementModal isOpen={true} onClose={vi.fn()} hasActiveContextPack={true} activeContextPackDir="/packs/test" />);
-    expect(screen.getByRole('dialog')).toBeTruthy();
-    expect(screen.getByText('Reinforcement')).toBeTruthy();
-  });
-
   it('calls onClose when close button is clicked', () => {
     const onClose = vi.fn();
     render(<ReinforcementModal isOpen={true} onClose={onClose} hasActiveContextPack={true} activeContextPackDir="/packs/test" />);

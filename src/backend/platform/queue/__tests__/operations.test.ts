@@ -720,7 +720,7 @@ describe('activateNextPendingItemIfReady', () => {
 
     expect(result.activated).toBe(true);
     expect(existsSync(path.join(pendingDir, '.active-items', 'task-004'))).toBe(true);
-    // §4.2: activation writes per-task handoffs to AgentWorkSpace/tasks/<taskId>/handoffs/
+    // Activation writes per-task handoffs to AgentWorkSpace/tasks/<taskId>/handoffs/.
     const taskHandoffsDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', 'task-004', 'handoffs');
     expect(existsSync(path.join(taskHandoffsDir, 'professional-task.md'))).toBe(true);
     const copiedSliceTemplatePath = implementationStepsTemplatePath(
@@ -735,7 +735,7 @@ describe('activateNextPendingItemIfReady', () => {
       : '';
     expect(retrospective).toContain('- Retrospective Required: false');
     // Activation must stage the pending markdown into the per-task handoffs dir
-    // as `intake.md` so artifact-author agents (Alice) can read intake from
+    // as the intake handoff so artifact-author agents can read intake from
     // their own task workspace without being granted access to the shared
     // pendingitems/ directory, which holds other tasks' files in parallel mode.
     const stagedIntakePath = path.join(taskHandoffsDir, 'intake.md');
@@ -1492,7 +1492,7 @@ describe('resetHandoffArtifacts runtime receipt retention', () => {
     });
 
     expect(existsSync(path.join(roleSessionsDir, 'dalton.json'))).toBe(true);
-    // intake.md is the staged copy of the pending markdown (written at activation)
+    // The intake handoff is the staged copy of the pending markdown.
     // and must be cleared on reset so the next activation gets a clean slate.
     expect(existsSync(path.join(handoffsDir, 'intake.md'))).toBe(false);
   });

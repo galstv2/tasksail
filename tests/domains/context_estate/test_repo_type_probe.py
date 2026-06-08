@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.backend.mcp.repo_type_probe import classify_repository_type
+from src.backend.mcp.probes.repo_type_probe import classify_repository_type
 
 
 class RepoTypeProbeTests(unittest.TestCase):

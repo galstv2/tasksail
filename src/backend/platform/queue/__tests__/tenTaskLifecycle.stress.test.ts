@@ -1,5 +1,5 @@
 /**
- * Track M — 10-task lifecycle stress test.
+ * 10-task lifecycle stress test.
  *
  * One in-process backend over a temp repo with max_parallel_tasks=10.
  * Creates 10 distinct tasks, activates them under the cap, drives a mix
@@ -24,10 +24,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
-// ---------------------------------------------------------------------------
-// Module mocks — must be declared before any imports from the mocked modules.
-// ---------------------------------------------------------------------------
-
+// Mock registrations stay before modules that consume them.
 vi.mock('../archive.js', () => ({
   fileTaskArchive: vi.fn(),
 }));
@@ -96,15 +93,9 @@ vi.mock('../../core/worktreeFinalize.js', () => ({
   gcTaskRuntime: vi.fn().mockResolvedValue(undefined),
 }));
 
-// Compress the dir-lock backoff by 50x while preserving its exponential SHAPE.
-// The real mkdir-based lock still fully serializes the 10 contending closeouts
-// (that contention is what this test proves), and the bounded retry budgets
-// still apply. acquireDirLock's exponential backoff (50ms→2000ms cap) is scaled
-// to 1ms→40ms: the relative timing — and therefore the fairness that lets a
-// 30-retry activation win against high-budget closeouts — is identical, but the
-// ~9s of real backoff collapses to well under 1s. Scaling (not flattening) is
-// required: a flat backoff removes the exponential give-up-the-lock windows and
-// starves the activation.
+// Scale the real mkdir-lock backoff by 50x instead of flattening it. The test
+// still exercises contention, retry budgets, and exponential handoff windows
+// while reducing the closeout race from about 9s to under 1s.
 vi.mock('../../core/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../core/index.js')>();
   return {
@@ -113,10 +104,7 @@ vi.mock('../../core/index.js', async (importOriginal) => {
   };
 });
 
-// ---------------------------------------------------------------------------
-// Imports (after mocks)
-// ---------------------------------------------------------------------------
-
+// Import the system under test after mock registration.
 import { fileTaskArchive } from '../archive.js';
 import { completePendingItem } from '../completePendingItem.js';
 import { executeRequestedTaskKill } from '../killTask.js';
@@ -137,10 +125,6 @@ const mockFileTaskArchive = vi.mocked(fileTaskArchive);
 const ensureSharedMcpRunning = vi.mocked(_ensureSharedMcpRunning);
 const startPipeline = vi.mocked(_startPipeline);
 const mockRecordTaskFailedNotification = vi.mocked(_recordTaskFailedNotification);
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 /** Creates a deferred { promise, resolve, reject } triple. */
 function deferred<T = void>() {
@@ -217,10 +201,9 @@ async function writeHandoffSet(repoRoot: string, taskId: string): Promise<void> 
 }
 
 /**
- * Seed a task as already-active: write the pending .md file, the active marker,
- * and the minimal handoff set. This bypasses activation machinery and directly
- * puts the task into the active state that completePendingItem / moveFailedItem
- * expect to find.
+ * Seed a task as already-active: write the queue entry, active marker, and
+ * minimal handoff set. This bypasses activation machinery and directly puts the
+ * task into the active state that completePendingItem / moveFailedItem expect.
  */
 async function seedActiveTask(repoRoot: string, taskId: string): Promise<void> {
   const pendingDir = path.join(repoRoot, 'AgentWorkSpace', 'pendingitems');
@@ -230,9 +213,7 @@ async function seedActiveTask(repoRoot: string, taskId: string): Promise<void> {
   await writeHandoffSet(repoRoot, taskId);
 }
 
-// ---------------------------------------------------------------------------
 // The stress test
-// ---------------------------------------------------------------------------
 
 describe('10-task lifecycle stress (Track M)', () => {
   let repoRoot: string;
@@ -264,28 +245,26 @@ describe('10-task lifecycle stress (Track M)', () => {
 
   // Gated behind RUN_SLOW_TESTS=1: this is the heaviest seam test — it drives the
   // real mkdir-based queue lock under 10-way closeout contention (with compressed
-  // but real exponential backoff). It is the Track M closeout gate, not part of the
+  // but real exponential backoff). It is the closeout gate, not part of the
   // default fast suite; run with RUN_SLOW_TESTS=1. Skipped otherwise.
   it.runIf(process.env['RUN_SLOW_TESTS'] === '1')('all five lifecycle invariants hold across 10 concurrent tasks', { timeout: 30000 }, async () => {
-    // -------------------------------------------------------------------------
-    // Step 1 — Create 10 pending items via createDropboxTask and assert (a):
+  // Create 10 pending items via createDropboxTask and assert (a):
     //           10 distinct filenames (no exclusive-create collision).
     //
     // createDropboxTask writes to the dropbox dir using writeTextFileExclusive
-    // (the auto-path / Track A exclusive-create path). Task IDs are derived from
+  // (the auto-path / exclusive-create path). Task IDs are derived from
     // the returned filenames. After creation the dropbox files are moved to the
     // pending dir so activateNextPendingItemIfReady can find them.
     //
     // 8 tasks are seeded directly as active (bypassing activation machinery).
     // 1 task (DOOMED_TASK) goes through real activation with a bootstrap failure.
     // 1 task (REDRIVEN_TASK) is picked by the re-drive after DOOMED_TASK rolls back.
-    // -------------------------------------------------------------------------
 
     const pendingDir = path.join(repoRoot, 'AgentWorkSpace', 'pendingitems');
     const activeItemsDir = path.join(pendingDir, '.active-items');
 
     // Create 10 tasks sequentially. createDropboxTask auto-generates distinct
-    // filenames via the exclusive-create retry loop (Track A seam).
+  // filenames via the exclusive-create retry loop.
     const createdFiles: string[] = [];
     for (let i = 1; i <= 10; i++) {
       const title = `Task ${String(i).padStart(2, '0')}`;
@@ -307,9 +286,7 @@ describe('10-task lifecycle stress (Track M)', () => {
       await rename(file, path.join(pendingDir, path.basename(file)));
     }
 
-    // -------------------------------------------------------------------------
-    // Step 2 — Seed 8 tasks as active.
-    // -------------------------------------------------------------------------
+  // Seed 8 tasks as active.
 
     const DIRECTLY_ACTIVE = taskIds.slice(0, 8); // first 8 tasks
     const DOOMED_TASK = taskIds[8]!;             // 9th task — bootstrap failure
@@ -327,9 +304,7 @@ describe('10-task lifecycle stress (Track M)', () => {
 
     const paths = resolveQueuePaths(repoRoot);
 
-    // -------------------------------------------------------------------------
-    // Step 3 — Assertion (e): bootstrap failure → rollback → freed slot re-driven.
-    // -------------------------------------------------------------------------
+  // Assertion (e): bootstrap failure -> rollback -> freed slot re-driven.
     //
     // The mock signals "active marker written" via markerWrittenSignal when
     // ensureSharedMcpRunning is first called (which happens AFTER the active
@@ -426,8 +401,7 @@ describe('10-task lifecycle stress (Track M)', () => {
       await writeFile(path.join(activeItemsDir, DOOMED_TASK), `${DOOMED_TASK}.md`);
     }
 
-    // -------------------------------------------------------------------------
-    // Step 4 — Drive terminal outcomes for all 10 tasks concurrently.
+  // Drive terminal outcomes for all 10 tasks concurrently.
     //
     // Assertion (c): every closeout acquires the queue lock and produces exactly
     // one consistent terminal state per task (no double-dispose, no lost task).
@@ -441,10 +415,9 @@ describe('10-task lifecycle stress (Track M)', () => {
     //   complete (6): completePendingItem     → first 6 tasks
     //   fail    (2): moveFailedItemToErrorItems → tasks 7, 8
     //   kill    (2): executeRequestedTaskKill  → tasks 9, 10
-    //                (exercises Track K durable kill-switch path: writes
+  //                (exercises durable kill-switch path: writes
     //                 requestPipelineKill marker, skips poll via windowMs=0,
     //                 then calls moveFailedItemToErrorItems internally)
-    // -------------------------------------------------------------------------
 
     const COMPLETE_TASKS = taskIds.slice(0, 6); // first 6
     const FAIL_TASKS    = [taskIds[6]!, taskIds[7]!]; // tasks 7, 8
@@ -478,7 +451,7 @@ describe('10-task lifecycle stress (Track M)', () => {
     const failPromises = FAIL_TASKS.map((id) =>
       moveFailedItemToErrorItems({ repoRoot, taskId: id }),
     );
-    // Kill path: routes through executeRequestedTaskKill (Track K seam).
+  // Kill path: routes through executeRequestedTaskKill.
     // stopPipeline mock returns not-running → cross-process kill path writes
     // requestPipelineKill durable switch → windowMs=0 skips poll → runActiveKillCleanup
     // calls moveFailedItemToErrorItems internally.

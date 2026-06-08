@@ -5,9 +5,6 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
-# ---------------------------------------------------------------------------
-# Discovery models
-# ---------------------------------------------------------------------------
 @dataclass(slots=True)
 class HighSignalEntry:
     """A high-signal directory detected during estate discovery."""
@@ -61,6 +58,7 @@ class FocusArea:
     focus_type: str
     path: str
     relative_path: str
+    focus_category: str = "unknown"
     group: str = ""
 
     def as_dict(self) -> dict[str, Any]:
@@ -77,6 +75,7 @@ class FocusArea:
             focus_type=data["focus_type"],
             path=data["path"],
             relative_path=data["relative_path"],
+            focus_category=data.get("focus_category", "unknown"),
             group=data.get("group", ""),
         )
 
@@ -111,9 +110,6 @@ class DiscoveryPayload:
         )
 
 
-# ---------------------------------------------------------------------------
-# Classification model (for repo_type_probe)
-# ---------------------------------------------------------------------------
 @dataclass(slots=True)
 class ClassificationResult:
     """Result of repository type classification."""
@@ -127,4 +123,3 @@ class ClassificationResult:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ClassificationResult:
         return cls(**{k: data[k] for k in cls.__slots__})
-

@@ -31,9 +31,6 @@ export const DEFAULT_REGISTRY_PATH = 'config/mcp-registry.default.json';
  */
 const VAR_REF_PATTERN = /^\$\{([A-Za-z_][A-Za-z0-9_]*):-([^}]*)\}(.*)$/;
 
-/**
- * Detect any ${...} reference in a string (for rejection in static values).
- */
 const HAS_VAR_REF = /\$\{/;
 
 /**
@@ -83,10 +80,6 @@ export async function loadDefaultRegistry(
   return loadMcpRegistry(path.join(repoRoot, DEFAULT_REGISTRY_PATH));
 }
 
-// ---------------------------------------------------------------------------
-// Validation
-// ---------------------------------------------------------------------------
-
 function err(field: string, message: string, fix: string): McpRegistryValidationError {
   return { field, message, fix };
 }
@@ -99,7 +92,6 @@ export function validateRegistry(data: unknown): McpRegistryLoadResult {
     return { ok: false, errors };
   }
 
-  // Schema version
   const version = data['schema_version'];
   if (typeof version !== 'number' || !Number.isInteger(version) || version < 1) {
     errors.push(err('schema_version', 'Must be a positive integer.', 'Set "schema_version": 1 at the top level.'));
@@ -117,7 +109,6 @@ export function validateRegistry(data: unknown): McpRegistryLoadResult {
     ));
   }
 
-  // Services array
   if (!Array.isArray(data['services'])) {
     errors.push(err('services', 'Must be an array.', 'Add a "services": [] array to the registry.'));
     return { ok: false, errors };
@@ -165,11 +156,9 @@ function validateServiceEntry(
     return { errors: [err(prefix, 'Service entry must be an object.', 'Each entry in "services" must be a { } object.')] };
   }
 
-  // Required string fields
   const id = requireString(data, 'id', prefix, errors);
   const displayName = requireString(data, 'displayName', prefix, errors);
 
-  // Duplicate ID check
   if (id !== undefined) {
     if (seenIds.has(id)) {
       errors.push(err(`${prefix}.id`, `Duplicate service ID "${id}".`, 'Remove the duplicate entry or use a unique ID.'));
@@ -178,17 +167,14 @@ function validateServiceEntry(
     }
   }
 
-  // Kind
   const kind = requireString(data, 'kind', prefix, errors);
   if (kind !== undefined && kind !== 'container-http') {
     errors.push(err(`${prefix}.kind`, `Unsupported kind "${kind}".`, 'Use "container-http" — it is the only supported kind.'));
   }
 
-  // Booleans
   const enabled = requireBoolean(data, 'enabled', prefix, errors);
   const builtin = requireBoolean(data, 'builtin', prefix, errors);
 
-  // Compose
   let compose: McpComposeMetadata | undefined;
   if (!isRecord(data['compose'])) {
     errors.push(err(`${prefix}.compose`, 'Must be an object.', 'Add a "compose" object with service metadata.'));
@@ -201,7 +187,6 @@ function validateServiceEntry(
     }
   }
 
-  // Health
   let health: McpHealthSpec | undefined;
   if (!isRecord(data['health'])) {
     errors.push(err(`${prefix}.health`, 'Must be an object.', 'Add a "health" object with url, maxRetries, retryIntervalMs.'));
@@ -231,10 +216,6 @@ function validateServiceEntry(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Compose metadata validation
-// ---------------------------------------------------------------------------
-
 type ComposeResult =
   | { compose: McpComposeMetadata }
   | { errors: McpRegistryValidationError[] };
@@ -254,7 +235,6 @@ function validateComposeMetadata(data: Record<string, unknown>, prefix: string):
   const cpuLimit = requireString(data, 'cpuLimit', prefix, errors);
   const stopGracePeriod = requireString(data, 'stopGracePeriod', prefix, errors);
 
-  // Path validation for dockerfile
   if (dockerfile !== undefined) {
     validateRepoRelativePath(dockerfile, `${prefix}.dockerfile`, errors);
   }
@@ -264,7 +244,6 @@ function validateComposeMetadata(data: Record<string, unknown>, prefix: string):
     validateBuildContextPath(buildContext, dockerfile, `${prefix}.buildContext`, errors);
   }
 
-  // envFileRefs
   let envFileRefs: string[] = [];
   if (!Array.isArray(data['envFileRefs'])) {
     errors.push(err(`${prefix}.envFileRefs`, 'Must be an array.', 'Add "envFileRefs": [".env"] to the compose object.'));
@@ -288,7 +267,6 @@ function validateComposeMetadata(data: Record<string, unknown>, prefix: string):
     }
   }
 
-  // environment
   let environment: Record<string, string> = {};
   if (data['environment'] !== undefined) {
     if (!isRecord(data['environment'])) {
@@ -313,7 +291,6 @@ function validateComposeMetadata(data: Record<string, unknown>, prefix: string):
     }
   }
 
-  // volumes
   let volumes: McpVolumeMount[] = [];
   if (!Array.isArray(data['volumes'])) {
     errors.push(err(`${prefix}.volumes`, 'Must be an array.', 'Add a "volumes" array to the compose object.'));
@@ -354,10 +331,6 @@ function validateComposeMetadata(data: Record<string, unknown>, prefix: string):
   };
 }
 
-// ---------------------------------------------------------------------------
-// Volume validation
-// ---------------------------------------------------------------------------
-
 type VolumeResult =
   | { volume: McpVolumeMount }
   | { errors: McpRegistryValidationError[] };
@@ -377,7 +350,7 @@ function validateVolumeMount(data: unknown, prefix: string): VolumeResult {
     errors.push(err(`${prefix}.mode`, `Invalid mode "${mode}".`, 'Use "ro" (read-only) or "rw" (read-write).'));
   }
 
-  // Validate host path — may contain ${VAR:-default} references
+  // Host paths may contain ${VAR:-default} references.
   if (host !== undefined) {
     validateVolumePath(host, `${prefix}.host`, errors);
   }
@@ -388,10 +361,6 @@ function validateVolumeMount(data: unknown, prefix: string): VolumeResult {
 
   return { volume: { host: host!, container: container!, mode: mode as 'ro' | 'rw' } };
 }
-
-// ---------------------------------------------------------------------------
-// Health spec validation
-// ---------------------------------------------------------------------------
 
 type HealthResult =
   | { health: McpHealthSpec }
@@ -411,15 +380,7 @@ function validateHealthSpec(data: Record<string, unknown>, prefix: string): Heal
   return { health: { url: url!, maxRetries: maxRetries!, retryIntervalMs: retryIntervalMs! } };
 }
 
-// ---------------------------------------------------------------------------
-// Path validation helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Validate buildContext relative to the Dockerfile directory.
- * buildContext is a compose convention: relative to the Dockerfile's dir.
- * We resolve it from there and verify the result stays within the repo.
- */
+/** Validate compose buildContext from the Dockerfile dir and reject repo escapes. */
 function validateBuildContextPath(
   buildContext: string,
   dockerfile: string,
@@ -467,13 +428,8 @@ function validateRepoRelativePath(
 }
 
 /**
- * Validate a volume host path which may contain ${VAR:-default} references.
- *
- * Variable references are stored as-is (compose resolves them at runtime).
- * We validate:
- * - the reference is well-formed (${IDENTIFIER:-default})
- * - the default value is a valid repo-relative path
- * - no nested or malformed references
+ * Validate volume host paths, leaving ${VAR:-default} for compose while
+ * requiring each default path to stay repo-relative and well-formed.
  */
 export function validateVolumePath(
   pathValue: string,
@@ -481,7 +437,6 @@ export function validateVolumePath(
   errors: McpRegistryValidationError[],
 ): void {
   if (!HAS_VAR_REF.test(pathValue)) {
-    // Plain path — validate repo-relative
     validateRepoRelativePath(pathValue, field, errors);
     return;
   }
@@ -499,7 +454,7 @@ export function validateVolumePath(
   const defaultValue = match[2];
   const suffix = match[3] ?? '';
 
-  // Reject nested references in the default value or suffix
+  // Nested references in defaults or suffixes are rejected before containment checks.
   if (HAS_VAR_REF.test(defaultValue) || HAS_VAR_REF.test(suffix)) {
     errors.push(err(
       field,
@@ -520,10 +475,6 @@ export function validateVolumePath(
   }
   validateRepoRelativePath(fullDefault, `${field} (default value)`, errors);
 }
-
-// ---------------------------------------------------------------------------
-// Field extraction helpers
-// ---------------------------------------------------------------------------
 
 function requireString(
   data: Record<string, unknown>,

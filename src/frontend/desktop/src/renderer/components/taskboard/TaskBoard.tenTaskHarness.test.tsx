@@ -1,5 +1,5 @@
 /**
- * TaskBoard 10-task deterministic harness (Track H).
+ * TaskBoard 10-task deterministic harness.
  *
  * Covers: 10-task board render/update sequence across all lifecycle columns
  * and modal lifecycle changes, with named React Profiler thresholds.
@@ -17,7 +17,7 @@ import type {
   ArchivedTaskEntry,
   TaskBoardPendingItem,
 } from '../../../shared/desktopContract';
-import type { TaskBoardState } from '../../hooks/useTaskBoard';
+import type { TaskBoardState } from '../../hooks/taskboard/useTaskBoard';
 import TaskBoard from './TaskBoard';
 
 // --- Profiler budget constants ---

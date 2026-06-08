@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
+  <!--
+    TaskSail Brand Mark — Canonical Source
+    ======================================
+    Palette:
+      Background — royal purple  #2a1a3e
+      Sails      — royal burgundy #8c2f3b
+      Mast/wave  — dark gold      #b8862d
+
+    Layer order: sails behind mast.
+    Canvas: 512x512 with ~24px transparent margin around the rounded rect
+    to match macOS icon grid sizing conventions.
+  -->
+
+  <!-- Background: royal purple, inset with transparent padding -->
+  <rect x="24" y="24" width="464" height="464" rx="100" fill="#2a1a3e"/>
+
+  <!-- Mark centered in canvas -->
+  <g transform="translate(256, 264)">
+    <!-- Right sail: solid burgundy (behind mast) -->
+    <path d="M0 -108 L88 -4 L0 -4 Z"
+          fill="#8c2f3b" stroke="none"/>
+
+    <!-- Left sail: solid burgundy (behind mast) -->
+    <path d="M0 -80 L-74 -4 L0 -4 Z"
+          fill="#8c2f3b" stroke="none"/>
+
+    <!-- Mast: dark gold vertical line (foreground) -->
+    <line x1="0" y1="-116" x2="0" y2="88"
+          stroke="#b8862d" stroke-width="11" stroke-linecap="round"/>
+
+    <!-- Wave: dark gold water line -->
+    <path d="M-96 88 C-62 62, -32 62, 0 88 C32 62, 62 62, 96 88"
+          stroke="#b8862d" stroke-width="11" stroke-linecap="round" fill="none"/>
+  </g>
+</svg>

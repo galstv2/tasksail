@@ -1,5 +1,5 @@
 /**
- * Spec §6.7 integration test for Fix G (snapshot pathspec hardening).
+ * Integration test for snapshot pathspec hardening.
  *
  * Scope: drives the full snapshot subsystem end-to-end against a real git
  * worktree and a real context-pack JSON file on disk. Asserts that the
@@ -11,7 +11,7 @@
  * (Python archive script, context-pack activation, queue locks, pendingitems
  * machinery), which provides no additional coverage over the snapshot pathspec
  * assertion this case is designed to prove. The audit treats `commitTaskSnapshot`
- * as the system-under-test for Fix G; the surrounding closeout steps are
+ * as the system-under-test; the surrounding closeout steps are
  * covered by their own dedicated tests (resumeCloseout, completePendingItem,
  * pipelineSupervisor).
  */

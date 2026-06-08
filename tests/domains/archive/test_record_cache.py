@@ -9,10 +9,6 @@ from src.backend.mcp.repo_context_mcp.services import archive_service
 from src.backend.mcp.repo_context_mcp.services.archive_service import TaskArchiveService
 from src.backend.mcp.repo_context_mcp.services.record_cache import ScopedRecordCache
 
-# ---------------------------------------------------------------------------
-# Unit tests — ScopedRecordCache
-# ---------------------------------------------------------------------------
-
 
 class TestScopedRecordCache:
     def test_cache_returns_stored_records_on_hit(self, tmp_path: Path) -> None:
@@ -75,7 +71,7 @@ class TestScopedRecordCache:
 
     def test_extended_ttl_survives_past_old_window(self, tmp_path: Path) -> None:
         """Default 300s TTL should not expire at the old 30s boundary."""
-        cache = ScopedRecordCache()  # default TTL = 300s
+        cache = ScopedRecordCache()
         cache.put_scope(tmp_path, {"task-archive": []})
         # Simulate 35 seconds elapsed — well past old 30s TTL.
         entry = cache._store[str(tmp_path)]
@@ -110,28 +106,20 @@ class TestScopedRecordCache:
             "task-retrospective": [retro_record],
         })
 
-        # Merge only task-archive records.
         new_archive = (
             tmp_path / "archive2.json",
             {"record_type": "task-archive", "task_id": "T-2"},
         )
         cache.merge_scope(tmp_path, [new_archive])
 
-        # task-retrospective must still be present and unchanged.
         retros = cache.get(tmp_path, "task-retrospective")
         assert retros is not None
         assert len(retros) == 1
         assert retros[0][1]["task_id"] == "T-1"
 
-        # task-archive now has both entries.
         archives = cache.get(tmp_path, "task-archive")
         assert archives is not None
         assert len(archives) == 2
-
-
-# ---------------------------------------------------------------------------
-# Integration test — archive service caching
-# ---------------------------------------------------------------------------
 
 
 class TestArchiveServiceCaching:
@@ -190,9 +178,7 @@ class TestArchiveServiceCaching:
         assert cached_retros is not retros
 
 
-# ---------------------------------------------------------------------------
-# SEC-PY-07 — bounded archive scan over an HTTP-controlled scope_dir
-# ---------------------------------------------------------------------------
+# Bounded archive scan over an HTTP-controlled scope_dir.
 
 
 class TestArchiveScanBounds:

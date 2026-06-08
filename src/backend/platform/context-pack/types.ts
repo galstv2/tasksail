@@ -50,9 +50,6 @@ export interface PythonHelperOptions {
   [key: string]: unknown;
 }
 
-// ---------------------------------------------------------------------------
-// §4.14 Task materialization configuration
-// ---------------------------------------------------------------------------
 
 /**
  * Configured in a context pack's `taskMaterialization` field.

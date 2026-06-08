@@ -12,10 +12,10 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from src.backend.mcp.pack_constants import MANIFEST_VERSION_V2
+from src.backend.mcp.pack.constants import MANIFEST_VERSION_V2
 from src.backend.mcp.pack_schemas.manifest_v2 import LocalPath
-from src.backend.mcp.path_resolution import pick_local_path
-from src.backend.mcp.repo_category_probe import (
+from src.backend.mcp.probes.path_resolution import pick_local_path
+from src.backend.mcp.probes.repo_category_probe import (
     classify_repo_category,
     repo_category_for_wizard_role,
 )
@@ -66,19 +66,17 @@ def upgrade_v1_to_v2(
 
     def _upgrade_repo(repo: dict[str, Any], repo_root: Path | None) -> dict[str, Any]:
         r = dict(repo)
-        # Rename repository_type → repo_focus (keep repository_type for compat)
+        # Mirror repository_type into repo_focus while keeping the legacy field.
         existing_repo_type = r.get("repository_type") or ""
         r["repo_focus"] = existing_repo_type
         r["repo_focus_authored"] = False
 
-        # Probe for category
         category = "unknown"
         if repo_root is not None and repo_root.is_dir():
             probed, _ = classify_repo_category(repo_root)
             category = probed
 
         if category == "unknown":
-            # Fall back to system_layer → category mapping
             category = repo_category_for_wizard_role(r.get("system_layer") or "") or "unknown"
 
         r["repo_category"] = category

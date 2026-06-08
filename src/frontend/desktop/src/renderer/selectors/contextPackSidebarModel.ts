@@ -5,6 +5,7 @@ import type {
   ContextPackRuntimeStatus,
   ContextPackSwitchExecutionResult,
 } from '../../shared/desktopContract';
+import { isDistributedEstateMode } from '../contextPack/contextPackModeUtils';
 
 export function selectPreferredContextPackDir(
   contextPacks: ContextPackCatalogEntry[],
@@ -105,11 +106,7 @@ export function buildFocusHint(args: {
     return null;
   }
 
-  if (selectedPack.estateType === 'distributed-platform') {
-    return 'Agents work in the Primary repository. Other checked repositories are available as read-only support.';
-  }
-
-  return 'Agents work in the Primary folder. Other checked folders are available as read-only support.';
+  return 'Mark every active work area as Primary and read-only reference context as Support; multiple Primary and Support selections are supported.';
 }
 
 export function summarizeSwitchResult(
@@ -164,8 +161,8 @@ export function buildCompactSidebarModel(args: {
   const selectedPack = contextPacks.find(
     (entry) => entry.contextPackDir === selectedContextPackDir,
   );
-  const selectedWorkingFocusIds =
-    selectedPack?.estateType === 'distributed-platform' ? selectedRepoIds : selectedFocusIds;
+  const selectedPackIsDistributed = isDistributedEstateMode(selectedPack?.estateType);
+  const selectedWorkingFocusIds = selectedPackIsDistributed ? selectedRepoIds : selectedFocusIds;
   const selectedWorkingFocuses = selectedPack?.focusTargets.filter((target) =>
     selectedWorkingFocusIds.includes(target.focusId),
   );
@@ -173,7 +170,7 @@ export function buildCompactSidebarModel(args: {
   const selectedPackSummary: CompactSidebarChip[] = [];
   if (selectedPack) {
     selectedPackSummary.push({
-      label: selectedPack.estateType === 'distributed-platform' ? 'Distributed' : 'Monolith',
+      label: selectedPackIsDistributed ? 'Distributed' : 'Monolith',
       tone: 'idle',
     });
     selectedPackSummary.push({

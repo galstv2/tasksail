@@ -32,6 +32,10 @@ def build_draft_artifact(
         "high_signal_paths": list(
             discovery_payload.get("high_signal_paths", [])
         ),
+        "root_repo_category": discovery_payload.get("root_repo_category"),
+        "root_repo_category_confidence": discovery_payload.get(
+            "root_repo_category_confidence"
+        ),
         "candidate_repos": list(discovery_payload.get("candidate_repos", [])),
         "candidate_focus_areas": list(
             discovery_payload.get("candidate_focus_areas", [])

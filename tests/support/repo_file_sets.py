@@ -1,17 +1,15 @@
 """Named repository file groups for shared test workspaces."""
 
+from tests.support.workflow_contract import WORKFLOW_ROLE_IDS
+
+# Copilot path templates; the role list comes from the provider-neutral contract
+# so a roster change flows from one place. A non-Copilot provider adds its own set.
 AGENT_INSTRUCTION_FILES = [
-    ".github/copilot/instructions/planning-agent.instructions.md",
-    ".github/copilot/instructions/product-manager.instructions.md",
-    ".github/copilot/instructions/software-engineer.instructions.md",
-    ".github/copilot/instructions/qa.instructions.md",
+    f".github/copilot/instructions/{role}.instructions.md" for role in WORKFLOW_ROLE_IDS
 ]
 
 AGENT_PROFILE_FILES = [
-    ".github/agents/planning-agent.md",
-    ".github/agents/product-manager.md",
-    ".github/agents/software-engineer.md",
-    ".github/agents/qa.md",
+    f".github/agents/{role}.md" for role in WORKFLOW_ROLE_IDS
 ]
 
 AGENT_CONTRACT_FILES = [

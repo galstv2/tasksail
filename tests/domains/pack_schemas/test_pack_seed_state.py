@@ -1,4 +1,4 @@
-"""Tests for PackSeedState validator (Phase 5 G4)."""
+"""Tests for PackSeedState validator."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -13,10 +13,6 @@ from src.backend.mcp.repo_context_mcp.record_factory import (
     pack_seed_state_path,
     state_file_path,
 )
-
-# ---------------------------------------------------------------------------
-# validate_pack_seed_state — valid inputs
-# ---------------------------------------------------------------------------
 
 
 def test_valid_seeded_minimal() -> None:
@@ -62,9 +58,7 @@ def test_valid_seeded_with_lifecycle_fields() -> None:
     assert result.last_seed_run_id == "seed-run-20260509T120000Z"
 
 
-# ---------------------------------------------------------------------------
 # Graceful degradation — unknown / corrupt inputs default to "seeded"
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("bad_state", [
@@ -120,11 +114,6 @@ def test_non_dict_details_coerced_to_none() -> None:
     assert result.details is None
 
 
-# ---------------------------------------------------------------------------
-# pack_seed_state_path vs state_file_path — must be distinct paths
-# ---------------------------------------------------------------------------
-
-
 def test_pack_seed_state_path_is_distinct_from_per_repo_state_file_path() -> None:
     """The pack-level and per-repo seed-state files must live at different paths."""
     scope_dir = Path("/some/scope")
@@ -133,8 +122,6 @@ def test_pack_seed_state_path_is_distinct_from_per_repo_state_file_path() -> Non
     per_repo_path = state_file_path(scope_dir, repo_id)
 
     assert pack_path != per_repo_path
-    # Pack-level: directly under scope_dir.
     assert pack_path == scope_dir / "seed-state.json"
-    # Per-repo: under operational/bootstrap/<repo_id>/.
     assert "operational" in str(per_repo_path)
     assert repo_id in str(per_repo_path)

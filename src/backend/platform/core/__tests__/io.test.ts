@@ -3,36 +3,12 @@ import { mkdtempSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import {
-  ensureDir,
   readTextFile,
   writeTextFile,
   moveFile,
   createTempDir,
   safeJsonParse,
 } from '../io.js';
-
-describe('ensureDir', () => {
-  let tmpDir: string;
-
-  beforeEach(() => {
-    tmpDir = mkdtempSync(path.join(tmpdir(), 'io-test-'));
-  });
-
-  afterEach(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  it('creates nested directories', async () => {
-    const nested = path.join(tmpDir, 'a', 'b', 'c');
-    await ensureDir(nested);
-    expect(existsSync(nested)).toBe(true);
-  });
-
-  it('does not error on existing directory', async () => {
-    await ensureDir(tmpDir);
-    expect(existsSync(tmpDir)).toBe(true);
-  });
-});
 
 describe('readTextFile / writeTextFile', () => {
   let tmpDir: string;

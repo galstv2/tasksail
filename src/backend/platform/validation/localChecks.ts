@@ -3,11 +3,18 @@ import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { promisify } from 'node:util';
 import * as path from 'node:path';
-import { findRepoRoot, isWindowsPlatform, runPython } from '../core/index.js';
+import { findRepoRoot, isWindowsPlatform, runPython, readEnvAssignment, PLACEHOLDER_MCP_TOKEN } from '../core/index.js';
+import { getActiveProvider } from '../cli-provider/index.js';
 import { validateStructure } from './structure.js';
 import { checkFileSizes } from './fileSizes.js';
+import { checkTestCountFloor } from './testCountFloor.js';
 import { checkExternalMcpRegistry } from './externalMcpCheck.js';
 import { validateMarkdownContract } from '../workflow-policy/contracts/markdownContract.js';
+import {
+  checkCommentDiscipline,
+  type CommentDisciplineMode,
+} from './commentDiscipline.js';
+import { checkOpenSourceReadiness } from './openSourceReadiness.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -18,6 +25,11 @@ export interface LocalChecksOptions {
   changedPath?: string;
   domain?: string;
   repoRoot?: string;
+  comments?: boolean;
+  commentMode?: CommentDisciplineMode;
+  baseRef?: string;
+  headRef?: string;
+  staged?: boolean;
 }
 
 export interface CheckResult {
@@ -93,6 +105,10 @@ async function runPytest(
   repoRoot: string,
   options: LocalChecksOptions,
 ): Promise<void> {
+  const pythonEnv = {
+    TASKSAIL_AGENT_REGISTRY_PATH: path.join(repoRoot, getActiveProvider(repoRoot).agentConfigPaths().registry),
+  };
+
   if (options.profile === 'smoke') {
     await runPython(
       path.join(repoRoot, 'src', 'backend', 'scripts', 'python', 'run-targeted-tests.py'),
@@ -102,7 +118,7 @@ async function runPytest(
         '--lane',
         'smoke',
       ],
-      { cwd: repoRoot, timeout: 300_000 },
+      { cwd: repoRoot, env: pythonEnv, timeout: 300_000 },
     );
     return;
   }
@@ -111,7 +127,7 @@ async function runPytest(
     ? `tests/domains/${options.domain}/`
     : 'tests/';
 
-  await runPython('-m', ['pytest', testPath, '-v'], { cwd: repoRoot });
+  await runPython('-m', ['pytest', testPath, '-v'], { cwd: repoRoot, env: pythonEnv });
 }
 
 async function runDesktopTests(repoRoot: string): Promise<void> {
@@ -158,6 +174,7 @@ export async function runLocalChecks(
   const profile = opts.profile ?? 'full';
   const root = opts.repoRoot ?? await findRepoRoot();
   const results: CheckResult[] = [];
+  const advisoryWarnings: string[] = [];
 
   const scope = opts.changedPath
     ? resolveChangedPathScope(opts.changedPath)
@@ -179,6 +196,50 @@ export async function runLocalChecks(
         v => `${v.path}: ${v.lines} lines (limit ${v.limit})`,
       );
       throw new Error(msgs.join('\n'));
+    }
+  }));
+
+  // Env-file security (advisory): warn on a group/world-accessible .env or a
+  // placeholder MCP token. Per-machine artifact — never fails the gate;
+  // enforcement happens at `pnpm run setup`. Skipped when .env is absent (CI).
+  results.push(await timedCheck('env-security', async () => {
+    const envFile = path.join(root, '.env');
+    let mode: number;
+    try {
+      const stat = await fs.stat(envFile);
+      mode = stat.mode & 0o777;
+    } catch {
+      return; // no .env present — nothing to check
+    }
+    if (!isWindowsPlatform() && mode > 0o600) {
+      advisoryWarnings.push(
+        `.env is mode ${mode.toString(8)} (group/world-accessible); run: chmod 600 .env`,
+      );
+    }
+    const token = await readEnvAssignment(envFile, 'REPO_CONTEXT_MCP_AUTH_TOKEN');
+    if (token === PLACEHOLDER_MCP_TOKEN) {
+      advisoryWarnings.push(
+        'REPO_CONTEXT_MCP_AUTH_TOKEN is the public placeholder; run `pnpm run setup` to generate a secret',
+      );
+    }
+  }));
+
+  // Test-count floor check runs for all profiles as a coverage regression guard.
+  results.push(await timedCheck('test-count-floor', async () => {
+    const r = await checkTestCountFloor(root);
+    if (r.violations.length > 0) {
+      const msgs = r.violations.map(
+        v => `${v.module}: ${v.count} tests (floor ${v.floor})`,
+      );
+      throw new Error(msgs.join('\n'));
+    }
+  }));
+
+  results.push(await timedCheck('open-source-readiness', async () => {
+    const r = await checkOpenSourceReadiness({ repoRoot: root });
+    advisoryWarnings.push(...r.warnings);
+    if (!r.valid) {
+      throw new Error(r.errors.join('\n'));
     }
   }));
 
@@ -204,12 +265,31 @@ export async function runLocalChecks(
 
   // External MCP registry validation — runs for full and smoke profiles.
   // Errors fail the check; stale agent scope references are advisory warnings.
-  const advisoryWarnings: string[] = [];
   if (profile === 'full' || profile === 'smoke') {
     results.push(await timedCheck('external-mcp-registry', async () => {
       const r = await checkExternalMcpRegistry(root);
       if (!r.valid) throw new Error(r.errors.join('\n'));
       advisoryWarnings.push(...r.warnings);
+    }));
+  }
+
+  if (opts.comments) {
+    results.push(await timedCheck('comment-discipline', async () => {
+      const mode = opts.commentMode
+        ?? (opts.staged || opts.baseRef || opts.headRef ? 'changed' : 'report');
+      const r = await checkCommentDiscipline({
+        repoRoot: root,
+        mode,
+        staged: opts.staged,
+        baseRef: opts.baseRef,
+        headRef: opts.headRef,
+      });
+      advisoryWarnings.push(...r.advisory.map(
+        (finding) => `${finding.path}:${finding.line}: ${finding.ruleId}: ${finding.message}`,
+      ));
+      if (!r.valid) {
+        throw new Error(r.errors.join('\n'));
+      }
     }));
   }
 

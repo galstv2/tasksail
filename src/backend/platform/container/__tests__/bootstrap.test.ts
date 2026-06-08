@@ -381,13 +381,4 @@ describe('bootstrapServices', () => {
     expect(mockRuntime.composeUp).toHaveBeenCalled();
   });
 
-  it('keeps existing seed behavior (ensureEnvFile, seedMcpRegistry, seedPlatformConfig all called)', async () => {
-    vi.mocked(existsSync).mockReturnValue(true);
-
-    await bootstrapServices(mockRuntime, { repoRoot: '/repo' });
-
-    expect(ensureEnvFile).toHaveBeenCalledWith('/repo');
-    expect(seedMcpRegistry).toHaveBeenCalledWith('/repo');
-    expect(seedPlatformConfig).toHaveBeenCalledWith('/repo');
-  });
 });

@@ -1,10 +1,4 @@
-"""Repository-level seeding logic for SeedingService.
-
-Extracted from seeding_service.py (Phase 6 Gate G1).  The public surface of
-``SeedingService`` is unchanged: ``seed_repository`` delegates here.
-``service`` is the SeedingService instance passed as an explicit dependency
-so no new class hierarchy is introduced.
-"""
+"""Repository-level seeding helpers used by SeedingService."""
 from __future__ import annotations
 
 import logging
@@ -12,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from src.backend.mcp.pack_io import NoExistingPathError, resolve_first_existing
+from src.backend.mcp.pack.io import NoExistingPathError, resolve_first_existing
 
 from ..file_analysis import read_preview
 from ..models import RepoSeedResult
@@ -114,7 +108,7 @@ def seed_repository_impl(
         for fp in files_to_process
     ]
 
-    # Phase 1: Parallel preview reads (I/O-bound, safe for threading).
+    # Preview reads are I/O-bound and safe to run in parallel.
     preview_cache: dict[str, str] = {}
     if source_path_entries:
         worker_count = min(8, len(source_path_entries))
@@ -132,7 +126,7 @@ def seed_repository_impl(
                     )
                     preview_cache[futures[future]] = ""
 
-    # Phase 2: Sequential record creation (CPU-bound, uses cached previews).
+    # Record creation is CPU-bound and reuses cached previews sequentially.
     for source_path, _file_path in source_path_entries:
         source_paths.append(source_path)
         artifact_preview_path = Path(source_path)

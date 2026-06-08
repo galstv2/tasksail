@@ -6,7 +6,7 @@ import {
   createLocalDraft,
   toFollowUpDirectSubmissionDraft,
   toPlannerDirectSubmissionDraft,
-} from '../plannerComposer';
+} from '../planner/plannerComposer';
 import { createDesktopShellClient, desktopShellClient } from './desktopShellClient';
 
 describe('desktopShellClient', () => {
@@ -165,7 +165,7 @@ describe('desktopShellClient', () => {
       contextPackDir: '/tmp/context-packs/orders-estate',
       replayConversationId: 'conversation-1',
     });
-    await client.updatePlannerSessionPersonality({ lilyPersonalityId: 'clinical' });
+    await client.updatePlannerSessionPersonality({ plannerPersonalityId: 'clinical' });
     await client.sendPlannerMessage('Message sent to Lily.', 'Message shown in transcript.');
     await client.sendPlannerMessage('Plain message only.');
     await client.listPlannerConversationHistory();
@@ -175,7 +175,7 @@ describe('desktopShellClient', () => {
       contextPackDir: '/tmp/context-packs/orders-estate',
       replayConversationId: 'conversation-1',
     });
-    expect(shell.updatePlannerSessionPersonality).toHaveBeenCalledWith({ lilyPersonalityId: 'clinical' });
+    expect(shell.updatePlannerSessionPersonality).toHaveBeenCalledWith({ plannerPersonalityId: 'clinical' });
     expect(shell.sendPlannerMessage).toHaveBeenNthCalledWith(
       1,
       'Message sent to Lily.',
@@ -859,22 +859,6 @@ describe('desktopShellClient', () => {
     const mcpSavePayload = { assignments: [{ agent_id: 'qa' as const, external_mcp_server_ids: ['vendor-docs'] }] };
     await expect(client.saveExternalMcpAssignments(mcpSavePayload)).resolves.toEqual(mcpSaveResp);
     expect((shell as unknown as Record<string, ReturnType<typeof vi.fn>>).saveExternalMcpAssignments).toHaveBeenCalledWith(mcpSavePayload);
-  });
-
-  it('clientFactory mock returns cancelled response for pickMarkdownFile by default', async () => {
-    const { createMockClient } = await import('../../test/factories/clientFactory');
-    const mockClient = createMockClient();
-
-    const result = await mockClient.pickMarkdownFile();
-    expect(result).toEqual({
-      ok: true,
-      response: expect.objectContaining({
-        action: 'planner.pickMarkdownFile',
-        mode: 'cancelled',
-        filename: null,
-        content: null,
-      }),
-    });
   });
 
   it('delegates system settings read and save through the current shell seam', async () => {

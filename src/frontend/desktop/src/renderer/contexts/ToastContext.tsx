@@ -1,7 +1,7 @@
 import { createContext, useContext, type ReactNode } from 'react';
 
-import ToastContainer from '../components/ToastContainer';
-import { useToast, type Toast } from '../hooks/useToast';
+import ToastContainer from '../components/shared/ToastContainer';
+import { useToast, type Toast } from '../hooks/shared/useToast';
 
 type ToastContextValue = {
   toasts: Toast[];

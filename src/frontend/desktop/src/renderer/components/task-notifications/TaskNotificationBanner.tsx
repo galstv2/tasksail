@@ -1,5 +1,7 @@
+import { memo } from 'react';
+
 import type { TaskNotificationRecord } from '../../../shared/desktopContract';
-import { AlertIcon, CheckIcon, CloseIcon } from '../creation-steps/icons';
+import { AlertIcon, CheckIcon, CloseIcon } from '../icons';
 import { classNames } from '../../utils/classNames';
 
 export type TaskNotificationBannerProps = {
@@ -7,28 +9,29 @@ export type TaskNotificationBannerProps = {
   onDismiss: (notificationId: string) => void;
 };
 
+const relativeTimeFormatter = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+const RELATIVE_TIME_DIVISIONS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
+  ['year', 60 * 60 * 24 * 365],
+  ['month', 60 * 60 * 24 * 30],
+  ['day', 60 * 60 * 24],
+  ['hour', 60 * 60],
+  ['minute', 60],
+];
+
 function formatRelativeTime(createdAt: string): string {
   const createdMs = new Date(createdAt).getTime();
   if (!Number.isFinite(createdMs)) return '';
 
   const diffSeconds = Math.round((createdMs - Date.now()) / 1000);
-  const divisions: Array<[Intl.RelativeTimeFormatUnit, number]> = [
-    ['year', 60 * 60 * 24 * 365],
-    ['month', 60 * 60 * 24 * 30],
-    ['day', 60 * 60 * 24],
-    ['hour', 60 * 60],
-    ['minute', 60],
-  ];
-  const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
-  for (const [unit, seconds] of divisions) {
+  for (const [unit, seconds] of RELATIVE_TIME_DIVISIONS) {
     if (Math.abs(diffSeconds) >= seconds) {
-      return formatter.format(Math.round(diffSeconds / seconds), unit);
+      return relativeTimeFormatter.format(Math.round(diffSeconds / seconds), unit);
     }
   }
-  return formatter.format(diffSeconds, 'second');
+  return relativeTimeFormatter.format(diffSeconds, 'second');
 }
 
-export function TaskNotificationBanner({
+export const TaskNotificationBanner = memo(function TaskNotificationBanner({
   notification,
   onDismiss,
 }: TaskNotificationBannerProps): JSX.Element {
@@ -66,4 +69,4 @@ export function TaskNotificationBanner({
       </button>
     </article>
   );
-}
+});

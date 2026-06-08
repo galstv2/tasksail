@@ -1,4 +1,4 @@
-/* ── §11  Terminal Base ──────────────────────────────────────────────── */
+/* Terminal Base */
 
 .terminal {
   min-height: 18rem;
@@ -19,7 +19,7 @@
 }
 
 
-/* ── §16  Stream Events ──────────────────────────────────────────────── */
+/* Stream Events */
 
 .stream-event {
   border-left: 3px solid var(--terminal-border);
@@ -154,7 +154,7 @@
 }
 
 
-/* ── §17  Terminal Sessions ──────────────────────────────────────────── */
+/* Terminal Sessions */
 
 .terminal-session-card {
   gap: 0.35rem;
@@ -195,7 +195,7 @@
 }
 
 
-/* ── §22  Terminal Feed ──────────────────────────────────────────────── */
+/* Terminal Feed */
 
 .terminal-feed {
   display: flex;

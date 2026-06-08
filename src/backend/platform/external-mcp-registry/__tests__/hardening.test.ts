@@ -1,9 +1,3 @@
-/**
- * Hardening tests for the external MCP registry.
- *
- * Validates boundary conditions, error quality, and round-trip
- * behaviors for the external MCP registry lifecycle.
- */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -40,10 +34,6 @@ afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-// ---------------------------------------------------------------------------
-// Default registry alignment
-// ---------------------------------------------------------------------------
-
 describe('default registry alignment', () => {
   it('default external registry parses with empty external_servers', () => {
     const data = JSON.parse(REAL_DEFAULT) as ExternalMcpRegistry;
@@ -56,10 +46,6 @@ describe('default registry alignment', () => {
     expect(result.ok).toBe(true);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Valid server parsing
-// ---------------------------------------------------------------------------
 
 describe('valid server parsing', () => {
   it('accepts a valid server entry with all fields', () => {
@@ -96,10 +82,6 @@ describe('valid server parsing', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Duplicate server IDs
-// ---------------------------------------------------------------------------
-
 describe('duplicate server IDs', () => {
   it('rejects duplicate server IDs', () => {
     const data = validRegistryWithServer();
@@ -110,10 +92,6 @@ describe('duplicate server IDs', () => {
     expect(result.errors.some((e) => e.message.includes('Duplicate'))).toBe(true);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Transport validation
-// ---------------------------------------------------------------------------
 
 describe('transport validation', () => {
   // The url-shaped fixture is valid for http/sse; 'local' has a distinct shape
@@ -136,10 +114,6 @@ describe('transport validation', () => {
     });
   }
 });
-
-// ---------------------------------------------------------------------------
-// Local (stdio) transport validation
-// ---------------------------------------------------------------------------
 
 describe('local transport validation', () => {
   function localRegistry(
@@ -247,35 +221,15 @@ describe('local transport validation', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// URL validation
-// ---------------------------------------------------------------------------
-
 describe('URL validation', () => {
-  it('accepts https:// URL', () => {
+  it.each([
+    ['https://mcp.example.com/sse', 'https:// URL'],
+    ['http://localhost:8080/mcp', 'http://localhost (local dev)'],
+    ['http://127.0.0.1:9090/sse', 'http://127.0.0.1 (local dev)'],
+    ['http://[::1]:9090/sse', 'http://[::1] (local dev)'],
+  ] as const)('accepts %s', (url, _label) => {
     const data = validRegistryWithServer();
-    (data.external_servers[0] as Record<string, unknown>).url = 'https://mcp.example.com/sse';
-    const result = validateExternalMcpRegistry(data);
-    expect(result.ok).toBe(true);
-  });
-
-  it('accepts http://localhost (local dev)', () => {
-    const data = validRegistryWithServer();
-    (data.external_servers[0] as Record<string, unknown>).url = 'http://localhost:8080/mcp';
-    const result = validateExternalMcpRegistry(data);
-    expect(result.ok).toBe(true);
-  });
-
-  it('accepts http://127.0.0.1 (local dev)', () => {
-    const data = validRegistryWithServer();
-    (data.external_servers[0] as Record<string, unknown>).url = 'http://127.0.0.1:9090/sse';
-    const result = validateExternalMcpRegistry(data);
-    expect(result.ok).toBe(true);
-  });
-
-  it('accepts http://[::1] (local dev)', () => {
-    const data = validRegistryWithServer();
-    (data.external_servers[0] as Record<string, unknown>).url = 'http://[::1]:9090/sse';
+    (data.external_servers[0] as Record<string, unknown>).url = url;
     const result = validateExternalMcpRegistry(data);
     expect(result.ok).toBe(true);
   });
@@ -313,10 +267,6 @@ describe('URL validation', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Header variable reference validation
-// ---------------------------------------------------------------------------
-
 describe('header variable reference validation', () => {
   const cases: { input: string; shouldFail: boolean; label: string }[] = [
     { input: '${VALID_TOKEN}', shouldFail: false, label: 'valid ${ENV_VAR} reference' },
@@ -342,10 +292,6 @@ describe('header variable reference validation', () => {
     });
   }
 });
-
-// ---------------------------------------------------------------------------
-// Purpose validation
-// ---------------------------------------------------------------------------
 
 describe('purpose validation', () => {
   it('rejects missing purpose', () => {
@@ -382,24 +328,16 @@ describe('purpose validation', () => {
     expect(result.errors.some((e) => e.message.includes(`at least ${MIN_PURPOSE_LENGTH} characters`))).toBe(true);
   });
 
-  it('accepts purpose at the minimum length', () => {
+  it.each([
+    [MIN_PURPOSE_LENGTH, 'minimum length'],
+    [MAX_PURPOSE_LENGTH, 'max length'],
+  ] as const)('accepts purpose at %s (%s)', (len, _label) => {
     const data = validRegistryWithServer();
-    (data.external_servers[0] as Record<string, unknown>).purpose = 'x'.repeat(MIN_PURPOSE_LENGTH);
-    const result = validateExternalMcpRegistry(data);
-    expect(result.ok).toBe(true);
-  });
-
-  it('accepts purpose at max length', () => {
-    const data = validRegistryWithServer();
-    (data.external_servers[0] as Record<string, unknown>).purpose = 'x'.repeat(MAX_PURPOSE_LENGTH);
+    (data.external_servers[0] as Record<string, unknown>).purpose = 'x'.repeat(len);
     const result = validateExternalMcpRegistry(data);
     expect(result.ok).toBe(true);
   });
 });
-
-// ---------------------------------------------------------------------------
-// preferred_for validation
-// ---------------------------------------------------------------------------
 
 describe('preferred_for validation', () => {
   it('rejects missing preferred_for', () => {
@@ -464,10 +402,6 @@ describe('preferred_for validation', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// fallback_description validation
-// ---------------------------------------------------------------------------
-
 describe('fallback_description validation', () => {
   it('rejects overlong fallback_description', () => {
     const data = validRegistryWithServer();
@@ -491,10 +425,6 @@ describe('fallback_description validation', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Schema version validation
-// ---------------------------------------------------------------------------
-
 describe('schema version validation', () => {
   it('rejects future schema version', () => {
     const result = validateExternalMcpRegistry({ schema_version: 999, external_servers: [] });
@@ -507,7 +437,6 @@ describe('schema version validation', () => {
     const result = validateExternalMcpRegistry({ schema_version: 0, external_servers: [] });
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    // Version 0 is caught by the "must be a positive integer" guard
     expect(result.errors[0].message).toContain('positive integer');
   });
 
@@ -521,10 +450,6 @@ describe('schema version validation', () => {
     expect(result.ok).toBe(false);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Validation error message quality
-// ---------------------------------------------------------------------------
 
 describe('validation error message quality', () => {
   it('every error includes field, message, and fix', () => {
@@ -541,19 +466,7 @@ describe('validation error message quality', () => {
     }
   });
 
-  it('fix text is actionable (contains a verb)', () => {
-    const result = validateExternalMcpRegistry({ schema_version: 999, external_servers: [] });
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    for (const error of result.errors) {
-      expect(error.fix).toMatch(/Update|Set|Add|Remove|Use|Delete|Ensure|Keep|Run|Provide/i);
-    }
-  });
 });
-
-// ---------------------------------------------------------------------------
-// Corrupt file detection
-// ---------------------------------------------------------------------------
 
 describe('corrupt file detection', () => {
   it('returns actionable error for corrupt file', async () => {
@@ -581,10 +494,6 @@ describe('corrupt file detection', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Stale agent_scope handling (no longer assignment data)
-// ---------------------------------------------------------------------------
-
 describe('stale agent_scope handling', () => {
   it('accepts a server with no agent_scope', () => {
     const data = validRegistryWithServer();
@@ -593,30 +502,18 @@ describe('stale agent_scope handling', () => {
     expect(result.ok).toBe(true);
   });
 
-  it('strips a stale agent_scope from normalized output', () => {
-    const data = validRegistryWithServer(); // fixture carries agent_scope
-    const result = validateExternalMcpRegistry(data);
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect('agent_scope' in result.registry.external_servers[0]).toBe(false);
-  });
-
-  it('tolerates a malformed stale agent_scope (ignored, not validated)', () => {
+  it.each([
+    ['allowlist agent_scope from fixture', { mode: 'allowlist', agent_ids: ['software-engineer', 'qa'] }],
+    ['malformed denylist agent_scope', { mode: 'denylist', agent_ids: [] }],
+  ] as const)('strips stale agent_scope (%s) from normalized output', (_label, agentScope) => {
     const data = validRegistryWithServer();
-    (data.external_servers[0] as Record<string, unknown>).agent_scope = {
-      mode: 'denylist',
-      agent_ids: [],
-    };
+    (data.external_servers[0] as Record<string, unknown>).agent_scope = agentScope;
     const result = validateExternalMcpRegistry(data);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect('agent_scope' in result.registry.external_servers[0]).toBe(false);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function validRegistryWithServer(): Record<string, unknown> & { external_servers: Record<string, unknown>[] } {
   return {

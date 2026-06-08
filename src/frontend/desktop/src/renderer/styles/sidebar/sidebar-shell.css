@@ -1,9 +1,4 @@
-/*
- * Sidebar shell, header, icon rail, status chips, and scroll container.
- * Owns top-level .context-pack-sidebar, .sidebar-header, .sidebar-icon-btn,
- * .sidebar-section, .sidebar-status-banner, and related shell selectors.
- */
-/* ── §4  Sidebar ───────────────────────────────────────────────────────── */
+/* Sidebar shell, header, icon rail, status chips, and scroll container. */
 
 .context-pack-sidebar {
   height: 100%;
@@ -21,7 +16,7 @@
   isolation: isolate;
 }
 
-/* ── Sidebar header ──────────────────────────────────────────────────── */
+/* Sidebar header */
 
 .sidebar-header {
   display: flex;
@@ -83,7 +78,7 @@
   color: var(--ts-text);
 }
 
-/* ── Icon buttons ────────────────────────────────────────────────────── */
+/* Icon buttons */
 
 .sidebar-icon-btn {
   border: none;
@@ -126,7 +121,7 @@
   background: var(--ts-accent-subtle);
 }
 
-/* ── Collapsed sidebar nav ───────────────────────────────────────────── */
+/* Collapsed sidebar nav */
 
 .sidebar-icons {
   display: flex;
@@ -217,7 +212,7 @@
   color: var(--ts-text-soft);
 }
 
-/* ── Sidebar typography ──────────────────────────────────────────────── */
+/* Sidebar typography */
 
 .sidebar-meta {
   margin: 0;
@@ -262,7 +257,7 @@
   font-weight: 500;
 }
 
-/* ── Sections ────────────────────────────────────────────────────────── */
+/* Sections */
 
 .sidebar-section {
   padding: 0.65rem 0.75rem;
@@ -273,7 +268,7 @@
   border-bottom: none;
 }
 
-/* ── Active status bar ───────────────────────────────────────────────── */
+/* Active status bar */
 
 .sidebar-active-bar {
   display: flex;
@@ -325,7 +320,7 @@
   padding: 0.4rem 0.75rem;
 }
 
-/* ── Status chips ────────────────────────────────────────────────────── */
+/* Status chips */
 
 .status-chip--sm {
   font-size: 0.68rem;
@@ -337,7 +332,7 @@
   padding: 0.1rem 0.35rem;
 }
 
-/* ── Scrollable region ───────────────────────────────────────────────── */
+/* Scrollable region */
 
 .sidebar-scroll-region {
   flex: 1;

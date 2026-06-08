@@ -1,7 +1,7 @@
 /**
- * §B5 Post-completion branch verification.
+ * Post-completion branch verification.
  *
- * Runs between Step 0 (commitTaskSnapshot) and Step 2 (archival) in
+ * Runs between commitTaskSnapshot and archival in
  * completePendingItem. For every writable repoBinding declared in `.task.json`,
  * verifies:
  *   1. `refs/heads/<worktreeBranch>` exists in the originalRoot's `.git`.
@@ -51,8 +51,8 @@ export async function verifyTaskBranches(
   repoRoot: string,
   taskId: string,
 ): Promise<BranchVerificationResult> {
-  // Audit B: readTaskJsonSafe is sync and takes (taskId, repoRoot?) — NOT
-  // (repoRoot, taskId). Audit A: bindings live at contextPackBinding.repoBindings.
+  // readTaskJsonSafe is sync and takes (taskId, repoRoot?), not
+  // (repoRoot, taskId). Bindings live at contextPackBinding.repoBindings.
   const sidecar = readTaskJsonSafe(taskId, repoRoot);
   if (sidecar === null) {
     return { ok: true, failures: [] };

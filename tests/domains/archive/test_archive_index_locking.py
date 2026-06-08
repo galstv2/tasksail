@@ -1,4 +1,4 @@
-"""Concurrent-writer tests for archive index locking (§4.13).
+"""Concurrent-writer tests for archive index locking.
 
 Verifies that:
   (a) Two concurrent ``write_archive_indexes`` calls against the same
@@ -13,6 +13,7 @@ satisfying tests/conftest.py bind guard).
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 import threading
@@ -131,6 +132,12 @@ class TestArchiveIndexLocking(unittest.TestCase):
     ) -> None:
         """(b) Concurrent write_archive_indexes + patch_task_archive_md —
         both writers' distinct sentinel content must appear in the final file."""
+        if not os.environ.get("TASKSAIL_AGENT_REGISTRY_PATH", "").strip():
+            self.skipTest(
+                "TASKSAIL_AGENT_REGISTRY_PATH is not set; skipping archive "
+                "reward writer integration that imports reinforcement models."
+            )
+
         from lib.archive.indexes import write_archive_indexes
 
         from src.backend.mcp.reinforcement.models import SettlementRecord  # noqa: I001

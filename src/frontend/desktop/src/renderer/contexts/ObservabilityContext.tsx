@@ -3,7 +3,7 @@ import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import {
   useObservedState,
   type UseObservedStateResult,
-} from '../hooks/useObservedState';
+} from '../hooks/observability/useObservedState';
 import { desktopShellClient, type DesktopShellClient } from '../services/desktopShellClient';
 
 const ObservabilityContext = createContext<UseObservedStateResult | null>(null);

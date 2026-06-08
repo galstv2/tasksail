@@ -1,7 +1,4 @@
-/* ── Branch inventory: completed-task detail footer action + read-only branch
- * inventory modals (child-chain "View Chain" and regular-task "View Branches").
- * Viewers render on the always-dark terminal modal surface, so text uses the
- * terminal-* tokens (always light) rather than the theme-dependent --ts-text-* set. */
+/* Branch inventory viewers use terminal-* tokens because the modal surface is always dark. */
 .task-detail-modal__branch-action-btn {
   display: inline-flex;
   align-items: center;
@@ -118,8 +115,7 @@
   font-size: 0.85rem;
 }
 
-/* ── Regular-task branch inventory ("View Branches" → "Task Branches" modal) ──
- * Mirrors the child-chain table presentation on the same terminal surface. */
+/* Regular-task branch inventory mirrors the child-chain table on the same terminal surface. */
 .task-branch-inventory__subtitle {
   margin: 0 0 0.85rem;
   padding-bottom: 0.65rem;

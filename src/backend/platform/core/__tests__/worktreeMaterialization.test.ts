@@ -1,13 +1,13 @@
 /**
- * §4.14 Worktree + dependency materialization — test suite.
+ * Worktree and dependency materialization test suite.
  *
- * Done-when assertions from the spec (§4.14 lines 155–165):
+ * Done-when assertions covered here:
  *   1. Happy path: creates AgentWorkSpace/tasks/<taskId>/worktrees/<slug>/ on disk;
  *      git worktree list shows task/<taskId>.
  *   2. .task.json.contextPackBinding.repoBindings[].worktreeRoot points at worktree, not origin.
  *   3. macOS APFS CoW: wall-clock < 1s (skipped; requires same-APFS-volume CI runner).
- *   4. F20 HFS mock: detectCloneStrategy returns 'copy' when fstypename='hfs'.
- *   5. F20 different fsid: detectCloneStrategy returns 'copy' when apfs but different fsid.
+ *   4. HFS mock: detectCloneStrategy returns 'copy' when fstypename='hfs'.
+ *   5. Different fsid: detectCloneStrategy returns 'copy' when apfs but different fsid.
  *   6. Linux: filesystemSupportsReflink returns false → strategy 'copy', activation succeeds.
  *   7. Missing source path → recorded in materialization.skipped, activation does not abort.
  *   8. Pre-existing refs/heads/task/<taskId> → fail with branch-already-exists; no marker,
@@ -80,9 +80,6 @@ describe('worktree path identity (Windows drive casing)', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 /**
  * Create a minimal git repo with one commit in a temp directory.
@@ -126,7 +123,7 @@ function listBranches(repoRoot: string): string {
 
 /**
  * Build a mock StatfsSyncFn that always returns the given result.
- * Used to inject into detectCloneStrategy for F20 filesystem tests.
+ * Used to inject into detectCloneStrategy for filesystem tests.
  * ESM named exports from node:fs are non-configurable; vi.spyOn cannot
  * intercept them. detectCloneStrategy accepts a StatfsSyncFn parameter for testing.
  */
@@ -165,9 +162,6 @@ async function importWindowsWorktreeMaterialization(options: {
   return import('../worktreeMaterialization.js');
 }
 
-// ---------------------------------------------------------------------------
-// §4.14 Done-when #1 — happy path: worktree dir created, git list shows entry
-// ---------------------------------------------------------------------------
 
 describe('§4.14 materializeWorktreeDeps — happy path', () => {
   let tmpRoot: string;
@@ -223,7 +217,6 @@ describe('§4.14 materializeWorktreeDeps — happy path', () => {
     expect(result.cloned).toHaveLength(0);
   });
 
-  // §4.14 Done-when #2 — worktreeRoot points at worktree, not origin
   it('worktreeRoot in .task.json points at worktree, not originalRoot', async () => {
     const originalRoot = createGitRepo(tmpRoot);
     const sha = execSync(`git -C "${originalRoot}" rev-parse HEAD`, { encoding: 'utf-8' }).trim();
@@ -270,9 +263,6 @@ describe('§4.14 materializeWorktreeDeps — happy path', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// §4.14 Done-when #7 — missing source path is non-fatal
-// ---------------------------------------------------------------------------
 
 describe('§4.14 materializeWorktreeDeps — missing source path is non-fatal', () => {
   let tmpRoot: string;
@@ -313,13 +303,10 @@ describe('§4.14 materializeWorktreeDeps — missing source path is non-fatal', 
   });
 });
 
-// ---------------------------------------------------------------------------
-// §4.14 Done-when #4 & #5 — F20 detectCloneStrategy with injectable statfsFn
 //
 // ESM named exports from node:fs are non-configurable; vi.spyOn cannot intercept
 // statfsSync directly. detectCloneStrategy accepts an optional StatfsSyncFn
 // parameter for testing. This is an explicitly documented testability hook.
-// ---------------------------------------------------------------------------
 
 describe('§4.14 detectCloneStrategy — F20 filesystem check mocks', () => {
   it('F20 HFS+: fstypename=hfs → returns copy (not apfs-clonefile)', () => {
@@ -358,9 +345,6 @@ describe('§4.14 detectCloneStrategy — F20 filesystem check mocks', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// §4.14 Done-when #6 — Linux: reflink unavailable → 'copy'
-// ---------------------------------------------------------------------------
 
 describe('§4.14 detectCloneStrategy — Linux reflink fallback', () => {
   it('Linux: ext4 filesystem → strategy copy (not in {btrfs,xfs,zfs})', () => {
@@ -591,9 +575,6 @@ describe('worktree materialization fast-copy observability', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// §4.14 Done-when #8 — pre-existing task/<taskId> branch → fail
-// ---------------------------------------------------------------------------
 
 describe('§4.14 preconditionsPass — branch-already-exists', () => {
   let tmpRoot: string;
@@ -673,9 +654,6 @@ describe('§4.14 preconditionsPass — branch-already-exists', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// §4.14 Done-when #9 — ENOSPC mid-CoW → rollback
-// ---------------------------------------------------------------------------
 
 describe('§4.14 materializeWorktreeDeps — ENOSPC rollback', () => {
   let tmpRoot: string;
@@ -721,12 +699,12 @@ describe('§4.14 materializeWorktreeDeps — ENOSPC rollback', () => {
 
     expect(copyTree).toHaveBeenCalled();
 
-    // Simulate the §4.14 atomic rollback that operations.ts performs:
-    // Step 1: git worktree remove --force
+    // Simulate the atomic rollback that operations.ts performs:
+    // First remove the worktree.
     try { execFileSync('git', ['-C', originalRoot, 'worktree', 'remove', '--force', worktreePath]); } catch { /* swallow */ }
-    // Step 2: git branch -D
+    // Then delete the task branch.
     try { execFileSync('git', ['-C', originalRoot, 'branch', '-D', `task/${taskId}`]); } catch { /* swallow */ }
-    // Step 3: fs.rm task dir (reclaims disk; critical on ENOSPC)
+    // Finally remove the task dir to reclaim disk space on ENOSPC.
     const taskDir = path.join(tmpRoot, 'AgentWorkSpace', 'tasks', taskId);
     rmSync(taskDir, { recursive: true, force: true });
 
@@ -745,9 +723,6 @@ describe('§4.14 materializeWorktreeDeps — ENOSPC rollback', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// §4.14 Done-when #3 — macOS APFS CoW performance (skipped; requires runner)
-// ---------------------------------------------------------------------------
 
 describe('§4.14 macOS APFS CoW — 500MB wall-clock < 1s', () => {
   it.skip(
@@ -764,9 +739,7 @@ describe('§4.14 macOS APFS CoW — 500MB wall-clock < 1s', () => {
   );
 });
 
-// ---------------------------------------------------------------------------
-// §4.14 withOriginLock — concurrency serialization
-// ---------------------------------------------------------------------------
+// withOriginLock concurrency serialization.
 
 describe('§4.14 withOriginLock — serializes concurrent ops on same origin', () => {
   let tmpRoot: string;
@@ -833,9 +806,7 @@ describe('§4.14 withOriginLock — serializes concurrent ops on same origin', (
   });
 });
 
-// ---------------------------------------------------------------------------
-// §4.14 preconditionsPass — empty-origin-repo
-// ---------------------------------------------------------------------------
+// preconditionsPass empty-origin-repo.
 
 describe('§4.14 preconditionsPass — empty-origin-repo', () => {
   let tmpRoot: string;
@@ -865,9 +836,7 @@ describe('§4.14 preconditionsPass — empty-origin-repo', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// §4.14 preconditionsPass — worktree-already-bound
-// ---------------------------------------------------------------------------
+// preconditionsPass worktree-already-bound.
 
 describe('§4.14 preconditionsPass — worktree-already-bound', () => {
   let tmpRoot: string;
@@ -911,9 +880,7 @@ describe('§4.14 preconditionsPass — worktree-already-bound', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// §4.14 Windows ReFS CoW branch — mocked
-// ---------------------------------------------------------------------------
+// Windows ReFS CoW branch, mocked.
 
 describe('§4.14 Windows ReFS CoW branch — mocked', () => {
   // process.platform mutation is unnecessary here: importWindowsWorktreeMaterialization

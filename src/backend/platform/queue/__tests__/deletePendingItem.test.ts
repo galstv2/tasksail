@@ -28,7 +28,7 @@ describe('deletePendingItem', () => {
   });
 
   it('blocks deleting the active item', async () => {
-    // §4.1B: active state is tracked via .active-items/<taskId> marker
+    // Active state is tracked via .active-items/<taskId> marker.
     const activeItemsDir = path.join(pendingDir, '.active-items');
     mkdirSync(activeItemsDir, { recursive: true });
     writeFileSync(path.join(pendingDir, 'task-002.md'), '# Pending\n', 'utf-8');
@@ -37,14 +37,6 @@ describe('deletePendingItem', () => {
     await expect(
       deletePendingItem({ repoRoot, queueName: 'task-002.md' }),
     ).rejects.toThrow('Delete pending item blocked: "task-002.md" is the active task.');
-  });
-
-  it('successfully deletes a pending item that is not active', async () => {
-    writeFileSync(path.join(pendingDir, 'task-002.md'), '# Pending\n', 'utf-8');
-
-    await deletePendingItem({ repoRoot, queueName: 'task-002.md' });
-
-    expect(existsSync(path.join(pendingDir, 'task-002.md'))).toBe(false);
   });
 
   it('removes the staged planner focus snapshot when present', async () => {

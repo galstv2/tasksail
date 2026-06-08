@@ -335,15 +335,15 @@ function withAutoMergeDetailOverride(result: AutoMergeResult, detail: string): A
 /**
  * Complete the specified pending task and advance the queue.
  *
- * Implements the §4.3 five-step sentinel sequence in order:
- *   Step 0 (F38): commitTaskSnapshot — idempotent pre-archival snapshot.
+ * Implements the five-step sentinel sequence in order:
+ *   0. commitTaskSnapshot — idempotent pre-archival snapshot.
  *   1. Write .completing sentinel (idempotent pre-check, NOT wx).
  *   2. Archival (fileTaskArchive, final-summary advisory write).
  *   3. finalizeTaskWorktrees(taskId, 'completed', repoRoot).
  *   4. unlinkSync activeItemsDir/<taskId> marker.
  *   5. unlinkSync activeItemsDir/<taskId>.completing sentinel.
- * Lock is acquired FIRST (F8 fix) before any of the above.
- * Lock is released only after step 5.
+ * Lock is acquired FIRST before any of the above.
+ * Lock is released only after sentinel unlink.
  * activateNextPendingItemIfReady is called after lock release.
  */
 export async function completePendingItem(
@@ -362,13 +362,13 @@ export async function completePendingItem(
     });
   }
 
-  // F8 fix: acquire the queue lock FIRST — before any archival, retrospective
+  // Acquire the queue lock FIRST — before any archival, retrospective
   // sync, snapshot, or sentinel writes. All five steps run inside this lock.
-  // R1 fix: size the lock-acquisition wait to survive max_parallel_tasks
+  // Size the lock-acquisition wait to survive max_parallel_tasks
   // simultaneous closeouts rather than timing out under contention.
   // Fetch platform config once and reuse it for the auto-merge policy below
   // (getPlatformConfig is a cached singleton). The budget read must not throw
-  // when config is unavailable (per R1), so fall back to a safe cap of 10.
+  // when config is unavailable, so fall back to a safe cap of 10.
   let closeoutPlatformConfig: Awaited<ReturnType<typeof getPlatformConfig>> | null = null;
   try {
     closeoutPlatformConfig = await getPlatformConfig(repoRoot);
@@ -431,7 +431,7 @@ export async function completePendingItem(
       }
     }
 
-    // --- Step 0 (F38): idempotent pre-archival snapshot ---
+    // Idempotent pre-archival snapshot.
     // Commits staged/unstaged changes in the per-task worktree to task/<taskId>.
     // 'nothing to commit' from git exits non-zero and is treated as success
     // (commitTaskSnapshot swallows it). Best-effort: non-fatal on failure.
@@ -449,8 +449,8 @@ export async function completePendingItem(
       event: { type: 'closeout.snapshot_committed' },
     });
 
-    // --- Step 0a (B5): verify task branches received commits ---
-    // Safety net for B1 worktree-injection regressions: if any task/<id> branch
+    // Verify task branches received commits.
+    // Safety net for worktree-injection regressions: if any task/<id> branch
     // is missing or has zero commits beyond its baseCommitSha, this throws and
     // the caller routes the task into moveFailedItemToErrorItems → branch is
     // retained for operator post-mortem. NO try/catch — let it propagate.
@@ -533,19 +533,19 @@ export async function completePendingItem(
       childChainCloseout = attachCompletedBranchHandoffs(childChainCloseout, branchHandoffs);
     }
 
-    // --- Step 1: idempotent sentinel write ---
+    // Idempotent sentinel write.
     // Use pre-check + writeFileSync (NOT exclusive-create mode) so crash-recovery re-drives
     // can observe the sentinel without EEXIST halting recovery.
     if (!existsSync(sentinelPath)) {
       writeTextFileAtomicSync(sentinelPath, JSON.stringify({ ts: Date.now() }));
     }
 
-    // --- Step 2: archival ---
+    // Archival.
     if (!options.skipArchive) {
       const contextPackDir = options.contextPackDir
         ?? await requireAuthorizedActiveContextPack({ repoRoot, taskId });
 
-      // Write advisory findings section to final-summary.md atomically.
+      // Write the advisory findings section to the final summary atomically.
       const handoffsDir = queuePaths.taskHandoffs(taskId);
       const advisorySection = await buildAdvisoryFindingSection(handoffsDir);
       if (advisorySection) {
@@ -702,7 +702,7 @@ export async function completePendingItem(
     }
 
     // Update queue-order manifest and reset handoff artifacts via completeActiveItem.
-    // Passes per-task paths per §4.3 requirement.
+    // Pass per-task paths through the closeout path.
     const completeResult = await completeActiveItem({
       pendingDir: queuePaths.pendingDir,
       taskId,
@@ -712,7 +712,7 @@ export async function completePendingItem(
       implementationStepsDir: queuePaths.taskImplementationSteps(taskId),
     });
 
-    // --- Step 3: finalizeTaskWorktrees ---
+    // Finalize task worktrees.
     // Only re-drive finalize when completeActiveItem confirmed the marker existed
     // (i.e., we are not in the sentinel-without-marker recovery branch).
     if (completeResult.status !== 'no-active-marker') {
@@ -725,12 +725,12 @@ export async function completePendingItem(
       await finalizeTaskWorktrees(taskId, 'completed', repoRoot);
     }
 
-    // --- Step 4: unlink per-task active marker ---
+    // Unlink per-task active marker.
     // Already absent when completeResult.status === 'no-active-marker' — skip.
     if (completeResult.status !== 'no-active-marker') {
       try {
         unlinkSync(path.join(activeItemsDir, taskId));
-      } catch { /* marker may already be absent if step 4 crashed and re-drove */ }
+    } catch { /* marker may already be absent if active-marker unlink crashed and re-drove */ }
     }
 
     // Update task registry: active → completed only after the active marker is
@@ -773,7 +773,7 @@ export async function completePendingItem(
       }
     }
 
-    // --- Step 5: unlink sentinel ---
+    // Unlink sentinel.
     // Always attempt — even in the 'no-active-marker' branch (sentinel is present).
     try {
       unlinkSync(sentinelPath);
@@ -818,6 +818,6 @@ export async function completePendingItem(
     event: { type: 'closeout.finalized' },
   });
 
-  // Queue advance runs AFTER lock release (§4.6 contract).
+  // Queue advance runs AFTER lock release.
   await activateNextPendingItemIfReady({ paths: queuePaths, repoRoot });
 }

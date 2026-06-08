@@ -140,40 +140,19 @@ describe('executeRealignmentSession', () => {
     expect(release).toHaveBeenCalledTimes(1);
   });
 
-  it('returns error for a missing session without acquiring the lock or marking error', async () => {
-    seedSessions([]);
+  it.each([
+    ['missing session', [] as ReturnType<typeof session>[], 'RA-missing', 'error', 'session_not_found'] as const,
+    ['non-analyzable session', [session('RA-1', 'archived')], 'RA-1', 'skipped', 'session_not_analyzable'] as const,
+  ])('returns early without acquiring the lock for %s', async (_label, sessions, id, status, reason) => {
+    seedSessions([...sessions]);
 
     const result = await executeRealignmentSession({
       repoRoot,
       contextPackDir,
-      realignmentId: 'RA-missing',
+      realignmentId: id,
     });
 
-    expect(result).toEqual({
-      passed: false,
-      realignmentId: 'RA-missing',
-      status: 'error',
-      reason: 'session_not_found',
-    });
-    expect(mocks.acquireDirLock).not.toHaveBeenCalled();
-    expect(mocks.runPython).not.toHaveBeenCalled();
-  });
-
-  it('skips non-analyzable sessions before acquiring the lock', async () => {
-    seedSessions([session('RA-1', 'archived')]);
-
-    const result = await executeRealignmentSession({
-      repoRoot,
-      contextPackDir,
-      realignmentId: 'RA-1',
-    });
-
-    expect(result).toEqual({
-      passed: false,
-      realignmentId: 'RA-1',
-      status: 'skipped',
-      reason: 'session_not_analyzable',
-    });
+    expect(result).toEqual({ passed: false, realignmentId: id, status, reason });
     expect(mocks.acquireDirLock).not.toHaveBeenCalled();
   });
 
@@ -303,17 +282,6 @@ describe('executeRealignmentSession', () => {
         realignmentId: 'RA-1',
       }),
     );
-  });
-
-  it('does not inspect active pending items or queue state', async () => {
-    mkdirSync(path.join(repoRoot, 'AgentWorkSpace', 'pendingitems'), { recursive: true });
-    writeFileSync(path.join(repoRoot, 'AgentWorkSpace', 'pendingitems', 'pending.md'), 'pending', 'utf-8');
-
-    await expect(executeRealignmentSession({
-      repoRoot,
-      contextPackDir,
-      realignmentId: 'RA-1',
-    })).resolves.toMatchObject({ status: 'archived' });
   });
 
   function seedSessions(

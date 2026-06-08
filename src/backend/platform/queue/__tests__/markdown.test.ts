@@ -434,8 +434,32 @@ Body
         deepFocusEnabled: true,
         deepFocusPrimaryRepoId: 'platform',
         deepFocusPrimaryFocusId: 'orders-api',
+        selectedFocusPath: '',
       },
     });
+  });
+
+  it('does not fabricate an empty Deep Focus path when the label is absent', () => {
+    const parsed = expectBinding(`# Task
+
+## Context Pack Binding
+
+- Context Pack Dir: /abs/pack
+- Context Pack ID: orders
+- Scope Mode: focused
+- Primary Focus ID: orders-api
+- Deep Focus Enabled: true
+- Deep Focus Primary Focus ID: orders-api
+- Selected Focus Targets: []
+- Selected Support Targets: []
+
+## Request Summary
+
+Body
+`);
+
+    expect(parsed?.selectedFocusPath).toBeUndefined();
+    expect(parsed?.selectedFocusTargets).toEqual([]);
   });
 
   it('keeps legacy binding output unchanged when Deep Focus is disabled', () => {

@@ -1,5 +1,4 @@
-"""Tests for stub_scope.write_empty_scope_tree (Phase 5 G1) and the
-pack seed-state lifecycle in the seeding service (Phase 5 G2)."""
+"""Tests for stub_scope.write_empty_scope_tree and pack seed-state lifecycle."""
 from __future__ import annotations
 
 import json
@@ -30,7 +29,7 @@ def _make_v2_manifest(
 
 
 class WriteEmptyScopeTreeTests(unittest.TestCase):
-    """Gate G1: structurally complete empty scope tree after new-flow create."""
+    """Structurally complete empty scope tree after new-flow create."""
 
     def _write_manifest(self, context_pack_dir: Path, manifest: dict) -> Path:
         qmd_dir = context_pack_dir / "qmd"
@@ -287,7 +286,7 @@ class QmdScopeRootContainmentTests(unittest.TestCase):
 
 
 class PackSeedStateLifecycleTests(unittest.TestCase):
-    """Gate G2: seeding service updates the pack-level seed-state marker."""
+    """Seeding service updates the pack-level seed-state marker."""
 
     @classmethod
     def setUpClass(cls) -> None:

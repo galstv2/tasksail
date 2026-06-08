@@ -26,11 +26,11 @@ class PackSeedState:
     """Validated representation of a pack-level seed-state record."""
 
     state: Literal["seeded", "bootstrap-empty"]
-    # G1 fields — written by write_empty_scope_tree
+    # Empty-scope fields written by write_empty_scope_tree.
     created_at: str | None = None
     reason: str | None = None
     details: dict[str, Any] | None = None
-    # G2 fields — written by seeding_service on a real seed
+    # Real-seed fields written by seeding_service.
     last_seed_at: str | None = None
     last_seed_run_id: str | None = None
     last_failure_at: str | None = None

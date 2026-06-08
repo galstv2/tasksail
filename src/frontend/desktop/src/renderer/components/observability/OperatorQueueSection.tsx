@@ -16,7 +16,7 @@ type OperatorQueueSectionProps = {
 };
 
 /**
- * §5.5: derive legacy statusTone from activeTasks array length.
+ * Derive legacy statusTone from activeTasks array length.
  * activeTasks.length > 0 → RUNNING (warn); otherwise → OPEN (ok).
  */
 function statusTone(status: OperatorStatus): 'ok' | 'warn' | 'idle' {

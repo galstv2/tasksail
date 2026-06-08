@@ -1,24 +1,6 @@
-/*
- * Deep Focus editor shell, search, breadcrumb, list, and empty states.
- * Owns .deep-focus-sidebar*, .deep-focus-shell, .deep-focus-editor*,
- * .deep-focus-search*, .deep-focus-breadcrumb*, and list state selectors.
- */
-/*
- * State grammar:
- * Primary Target = editable permission.
- * Test Target = writable verification support.
- * Support = read-only context (global or scoped to a primary).
- * Selected Row = command focus.
- * Hover = affordance only.
- */
-/*
- * Deep Focus tokens are a thin alias layer over the platform tokens
- * (--ts-*) so this surface stays visually consistent with the rest of
- * TaskSail (Outfit + brass/amber palette). Do NOT introduce
- * Apple-system fonts/colors here — the platform token is the source
- * of truth. Sizes follow the sidebar scale set by .scope-focus-row /
- * .sidebar-section, not iOS HIG.
- */
+/* Deep Focus shell owns the editor, search, breadcrumb, list, and empty-state selectors. */
+/* State grammar: primary/test targets are writable, support is read-only, selection is command focus. */
+/* Deep Focus tokens alias platform --ts-* tokens; font, color, and size scales stay platform-owned. */
 :root {
   /* Surfaces & borders — alias to platform tokens. */
   --df-surface:           var(--ts-sidebar-bg);
@@ -32,10 +14,7 @@
   --df-text-secondary:    var(--ts-text-muted);
   --df-text-tertiary:     var(--ts-text-soft);
 
-  /* Semantic colors — brass/amber accent, platform success/warn/danger.
-     The platform also exposes a teal secondary accent (--ts-accent2) used
-     to distinguish read-only support from editable targets. Deep Focus mirrors
-     that distinction via --df-accent2. */
+  /* Mirror platform semantic colors; --df-accent2 distinguishes read-only support from editable targets. */
   --df-accent:            var(--ts-accent);
   --df-accent-soft:       var(--ts-accent-subtle);
   --df-accent2:           var(--ts-accent2);
@@ -49,9 +28,7 @@
   --df-focus-ring:        var(--ts-accent-subtle);
   --df-backdrop:          color-mix(in srgb, var(--ts-surface-terminal) 18%, transparent);
 
-  /* Typography — match the sidebar scale (scope-focus-row peer).
-     We deliberately use unitless line-heights so vertical rhythm
-     scales with font-size and rows don't feel double-spaced. */
+  /* Match the sidebar scale; unitless line heights keep row rhythm proportional. */
   --df-font-family:                var(--ts-font-sans);
   --df-text-editor-title-size:     0.78rem;   /* sidebar h2 */
   --df-text-editor-title-line:     1.3;

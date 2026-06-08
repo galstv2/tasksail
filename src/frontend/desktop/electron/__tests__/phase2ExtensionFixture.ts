@@ -1,4 +1,4 @@
-// Phase 2 confirmation fixture for the Lily/planner launch-extension path (test-only).
+// Confirmation fixture for the Lily/planner launch-extension path (test-only).
 //
 // resolveLilyPlannerLaunchExtensions runs the REAL backend createAgentExtensionStage, which
 // reads config/agent-extensions.default.json, .platform-state/{skills,plugins}/<id>/ runtime

@@ -125,7 +125,7 @@ export async function repairQueue(
 
   // Check 1: a marker is stranded iff BOTH the pending file AND the per-task
   // .task.json sidecar are missing. Under the per-task parallel model
-  // (§4.1B), the pending file is deleted immediately after activation
+        // In the parallel task model, the pending file is deleted immediately after activation
   // (operations.ts:704) while the marker persists for the active lifetime,
   // so "no pending file" alone is the legitimate steady state — not a
   // corruption signal. The .task.json sidecar (operations.ts:671) is the

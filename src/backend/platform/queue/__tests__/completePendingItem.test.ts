@@ -11,9 +11,6 @@ import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-// ---------------------------------------------------------------------------
-// Module-level mocks
-// ---------------------------------------------------------------------------
 
 vi.mock('../archive.js', () => ({
   fileTaskArchive: vi.fn(),
@@ -87,9 +84,6 @@ vi.mock('../../task-notifications/producer.js', () => ({
   recordTaskCompletedNotification: vi.fn().mockResolvedValue(null),
 }));
 
-// ---------------------------------------------------------------------------
-// Imports (after mocks)
-// ---------------------------------------------------------------------------
 
 import { fileTaskArchive } from '../archive.js';
 import {
@@ -107,9 +101,6 @@ import { getPlatformConfig } from '../../platform-config/get.js';
 import { recordTaskCompletedNotification } from '../../task-notifications/producer.js';
 import type { TaskReadonlyContextBinding } from '../taskJson.js';
 
-// ---------------------------------------------------------------------------
-// Typed mocks
-// ---------------------------------------------------------------------------
 
 const mockFileTaskArchive = vi.mocked(fileTaskArchive);
 const mockCompleteActiveItem = vi.mocked(completeActiveItem);
@@ -125,9 +116,6 @@ const mockRecordTaskCompletedNotification = vi.mocked(recordTaskCompletedNotific
 
 const FAKE_TASK_ID = 'test-task-001';
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 /**
  * Seed a real filesystem fixture: create activeItemsDir + marker + sentinel
@@ -202,9 +190,7 @@ function writeTaskSidecar(repoRoot: string, taskId: string, bindings: Array<{
   }, null, 2) + '\n');
 }
 
-// ---------------------------------------------------------------------------
 // Archive integration tests (using fake/repo with fs mocked for sentinels)
-// ---------------------------------------------------------------------------
 
 describe('completePendingItem archive integration', () => {
   let repoRoot: string;
@@ -791,9 +777,7 @@ describe('completePendingItem archive integration', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// §4.3 Sentinel ordering: five-step sequence test via filesystem state probes
-// ---------------------------------------------------------------------------
+  // Sentinel ordering test via filesystem state probes.
 
 describe('completePendingItem sentinel ordering (five-step test)', () => {
   let repoRoot: string;
@@ -824,21 +808,21 @@ describe('completePendingItem sentinel ordering (five-step test)', () => {
 
     // Verify sentinel exists before archival, and marker exists before finalize.
     mockFileTaskArchive.mockImplementation(async () => {
-      // Sentinel MUST exist at archival time (written in step 1 before step 2).
+    // Sentinel MUST exist at archival time.
       callOrder.push(existsSync(sentinelPath) ? 'sentinel-before-archival:ok' : 'sentinel-before-archival:MISSING');
       callOrder.push('archival');
       return { passed: true, stdout: '{}', stderr: '', exitCode: 0 };
     });
 
     mockFinalizeTaskWorktrees.mockImplementation(async () => {
-      // Sentinel MUST exist at finalize time (step 3 before sentinel-delete step 5).
-      // Marker MUST exist at finalize time (step 3 before marker-delete step 4).
+    // Sentinel MUST exist at finalize time before sentinel-delete.
+    // Marker MUST exist at finalize time before marker-delete.
       callOrder.push(existsSync(sentinelPath) ? 'sentinel-before-finalize:ok' : 'sentinel-before-finalize:MISSING');
       callOrder.push(existsSync(markerPath) ? 'marker-before-finalize:ok' : 'marker-before-finalize:MISSING');
       callOrder.push('finalize');
     });
 
-    // completeActiveItem does NOT delete the marker (marker-delete is step 4 in completePendingItem).
+    // completeActiveItem does NOT delete the marker; completePendingItem owns marker-delete.
     mockCompleteActiveItem.mockImplementation(async () => {
       callOrder.push('completeActiveItem');
       return { status: 'completed' as const, taskId };
@@ -869,9 +853,7 @@ describe('completePendingItem sentinel ordering (five-step test)', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// F9: completeActiveItem returns { status: 'no-active-marker', taskId }
-// ---------------------------------------------------------------------------
+  // completeActiveItem returns { status: 'no-active-marker', taskId }.
 
 describe('completeActiveItem F9 — no-active-marker (real module)', () => {
   it('returns { status: no-active-marker, taskId } when marker is absent', async () => {
@@ -904,9 +886,7 @@ describe('completeActiveItem F9 — no-active-marker (real module)', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Crash-recovery: mid-archival
-// ---------------------------------------------------------------------------
 
 describe('completePendingItem crash-recovery: mid-archival', () => {
   let repoRoot: string;
@@ -958,9 +938,7 @@ describe('completePendingItem crash-recovery: mid-archival', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Crash-recovery: mid-finalize
-// ---------------------------------------------------------------------------
 
 describe('completePendingItem crash-recovery: mid-finalize', () => {
   let repoRoot: string;
@@ -996,7 +974,7 @@ describe('completePendingItem crash-recovery: mid-finalize', () => {
       completePendingItem({ taskId, skipValidation: true, repoRoot }),
     ).rejects.toThrow('Crash during finalize');
 
-    // Sentinel must survive; marker survives because finalize is step 3, marker-delete is step 4.
+    // Sentinel must survive; marker survives because marker-delete has not run.
     expect(existsSync(sentinelPath)).toBe(true);
     expect(existsSync(markerPath)).toBe(true);
 
@@ -1012,9 +990,7 @@ describe('completePendingItem crash-recovery: mid-finalize', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Crash-recovery: between marker-delete and sentinel-delete
-// ---------------------------------------------------------------------------
 
 describe('completePendingItem crash-recovery: sentinel-without-marker', () => {
   let repoRoot: string;
@@ -1040,7 +1016,7 @@ describe('completePendingItem crash-recovery: sentinel-without-marker', () => {
   it('recovery with sentinel-without-marker: finalize NOT re-driven; sentinel unlinked', async () => {
     const activeItemsDir = path.join(repoRoot, 'AgentWorkSpace', 'pendingitems', '.active-items');
     mkdirSync(activeItemsDir, { recursive: true });
-    // State after crash between step 4 (marker deleted) and step 5 (sentinel deleted):
+    // State after crash between marker delete and sentinel delete:
     // sentinel present, marker absent.
     const sentinelPath = path.join(activeItemsDir, `${taskId}.completing`);
     writeFileSync(sentinelPath, JSON.stringify({ ts: Date.now() }));
@@ -1058,9 +1034,7 @@ describe('completePendingItem crash-recovery: sentinel-without-marker', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// F38: idempotent snapshot
-// ---------------------------------------------------------------------------
+  // Idempotent snapshot.
 
 describe('completePendingItem F38 — idempotent snapshot', () => {
   let repoRoot: string;
@@ -1107,9 +1081,7 @@ describe('completePendingItem F38 — idempotent snapshot', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// §4.6: queue-lock release ordering (no EEXIST re-entrancy)
-// ---------------------------------------------------------------------------
+  // Queue-lock release ordering (no EEXIST re-entrancy).
 
 describe('completePendingItem §4.6 lock-release ordering', () => {
   let repoRoot: string;

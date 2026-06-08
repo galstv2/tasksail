@@ -21,9 +21,9 @@ _REPO_ROOT = Path(__file__).resolve().parents[4]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from src.backend.mcp.pack_constants import ALLOWED_REPO_CATEGORIES
+from src.backend.mcp.pack.constants import ALLOWED_REPO_CATEGORIES
+from src.backend.mcp.pack.writer import PackWriter, PackWriterContended
 from src.backend.mcp.pack_schemas.errors import PackSchemaError
-from src.backend.mcp.pack_writer import PackWriter, PackWriterContended
 from src.backend.scripts.python.lib.logging_config import configure_logging
 
 
@@ -105,7 +105,6 @@ def main(argv=None) -> int:  # type: ignore[no-untyped-def]
             write_protocol_stdout(str(_ok(args.repo_id, "repo_category")) + '\n')
 
         else:
-            # --primary-focus-area-ids
             new_ids = [
                 fid.strip()
                 for fid in (args.primary_focus_area_ids or "").split(",")

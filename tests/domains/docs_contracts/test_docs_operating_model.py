@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import re
 import unittest
 from pathlib import Path
 
@@ -8,237 +10,212 @@ class DocsOperatingModelTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.repo_root = Path(__file__).resolve().parents[3]
+        cls.docs_root = cls.repo_root / "docs"
         cls.readme = (cls.repo_root / "README.md").read_text(encoding="utf-8")
-        cls.docs_index = (
-            cls.repo_root / "docs" / "README.md"
+        cls.docs_index = (cls.docs_root / "README.md").read_text(encoding="utf-8")
+        cls.desktop_readme = (
+            cls.repo_root / "src" / "frontend" / "desktop" / "README.md"
         ).read_text(encoding="utf-8")
-        cls.onboarding = (
-            cls.repo_root / "docs" / "getting-started" / "onboarding.md"
+        cls.env_example = (cls.repo_root / ".env.example").read_text(
+            encoding="utf-8"
+        )
+        cls.command_matrix = (
+            cls.repo_root / "scratchspace" / "docs-alignment" / "command-matrix.md"
         ).read_text(encoding="utf-8")
-        cls.operating_model = (
-            cls.repo_root / "docs" / "workflow" / "operating-model.md"
+        cls.environment_matrix = (
+            cls.repo_root
+            / "scratchspace"
+            / "docs-alignment"
+            / "environment-matrix.md"
         ).read_text(encoding="utf-8")
-        cls.platform_spec = (
-            cls.repo_root / "docs" / "architecture" / "platform-spec.md"
+        cls.platform_coverage = (
+            cls.repo_root
+            / "scratchspace"
+            / "docs-alignment"
+            / "platform-module-coverage.md"
         ).read_text(encoding="utf-8")
+        cls.python_service_map = (
+            cls.repo_root
+            / "scratchspace"
+            / "docs-alignment"
+            / "python-service-map.md"
+        ).read_text(encoding="utf-8")
+        cls.screenshot_manifest = (
+            cls.repo_root
+            / "scratchspace"
+            / "docs-alignment"
+            / "screenshot-manifest.md"
+        ).read_text(encoding="utf-8")
+        cls.package_json = json.loads(
+            (cls.repo_root / "package.json").read_text(encoding="utf-8")
+        )
+        cls.desktop_package_json = json.loads(
+            (
+                cls.repo_root
+                / "src"
+                / "frontend"
+                / "desktop"
+                / "package.json"
+            ).read_text(encoding="utf-8")
+        )
 
-    # (doc_attr, phrase) tuples — every phrase must appear in the named doc.
-    _REQUIRED_PLATFORM_CONCEPTS: list[tuple[str, str]] = [
-        # README sections and commands
-        ("readme", "## What this repo is"),
-        ("readme", "## Prerequisites"),
-        ("readme", "## Installation"),
-        ("readme", "## Local auth expectations"),
-        ("readme", "## How to start services"),
-        ("readme", "## How to validate local setup"),
-        ("readme", "## How to start the queue and seed a starter task"),
-        ("readme", "## Workflow and handoff rules"),
-        ("readme", "## QA routing rule"),
-        ("readme", "## Troubleshooting"),
-        ("readme", "## Security expectations"),
-        ("readme", "## MCP endpoint config"),
-        ("readme", "## External context packs"),
-        (
-            "readme",
-            "tsx src/backend/platform/context-pack/cli.ts --context-pack-dir "
-            "/path/to/context-pack",
-        ),
-        ("readme", "--bootstrap-answers-file"),
-        ("readme", "pnpm run agent -- --agent-id <agent-id>"),
-        # README agent invocation seam
-        ("readme", ".github/agents/"),
-        ("readme", ".github/agents/registry.json"),
-        ("readme", "repository-managed entrypoint for approved workflow roles"),
-        ("readme", "compliant repository-managed entrypoint"),
-        ("readme", "reserved for controlled internal orchestrators"),
-        ("readme", "Raw provider CLI invocation, currently `copilot --agent <agent-id>`"),
-        ("readme", ".platform-state/runtime/guardrails/"),
-        # README task-scoped wrapper lifecycle
-        ("readme", "fresh task-scoped provider subprocess, currently `copilot --agent`"),
-        ("readme", "The active CLI provider defaults to `copilot`"),
-        ("readme", "does not add a task-end `/compact` hook"),
-        # README autonomy profiles
-        ("readme", "registry-backed autonomy profile"),
-        ("readme", "`repo-executor`"),
-        ("readme", "`artifact-author`"),
-        (
-            "readme",
-            "dangerous commands such as `git add`, `git commit`, `git push`, `rm`",
-        ),
-        (
-            "readme",
-            "If no active context pack is present, broad\n"
-            "  autonomous execution is denied",
-        ),
-        # README retrospective guardrails
-        ("readme", "AgentWorkSpace/tasks/<taskId>/handoffs/retrospective-input.md"),
-        ("readme", "target 1 minute and hard cap 2 minutes"),
-        (
-            "readme",
-            "qmd/context-packs/{context-pack-id}/archive/retrospectives/"
-            "{repo}/{year}/{task-id}/retrospective.md",
-        ),
-        ("readme", "qmd/global/retrospectives/history/{year}/{task-id}/retrospective.md"),
-        ("readme", "qmd/global/retrospectives/shared-retrospective-memory.md"),
-        # README validation lanes
-        ("readme", "make test-smoke"),
-        ("readme", "make test-domain DOMAIN=..."),
-        ("readme", "make test-contracts"),
-        ("readme", "make local-checks"),
-        ("readme", "changed-path domain lane for pull requests"),
-        ("readme", "Python suite"),
-        ("readme", "Docs Check"),
-        # Onboarding starter-task walkthrough
-        ("onboarding", "## Starter-task walkthrough"),
-        ("onboarding", "pnpm run validate"),
-        ("onboarding", "pnpm run plan-dropbox-task"),
-        ("onboarding", "Confirm the publish path moves it into `AgentWorkSpace/pendingitems/`"),
-        ("onboarding", "pnpm run queue-status"),
-        (
-            "onboarding",
-            "tsx src/backend/platform/context-pack/cli.ts --context-pack-dir "
-            "/path/to/context-pack",
-        ),
-        ("onboarding", "--bootstrap-answers-file"),
-        ("onboarding", "QMD"),
-        ("onboarding", "pnpm run plan-followup-task"),
-        ("onboarding", "parent_task_id"),
-        ("onboarding", "root_task_id"),
-        ("onboarding", "scoped carry-forward context only"),
-        ("onboarding", "pnpm run agent -- --agent-id <agent-id>"),
-        # Onboarding validation lanes
-        ("onboarding", "make test-smoke"),
-        ("onboarding", "make test-domain DOMAIN=workflow"),
-        ("onboarding", "make test-contracts"),
-        ("onboarding", "make local-checks"),
-        ("onboarding", "docs-and-contract lane"),
-        ("onboarding", "desktop shell"),
-        ("onboarding", "Python suite"),
-        # Operating model role flow
-        ("operating_model", "Product Manager completes `AgentWorkSpace/tasks/<taskId>/handoffs/professional-task.md`"),
-        ("operating_model", "AgentWorkSpace/tasks/<taskId>/handoffs/implementation-spec.md"),
-        ("operating_model", "AgentWorkSpace/tasks/<taskId>/ImplementationSteps/sliceN.md"),
-        ("operating_model", "QA → Software Engineer → QA"),
-        ("operating_model", ".github/agents/"),
-        ("operating_model", "pnpm run agent -- --agent-id <agent-id>"),
-        ("operating_model", "product-manager"),
-        ("operating_model", "software-engineer"),
-        ("operating_model", "gpt-5.4"),
-        ("operating_model", "claude-sonnet-4.6"),
-        ("operating_model", "TASKSAIL_CLI_PROVIDER"),
-        ("operating_model", "`cli_provider`"),
-        ("operating_model", "tsx src/backend/platform/context-pack/cli.ts"),
-        ("operating_model", "--bootstrap-repo-root"),
-        ("operating_model", "Follow-up work after closeout becomes a new child task"),
-        ("operating_model", "`parent_task_id`"),
-        ("operating_model", "`root_task_id`"),
-        # Operating model agent wrapper
-        ("operating_model", ".github/agents/registry.json"),
-        (
-            "operating_model",
-            "delegates runtime role legality checks to the workflow-policy validator",
-        ),
-        ("operating_model", "approved\n  launch seam"),
-        ("operating_model", "machine-readable\n  runtime evidence"),
-        ("operating_model", "wrapper is the compliant launch seam"),
-        ("operating_model", ".platform-state/runtime/guardrails/"),
-        # Operating model autonomy + retrospective
-        ("operating_model", "registry-backed autonomy profile"),
-        ("operating_model", "`repo-executor`"),
-        ("operating_model", "`artifact-author`"),
-        ("operating_model", "high-autonomy execution fails closed"),
-        (
-            "operating_model",
-            "workflow team completes `AgentWorkSpace/tasks/<taskId>/handoffs/retrospective-input.md`",
-        ),
-        ("operating_model", "target 1 minute"),
-        ("operating_model", "hard cap 2 minutes"),
-        ("operating_model", "archive/retrospectives/{repo}/{year}/{task-id}/retrospective.md"),
-        ("operating_model", "qmd/global/retrospectives/"),
-        # Operating model wrapper lifecycle
-        ("operating_model", "fresh task-scoped provider subprocess, currently `copilot --agent`"),
-        ("operating_model", "does not add an end-of-task `/compact` step"),
-        # Operating model validation lanes
-        ("operating_model", "make test-smoke"),
-        ("operating_model", "make test-domain DOMAIN=<name>"),
-        ("operating_model", "make test-contracts"),
-        ("operating_model", "make local-checks"),
-        ("operating_model", "changed-path domain lane for"),
-        ("operating_model", "docs-and-contract lane"),
-        ("operating_model", "desktop shell\n  contract checks"),
-        ("operating_model", "Python suite"),
-        # Platform spec source-of-truth
-        ("platform_spec", "`AgentWorkSpace/dropbox/` is a trigger only."),
-        ("platform_spec", "`AgentWorkSpace/pendingitems/` is the active queue."),
-        ("platform_spec", "`AgentWorkSpace/tasks/<taskId>/handoffs/` is the active task workspace."),
-        ("platform_spec", "QMD is the long-term agent memory archive."),
-        ("platform_spec", "Parent-task QMD memory is scoped reference context"),
-        ("platform_spec", "Follow-up work enters as a new child task"),
-        ("platform_spec", "`parent_task_id`"),
-        ("platform_spec", "`root_task_id`"),
-        # Platform spec agent layer
-        ("platform_spec", "workflow agent registry and profiles in `.github/agents/`"),
-        ("platform_spec", ".github/agents/registry.json"),
-        ("platform_spec", "pnpm run agent -- --agent-id <agent-id>"),
-        # Platform spec retrospective
-        ("platform_spec", "AgentWorkSpace/tasks/<taskId>/handoffs/retrospective-input.md` is a required closeout artifact"),
-        ("platform_spec", "qmd/global/retrospectives"),
-        ("platform_spec", "shared-retrospective-memory.md"),
-        ("platform_spec", "/retrospective"),
-        ("platform_spec", "/shared-retrospective-memory"),
-        # Platform spec wrapper lifecycle
-        (
-            "platform_spec",
-            "fresh\n"
-            "task-scoped provider subprocess, currently `copilot --agent`",
-        ),
-        ("platform_spec", "Provider selection resolves from an explicit runtime request"),
-        ("platform_spec", "does not add an end-of-task\n`/compact` step"),
-        # External MCP — operating model
-        ("operating_model", "config/mcp-registry-external.default.json"),
-        ("operating_model", ".platform-state/mcp-registry-external.json"),
-        ("operating_model", "provider-specific home variables such as\n  `COPILOT_HOME` are not exported"),
-        ("operating_model", "visibility"),
-        # External MCP — platform spec
-        ("platform_spec", "config/mcp-registry-external.default.json"),
-        ("platform_spec", ".platform-state/mcp-registry-external.json"),
-        ("platform_spec", "per-launch"),
-        ("platform_spec", "copilot-home"),
-        ("platform_spec", "fail-closed"),
-        ("platform_spec", "visibility"),
-    ]
+    REQUIRED_GETTING_STARTED = (
+        "00-what-is-tasksail.md",
+        "01-install-prerequisites.md",
+        "02-first-run.md",
+        "03-create-your-first-task.md",
+        "04-troubleshooting.md",
+        "agent-setup-assistant.md",
+    )
 
-    def test_docs_contain_required_platform_concepts(self) -> None:
-        for attr, phrase in self._REQUIRED_PLATFORM_CONCEPTS:
-            with self.subTest(doc=attr, phrase=phrase[:60]):
-                self.assertIn(phrase, getattr(self, attr))
+    STALE_PUBLIC_PATTERNS = (
+        r"docs/(architecture|workflow|qmd|reference)",
+        r"cross-os-setup\.md",
+        r"wsl-smoke\.md",
+        r"getting-started/onboarding\.md",
+        r"migration/shared-mcp-container\.md",
+        r"Electron 35",
+        r"--bootstrap-answers-file",
+        r"plan-followup-task",
+        r"watch-dropbox",
+        r"agent:status",
+        r"agent:kill",
+        r"gpt-5\.4",
+        r"claude-sonnet-4\.6",
+    )
 
-    _STALE_REFERENCES: list[tuple[str, str]] = [
-        ("docs_index", "## Plans"),
-        ("docs_index", "ParallelAgentPlan/README.md"),
-        ("docs_index", "AgentHardeningPlan/README.md"),
-    ]
+    def test_docs_tree_has_two_reader_paths(self) -> None:
+        top_dirs = {path.name for path in self.docs_root.iterdir() if path.is_dir()}
+        top_files = {path.name for path in self.docs_root.iterdir() if path.is_file()}
 
-    def test_docs_omit_stale_references(self) -> None:
-        for attr, phrase in self._STALE_REFERENCES:
-            with self.subTest(doc=attr, phrase=phrase):
-                self.assertNotIn(phrase, getattr(self, attr))
+        self.assertEqual(top_dirs, {"getting-started", "technical"})
+        self.assertEqual(top_files, {"README.md"})
 
-    def test_external_mcp_docs_do_not_overclaim(self) -> None:
-        """External MCP docs must not claim .github/copilot is an MCP
-        registration surface or promise guaranteed tool usage."""
-        for doc_attr in ("operating_model", "platform_spec"):
-            doc = getattr(self, doc_attr)
-            with self.subTest(doc=doc_attr, check="no copilot registration claim"):
-                self.assertNotIn(
-                    ".github/copilot/ is used for MCP registration",
-                    doc,
-                )
-            with self.subTest(doc=doc_attr, check="no guaranteed usage claim"):
-                self.assertNotIn(
-                    "guarantees tool usage",
-                    doc,
-                )
+    def test_required_getting_started_files_exist_and_are_closed(self) -> None:
+        getting_started = self.docs_root / "getting-started"
+        forbidden_link = re.compile(
+            r"\]\((\.\./)?technical/|\]\(/?docs/technical/|docs/technical/"
+        )
+
+        for filename in self.REQUIRED_GETTING_STARTED:
+            path = getting_started / filename
+            with self.subTest(file=filename):
+                text = path.read_text(encoding="utf-8")
+                self.assertGreater(len(text.strip()), 80)
+                self.assertNotRegex(text, forbidden_link)
+
+    def test_entry_surfaces_are_thin_routes(self) -> None:
+        self.assertIn("[TaskSail docs](docs/README.md)", self.readme)
+        self.assertIn(
+            "[Getting Started](docs/getting-started/00-what-is-tasksail.md)",
+            self.readme,
+        )
+        self.assertIn(
+            "[Technical Reference](docs/technical/architecture/overview.md)",
+            self.readme,
+        )
+        self.assertLess(self.readme.count("\n"), 80)
+
+        self.assertIn("../../../docs/README.md", self.desktop_readme)
+        self.assertIn(
+            "../../../docs/getting-started/00-what-is-tasksail.md",
+            self.desktop_readme,
+        )
+        self.assertLess(self.desktop_readme.count("\n"), 60)
+
+    def test_public_docs_omit_stale_paths_aliases_and_model_pins(self) -> None:
+        public_text = "\n".join(
+            [
+                self.readme,
+                self.docs_index,
+                self.desktop_readme,
+                self.env_example,
+                *[
+                    path.read_text(encoding="utf-8")
+                    for path in self.docs_root.rglob("*.md")
+                ],
+            ]
+        )
+        for pattern in self.STALE_PUBLIC_PATTERNS:
+            with self.subTest(pattern=pattern):
+                self.assertNotRegex(public_text, pattern)
+
+    def test_technical_pages_have_final_source_footers(self) -> None:
+        link_re = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
+        for path in sorted((self.docs_root / "technical").rglob("*.md")):
+            text = path.read_text(encoding="utf-8")
+            with self.subTest(path=str(path.relative_to(self.repo_root))):
+                self.assertEqual(text.count("\n## Sources of truth\n"), 1)
+                _, footer = text.split("\n## Sources of truth\n")
+                self.assertNotIn("\n## ", footer)
+                links = [
+                    target.split("#", 1)[0]
+                    for target in link_re.findall(footer)
+                    if not target.startswith(("http://", "https://", "mailto:"))
+                ]
+                self.assertTrue(links)
+                for target in links:
+                    self.assertTrue((path.parent / target).resolve().exists())
+
+    def test_documented_commands_are_backed_by_current_scripts(self) -> None:
+        root_scripts = self.package_json["scripts"]
+        desktop_scripts = self.desktop_package_json["scripts"]
+
+        for script in (
+            "setup",
+            "validate",
+            "plan-dropbox-task",
+            "queue-status",
+            "repair",
+            "check-sizes",
+            "check-comments",
+            "check-open-source-readiness",
+            "check-test-floor",
+        ):
+            with self.subTest(root_script=script):
+                self.assertIn(script, root_scripts)
+                self.assertIn(f"pnpm run {script}", self.command_matrix)
+
+        for script in ("dev", "test", "lint", "build", "validate:desktop"):
+            with self.subTest(desktop_script=script):
+                self.assertIn(script, desktop_scripts)
+                self.assertIn(f"npm run {script}", self.command_matrix)
+
+    def test_environment_platform_and_python_inventories_cover_sources(self) -> None:
+        for term in (
+            "REPO_CONTEXT_MCP_REQUIRE_GET_AUTH",
+            "TASKSAIL_LOCAL_MCP_ENABLED",
+            "external_mcp_local_enabled",
+            "PIP_CONFIG_FILE",
+            "TASKSAIL_CLI_PROVIDER",
+        ):
+            with self.subTest(env=term):
+                self.assertIn(term, self.environment_matrix)
+
+        for module in sorted(
+            path.name
+            for path in (self.repo_root / "src/backend/platform").iterdir()
+            if path.is_dir()
+        ):
+            with self.subTest(module=module):
+                self.assertRegex(self.platform_coverage, rf"(^|[| ]){re.escape(module)}([| ]|$)")
+
+        for service in (
+            "context_estate",
+            "pack",
+            "pack_schemas",
+            "repo_context_mcp",
+            "archive",
+            "retrospective",
+            "reinforcement",
+            "workspace_context_sync",
+        ):
+            with self.subTest(service=service):
+                self.assertIn(service, self.python_service_map)
+
+    def test_screenshot_manifest_records_missing_evidence_without_assets(self) -> None:
+        self.assertIn("No screenshots were captured", self.screenshot_manifest)
+        self.assertFalse((self.docs_root / "getting-started" / "images").exists())
 
 
 if __name__ == "__main__":

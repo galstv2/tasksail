@@ -579,7 +579,7 @@ describe('runRoleAgent skip-workflow-check guardrail', () => {
     // Cross-task isolation regression: Alice on T1 must not see T2's task subtree
     // and vice versa. The only --add-dir backstop preventing two parallel
     // artifact-author launches from writing into each other's task workspaces
-    // lives in roleAgent.ts §3b. If that catch-all reverts to bare AgentWorkSpace
+    // lives in roleAgent.ts. If that catch-all reverts to bare AgentWorkSpace
     // both launches would share the same writable surface and this test fails.
     process.env['RUN_ROLE_AGENT_ALLOW_INTERNAL_BYPASS'] = 'true';
     process.env['RUN_ROLE_AGENT_ORCHESTRATOR_ID'] = 'pipeline-sequencer';

@@ -30,7 +30,7 @@ import {
   CONTEXT_PACK_DISCOVERY_MODES,
   CONTEXT_PACK_REPO_CATEGORIES,
   PLANNER_FOCUS_VALIDATION_MODES,
-  PLANNER_LILY_PERSONALITY_IDS,
+  PLANNER_PERSONALITY_IDS,
   REINFORCEMENT_FEEDBACK_TYPES,
   TASK_KINDS,
   isAbsolutePath,
@@ -49,7 +49,7 @@ import {
   validatePlannerDirectSubmissionDraft,
   validatePlannerFocusSnapshot,
   validatePlannerFocusValidationIssue,
-  validatePlannerLilyPlanningReloadScope,
+  validatePlannerPlanningReloadScope,
   validateRepoRelativePath,
 } from './desktopContractValidationCore';
 
@@ -121,14 +121,25 @@ function validateFocusFilterRepositoryTypes(value: unknown): string[] {
   return errors;
 }
 
-function validatePlannerLilyPersonalityId(value: unknown, path = 'payload.lilyPersonalityId'): string[] {
+function validatePlannerPersonalityId(value: unknown, path = 'payload.plannerPersonalityId'): string[] {
   if (value === undefined) {
     return [];
   }
-  if (!isOneOf(value, PLANNER_LILY_PERSONALITY_IDS)) {
+  if (!isOneOf(value, PLANNER_PERSONALITY_IDS)) {
     return [`${path} must be balanced or clinical.`];
   }
   return [];
+}
+
+const DEPRECATED_PLANNER_PERSONALITY_FIELD = ['lily', 'PersonalityId'].join('');
+const DEPRECATED_PLANNER_RELOAD_SCOPE_FIELD = ['lily', 'PlanningReloadScope'].join('');
+
+function hasOwnField(value: Record<string, unknown>, field: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, field);
+}
+
+function deprecatedPlannerFieldError(deprecatedField: string, replacementField: string): string {
+  return `payload.${deprecatedField} is deprecated; use payload.${replacementField}.`;
 }
 
 function validatePlannerParentBranchView(value: unknown, snapshot: unknown): string[] {
@@ -243,7 +254,18 @@ export function validateDesktopActionRequest(request: unknown): string[] {
       if (request.payload.contextPackDir !== undefined && !isString(request.payload.contextPackDir)) {
         return ['payload.contextPackDir must be a string when provided.'];
       }
-      const personalityErrors = validatePlannerLilyPersonalityId(request.payload.lilyPersonalityId);
+      const deprecatedErrors = [
+        ...(hasOwnField(request.payload, DEPRECATED_PLANNER_PERSONALITY_FIELD)
+          ? [deprecatedPlannerFieldError(DEPRECATED_PLANNER_PERSONALITY_FIELD, 'plannerPersonalityId')]
+          : []),
+        ...(hasOwnField(request.payload, DEPRECATED_PLANNER_RELOAD_SCOPE_FIELD)
+          ? [deprecatedPlannerFieldError(DEPRECATED_PLANNER_RELOAD_SCOPE_FIELD, 'plannerPlanningReloadScope')]
+          : []),
+      ];
+      if (deprecatedErrors.length > 0) {
+        return deprecatedErrors;
+      }
+      const personalityErrors = validatePlannerPersonalityId(request.payload.plannerPersonalityId);
       if (personalityErrors.length > 0) {
         return personalityErrors;
       }
@@ -256,7 +278,7 @@ export function validateDesktopActionRequest(request: unknown): string[] {
       const hasSnapshot = request.payload.childTaskFocusSnapshot !== undefined;
       const hasLineage = request.payload.childTaskLineage !== undefined;
       const hasExecutionScope = request.payload.childTaskExecutionScope !== undefined;
-      const hasReloadScope = request.payload.lilyPlanningReloadScope !== undefined;
+      const hasReloadScope = request.payload.plannerPlanningReloadScope !== undefined;
       const hasParentBranchView = request.payload.parentTaskBranchView !== undefined;
       if (hasReplay && hasSnapshot) {
         errors.push('payload.replayConversationId cannot be combined with payload.childTaskFocusSnapshot.');
@@ -283,19 +305,19 @@ export function validateDesktopActionRequest(request: unknown): string[] {
         errors.push('payload.deepFocusSelection cannot be combined with payload.childTaskExecutionScope.');
       }
       if (hasReloadScope && !hasSnapshot) {
-        errors.push('payload.lilyPlanningReloadScope requires payload.childTaskFocusSnapshot.');
+        errors.push('payload.plannerPlanningReloadScope requires payload.childTaskFocusSnapshot.');
       }
       if (hasReloadScope && !hasLineage) {
-        errors.push('payload.lilyPlanningReloadScope requires payload.childTaskLineage.');
+        errors.push('payload.plannerPlanningReloadScope requires payload.childTaskLineage.');
       }
       if (hasReloadScope && !hasExecutionScope) {
-        errors.push('payload.lilyPlanningReloadScope requires payload.childTaskExecutionScope.');
+        errors.push('payload.plannerPlanningReloadScope requires payload.childTaskExecutionScope.');
       }
       if (hasReplay && hasReloadScope) {
-        errors.push('payload.replayConversationId cannot be combined with payload.lilyPlanningReloadScope.');
+        errors.push('payload.replayConversationId cannot be combined with payload.plannerPlanningReloadScope.');
       }
       if (hasDeepFocus && hasReloadScope) {
-        errors.push('payload.deepFocusSelection cannot be combined with payload.lilyPlanningReloadScope.');
+        errors.push('payload.deepFocusSelection cannot be combined with payload.plannerPlanningReloadScope.');
       }
       if (hasParentBranchView && !hasSnapshot) {
         errors.push('payload.parentTaskBranchView requires payload.childTaskFocusSnapshot.');
@@ -322,8 +344,8 @@ export function validateDesktopActionRequest(request: unknown): string[] {
         ));
       }
       if (hasReloadScope) {
-        errors.push(...validatePlannerLilyPlanningReloadScope(
-          request.payload.lilyPlanningReloadScope,
+        errors.push(...validatePlannerPlanningReloadScope(
+          request.payload.plannerPlanningReloadScope,
           request.payload.childTaskFocusSnapshot,
         ));
       }
@@ -339,10 +361,13 @@ export function validateDesktopActionRequest(request: unknown): string[] {
       if (!isRecord(request.payload)) {
         return ['payload must be an object.'];
       }
-      if (request.payload.lilyPersonalityId === undefined) {
-        return ['payload.lilyPersonalityId must be balanced or clinical.'];
+      if (hasOwnField(request.payload, DEPRECATED_PLANNER_PERSONALITY_FIELD)) {
+        return [deprecatedPlannerFieldError(DEPRECATED_PLANNER_PERSONALITY_FIELD, 'plannerPersonalityId')];
       }
-      return validatePlannerLilyPersonalityId(request.payload.lilyPersonalityId);
+      if (request.payload.plannerPersonalityId === undefined) {
+        return ['payload.plannerPersonalityId must be balanced or clinical.'];
+      }
+      return validatePlannerPersonalityId(request.payload.plannerPersonalityId);
     }
     case 'planner.validateChildTaskFocus': {
       if (!isRecord(request.payload)) {

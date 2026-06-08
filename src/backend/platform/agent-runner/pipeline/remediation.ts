@@ -20,7 +20,7 @@ const log = createLogger('platform/agent-runner/pipeline/remediation');
 export const ADVISORY_FINDING_HEADING = '## QA Advisory Finding';
 
 /**
- * Read issues.md and return the normalized Review Outcome value,
+ * Read the issues handoff and return the normalized Review Outcome value,
  * or undefined if the file or section is missing.
  */
 async function readReviewOutcome(
@@ -43,7 +43,7 @@ async function readReviewOutcome(
 }
 
 /**
- * Check whether issues.md contains blocking severity findings.
+ * Check whether the issues handoff contains blocking severity findings.
  */
 export async function remediationHasBlockingFindings(
   handoffsDir: string,
@@ -53,7 +53,7 @@ export async function remediationHasBlockingFindings(
 }
 
 /**
- * Check whether issues.md contains an advisory Review Outcome.
+ * Check whether the issues handoff contains an advisory Review Outcome.
  */
 export async function issuesHasAdvisoryOutcome(
   handoffsDir: string,
@@ -63,7 +63,7 @@ export async function issuesHasAdvisoryOutcome(
 }
 
 /**
- * Build a `## QA Advisory Finding` markdown block from issues.md.
+ * Build a `## QA Advisory Finding` markdown block from the issues handoff.
  * Returns undefined if the outcome is not advisory or the finding is empty.
  */
 export async function buildAdvisoryFindingSection(
@@ -128,7 +128,7 @@ async function resetHandoffFiles(
 }
 
 /**
- * Reset issues.md finding sections to template state,
+ * Reset issues handoff finding sections to template state,
  * preserving Task Metadata.
  */
 export async function remediationClearQaFindings(

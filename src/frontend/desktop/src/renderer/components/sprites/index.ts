@@ -1,19 +1,19 @@
 import type { RoleKind } from '../../../shared/desktopContractProvider';
 
-import { LilySprite } from './LilySprite';
-import { AliceSprite } from './AliceSprite';
-import { DaltonSprite } from './DaltonSprite';
-import { DaltonVerifySprite } from './DaltonVerifySprite';
-import { RonSprite } from './RonSprite';
+import { PlannerSprite } from './PlannerSprite';
+import { ProductManagerSprite } from './ProductManagerSprite';
+import { BuilderSprite } from './BuilderSprite';
+import { VerifierSprite } from './VerifierSprite';
+import { QaSprite } from './QaSprite';
 
 export type AgentSpriteProps = { size?: number };
 
 export const roleKindSpriteMap: Record<RoleKind, (props: AgentSpriteProps) => JSX.Element> = {
-  planner: LilySprite,
-  pm: AliceSprite,
-  builder: DaltonSprite,
-  verifier: DaltonVerifySprite,
-  qa: RonSprite,
+  planner: PlannerSprite,
+  pm: ProductManagerSprite,
+  builder: BuilderSprite,
+  verifier: VerifierSprite,
+  qa: QaSprite,
 };
 
-export { LilySprite, AliceSprite, DaltonSprite, DaltonVerifySprite, RonSprite };
+export { PlannerSprite, ProductManagerSprite, BuilderSprite, VerifierSprite, QaSprite };

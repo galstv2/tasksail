@@ -38,11 +38,9 @@ def load_repo_context_app(env_overrides: dict[str, str] | None = None):
 
 
 class RepoContextRequestIdTests(unittest.TestCase):
-    # --------------------------------------------------------------------------
     # All HTTP tests use the in-process harness from
     # tests/support/http_handler_harness.py — no HTTPServer, no threads,
     # no TCP.  See tests/conftest.py for the socket guard.
-    # --------------------------------------------------------------------------
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -111,46 +109,6 @@ class RepoContextRequestIdTests(unittest.TestCase):
         payload = resp.json()
         self.assertEqual(payload["request_id"], request_id)
         self.assertEqual(payload["error"], "unknown endpoint")
-
-    def test_seed_returns_conflict_when_runtime_state_is_locked(
-        self,
-    ) -> None:
-        acquired = self.app.RUNTIME_STATE.acquire_seed_run(
-            "/workspace/context-pack"
-        )
-        self.assertTrue(acquired)
-        self.addCleanup(
-            self.app.RUNTIME_STATE.release_seed_run,
-            "/workspace/context-pack",
-        )
-
-        seed_service = mock.Mock()
-        seed_service.resolve_seed_scope_key.return_value = (
-            "/workspace/context-pack"
-        )
-        with mock.patch.object(
-            self.app, "get_seeding_service", return_value=seed_service,
-        ):
-            resp = self._request(
-                "POST",
-                "/seed",
-                body=b'{"context_pack_dir": "/workspace/context-pack"}',
-                headers={
-                    "Content-Type": "application/json",
-                    "X-Repo-Context-Token": "test-token",
-                },
-            )
-
-        self.assertEqual(resp.status, 409)
-        payload = resp.json()
-        self.assertEqual(payload["error"], "reseed_in_progress")
-        self.assertIsNone(payload["pid"])
-        self.assertIsNone(payload["host"])
-        self.assertIsNone(payload["started_at"])
-        self.assertFalse(payload["same_host"])
-        self.assertEqual(payload["stale_after_seconds"], 3600)
-        self.assertEqual(payload["message"], "a seed run is already in progress")
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,8 +1,8 @@
-import type { ContextPackCreationModalProps } from '../../contextPackCreationTypes';
-import { isDistributedEstateMode, isMonolithEstateMode } from '../../contextPackModeUtils';
+import type { ContextPackCreationModalProps } from '../../contextPack/contextPackCreationTypes';
+import { isDistributedEstateMode, isMonolithEstateMode } from '../../contextPack/contextPackModeUtils';
 import RepositoryCard from './RepositoryCard';
 import FocusAreaCard from './FocusAreaCard';
-import { PlusIcon } from './icons';
+import { PlusIcon } from '../icons';
 
 type ShapeStepProps = Pick<
   ContextPackCreationModalProps,
@@ -11,11 +11,9 @@ type ShapeStepProps = Pick<
   | 'onAddRepository'
   | 'onRemoveRepository'
   | 'onRepositoryFieldChange'
-  | 'onSetPrimaryRepository'
   | 'onAddFocusArea'
   | 'onRemoveFocusArea'
   | 'onFocusAreaFieldChange'
-  | 'onSetPrimaryFocusArea'
 >;
 
 function ShapeStep({
@@ -24,11 +22,9 @@ function ShapeStep({
   onAddRepository,
   onRemoveRepository,
   onRepositoryFieldChange,
-  onSetPrimaryRepository,
   onAddFocusArea,
   onRemoveFocusArea,
   onFocusAreaFieldChange,
-  onSetPrimaryFocusArea,
 }: ShapeStepProps): JSX.Element {
   return (
     <div className="context-pack-modal__body">
@@ -54,7 +50,7 @@ function ShapeStep({
           <p className="panel__meta">
             {isDistributedEstateMode(draft.mode)
               ? 'Discovery suggestions stay editable and extra repositories can be added manually.'
-              : 'Define the main monolith repo, optional attached datapmse repos, and focus areas.'}
+              : 'Define the main monolith repo, optional infrastructure repositories, and focus areas.'}
           </p>
         </div>
         <button
@@ -64,7 +60,7 @@ function ShapeStep({
           onClick={onAddRepository}
         >
           <PlusIcon />
-          {isDistributedEstateMode(draft.mode) ? 'Add repository' : 'Add datapmse repo'}
+          {isDistributedEstateMode(draft.mode) ? 'Add repository' : 'Add infrastructure repo'}
         </button>
       </div>
 
@@ -77,7 +73,6 @@ function ShapeStep({
             mode={draft.mode}
             busy={busy}
             onRepositoryFieldChange={onRepositoryFieldChange}
-            onSetPrimaryRepository={onSetPrimaryRepository}
             onRemoveRepository={onRemoveRepository}
           />
         ))}
@@ -110,7 +105,6 @@ function ShapeStep({
                 index={index}
                 busy={busy}
                 onFocusAreaFieldChange={onFocusAreaFieldChange}
-                onSetPrimaryFocusArea={onSetPrimaryFocusArea}
                 onRemoveFocusArea={onRemoveFocusArea}
               />
             ))}

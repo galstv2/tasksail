@@ -19,16 +19,17 @@ from src.backend.mcp.context_estate.constants import (
     DEFAULT_SCOPE_MODE,
     DISTRIBUTED_ESTATE_TYPES,
 )
-from src.backend.mcp.context_estate_discovery import discover_estate
-from src.backend.mcp.context_estate_draft_index import write_draft_artifact
-from src.backend.mcp.context_estate_manifest import write_approved_manifest
+from src.backend.mcp.pack.writer import PackWriter
 from src.backend.mcp.pack_schemas import validate_answers, validate_manifest
-from src.backend.mcp.pack_writer import PackWriter
 from src.backend.mcp.repo_context_mcp.utils import (
     is_within,
     normalize_optional_string,
     utc_now,
 )
+
+from .discovery import discover_estate
+from .draft_index import write_draft_artifact
+from .manifest import write_approved_manifest
 
 _bootstrap_logger = logging.getLogger(__name__)
 

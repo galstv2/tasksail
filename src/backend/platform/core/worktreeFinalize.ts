@@ -1,10 +1,10 @@
 /**
- * §4.15 Worktree finalize and teardown — MG-4 keystone.
+ * Worktree finalize and teardown.
  *
- * Exports `finalizeTaskWorktrees` (primary entry point called by §4.14A failure
- * path and §4.3 success path) and `finalizeWorktree` (per-binding helper).
+ * Exports `finalizeTaskWorktrees` for success/failure terminal paths and
+ * `finalizeWorktree` for per-binding teardown.
  *
- * Lock ordering per §0.6:
+ * Lock ordering:
  *   - retention-eviction.lock is Lock precedence: 7.
  *   - It MUST be acquired AFTER `.task.json.finalizedAt` has been persisted
  *     so concurrent scanners see a consistent retained set.
@@ -31,20 +31,12 @@ import {
 const execFile = promisify(execFileCb);
 const log = createLogger('platform/core/worktreeFinalize');
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 export type FinalizeOutcome = 'completed' | 'failed';
 
 export interface FinalizeTaskWorktreesResult {
   chainRollbackReport: ChainOwnedRollbackReport | null;
   skipNextActivation: boolean;
 }
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
 
 function retentionEvictionLockPath(repoRoot: string): string {
   return path.join(repoRoot, '.platform-state', 'runtime', 'retention-eviction.lock');
@@ -127,10 +119,6 @@ function persistTaskJson(taskId: string, repoRoot: string, state: FinalizeOutcom
   writeTextFileAtomicSync(sidecarPath, JSON.stringify(json, null, 2) + '\n');
 }
 
-// ---------------------------------------------------------------------------
-// Per-binding teardown
-// ---------------------------------------------------------------------------
-
 /**
  * Finalize a single repo binding (worktree + branch) based on outcome.
  *
@@ -151,14 +139,13 @@ export async function finalizeWorktree(
   repoRoot: string,
 ): Promise<void> {
   if (outcome === 'completed') {
-    // Remove worktree dir; retain branch for operator merge/PR.
     try {
       await execFile('git', [
         '-C', binding.originalRoot,
         'worktree', 'remove', '--force', binding.worktreeRoot,
       ]);
     } catch {
-      // Worktree dir may have been removed out-of-band (e.g. by §4.10 quit-time
+      // Worktree dir may have been removed out-of-band (e.g. by quit-time
       // cleanup); ignore the error and fall through to prune unconditionally.
     }
     try {
@@ -172,7 +159,6 @@ export async function finalizeWorktree(
     return;
   }
 
-  // Failure path
   const cfg = await getPlatformConfig(repoRoot);
   if (cfg.retain_failed_task_worktrees) {
     // Default: retain dir + branch for inspection. FIFO eviction runs in
@@ -235,10 +221,6 @@ export async function discardRetainedTaskWorktrees(
   removeTaskWorkspaceAndRuntime(repoRoot, taskId);
 }
 
-// ---------------------------------------------------------------------------
-// FIFO retention eviction (runs under retention-eviction.lock — precedence 7)
-// ---------------------------------------------------------------------------
-
 async function runRetentionEviction(
   repoRoot: string,
   cap: number,
@@ -260,7 +242,6 @@ async function runRetentionEviction(
   }
 
   try {
-    // Enumerate all retained (state=failed + finalizedAt present) task entries.
     let taskEntries: string[];
     try {
       taskEntries = readdirSync(tasksBaseDir);
@@ -318,19 +299,15 @@ async function runRetentionEviction(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Primary export
-// ---------------------------------------------------------------------------
-
 /**
  * Finalize all worktrees for a task and update `.task.json` state.
  *
  * Called by:
- * - §4.3 `completePendingItem` after archival (outcome='completed')
- * - §4.14A `moveFailedItemToErrorItems` (outcome='failed')
- * - §5.2 `pipelineSupervisor.recoverOnStartup` (outcome='failed')
+ * - `completePendingItem` after archival (outcome='completed')
+ * - `moveFailedItemToErrorItems` (outcome='failed')
+ * - `pipelineSupervisor.recoverOnStartup` (outcome='failed')
  *
- * NOT called by §4.10 `cleanupWorkspaceOnQuit` — that uses its own sync teardown.
+ * NOT called by `cleanupWorkspaceOnQuit` — that uses its own sync teardown.
  *
  * @param taskId   The task identifier.
  * @param outcome  'completed' or 'failed'.
@@ -385,13 +362,9 @@ export async function finalizeTaskWorktreesWithReport(
   const finalizedAt = new Date().toISOString();
   persistTaskJson(taskId, repoRoot, outcome, finalizedAt);
 
-  // Parent-dir cleanup policy:
-  //   completed:            remove parent dir entirely. Completion handoff
-  //                         metadata is archived into QMD before this function
-  //                         is called; source branches are retained for manual
-  //                         operator review/merge.
-  //   failed+retain=false:  remove parent dir (matching no-retention intent)
-  //   failed+retain=true:   PRESERVE parent dir for operator inspection
+  // Completed tasks remove the parent dir after QMD archival; failed tasks
+  // remove it only when retention is disabled. Retained failures keep the
+  // parent dir for operator inspection.
   const parentDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', taskId);
 
   if (outcome === 'completed') {
@@ -437,10 +410,6 @@ export async function finalizeTaskWorktreesWithReport(
   };
 }
 
-// ---------------------------------------------------------------------------
-// §6.2B — per-task runtime-state GC
-// ---------------------------------------------------------------------------
-
 const GC_SENTINEL_NAME = '.gc-after-ts';
 
 function runtimeTaskDir(taskId: string, repoRoot: string): string {
@@ -452,14 +421,13 @@ function gcSentinelPath(taskId: string, repoRoot: string): string {
 }
 
 /**
- * §6.2B — schedule deferred GC of `.platform-state/runtime/tasks/<taskId>/`.
+ * Schedule deferred GC of `.platform-state/runtime/tasks/<taskId>/`.
  *
- * F35 contract: writes an on-disk sentinel FIRST (the authoritative trigger
- * that survives crashes), THEN schedules an opportunistic `setTimeout` for the
+ * Writes an on-disk sentinel FIRST (the authoritative trigger that survives
+ * crashes), THEN schedules an opportunistic `setTimeout` for the
  * in-session common case. The opportunistic timer is not tracked — its
- * cancellation on quit is not required because §4.10's quit-nuke wipes
- * `.platform-state/runtime/tasks/` unconditionally and the sentinel file is the
- * post-restart authority.
+ * cancellation on quit is not required because quit cleanup wipes runtime task
+ * state and the sentinel file is the post-restart authority.
  *
  * Outcome semantics:
  *   - 'completed': retain for `completed_task_runtime_retention_ms` (default 1h),
@@ -483,7 +451,7 @@ export async function gcTaskRuntime(
 
   const runtimeDir = runtimeTaskDir(taskId, repoRoot);
   if (!existsSync(runtimeDir)) {
-    // Nothing to GC — treat as silent no-op (idempotent per §6.3B).
+    // Nothing to GC — treat as a silent idempotent no-op.
     return;
   }
 
@@ -528,10 +496,10 @@ export async function gcTaskRuntime(
 }
 
 /**
- * §6.2B + F35 — startup sweep for deferred GC.
+ * Startup sweep for deferred GC.
  *
- * Called by §5.2 `recoverOnStartup`. Walks `.platform-state/runtime/tasks/`
- * and deletes every task subtree whose `.gc-after-ts` epoch has passed.
+ * Called by `recoverOnStartup`. Walks `.platform-state/runtime/tasks/` and
+ * deletes every task subtree whose `.gc-after-ts` epoch has passed.
  * A task subtree without a sentinel is treated as retain-indefinitely (by
  * design — see `gcTaskRuntime`'s failed+retain branch).
  */

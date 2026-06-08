@@ -5,6 +5,12 @@ import re
 import unittest
 from pathlib import Path
 
+from tests.support.workflow_contract import (
+    PLATFORM_REQUIRED_REGISTRY_FIELDS,
+    REQUIRED_REGISTRY_FIELDS,
+    WORKFLOW_ROLE_IDS,
+)
+
 
 class AgentRegistryContractTests(unittest.TestCase):
     @classmethod
@@ -13,21 +19,11 @@ class AgentRegistryContractTests(unittest.TestCase):
         cls.registry_path = (
             cls.repo_root / ".github" / "agents" / "registry.json"
         )
-        cls.required_agent_ids = {
-            "planning-agent",
-            "product-manager",
-            "software-engineer",
-            "software-engineer-verify",
-            "qa",
-        }
+        # Neutral workflow roles from the contract + the Copilot-specific verify variant.
+        cls.required_agent_ids = {*WORKFLOW_ROLE_IDS, "software-engineer-verify"}
         cls.required_fields = {
-            "agent_id",
-            "role_name",
-            "human_name",
-            "instruction_path",
-            "agent_profile_path",
-            "autonomy_profile",
-            "workflow_order",
+            *PLATFORM_REQUIRED_REGISTRY_FIELDS,
+            *REQUIRED_REGISTRY_FIELDS,
         }
         cls.expected_autonomy_profiles = {
             "planning-agent": "artifact-author",

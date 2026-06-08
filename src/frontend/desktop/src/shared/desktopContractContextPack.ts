@@ -98,6 +98,7 @@ export type ContextPackDiscoveredFocusArea = {
   focusType: string;
   path: string;
   relativePath: string;
+  focusCategory?: ContextPackRepoCategory;
   group?: string;
   repositoryType?: ContextPackRepositoryType;
 };
@@ -137,6 +138,7 @@ export type ContextPackDiscoverPrefillResponse = {
   estateType: ContextPackEstateType;
   suggestedContextPackId: string;
   suggestedDisplayName: string;
+  rootRepoCategory?: ContextPackRepoCategory;
   warnings: string[];
   candidateRepos: ContextPackDiscoveredRepo[];
   candidateFocusAreas: ContextPackDiscoveredFocusArea[];
@@ -162,7 +164,7 @@ export type ContextPackBootstrapRepositoryInput = {
   documentPaths?: string[];
   boundedContext?: string;
   serviceName?: string;
-  /** @deprecated Superseded by repositoryType/repoFocus; removal deferred (Phase 6 Gate G7). */
+  /** @deprecated Superseded by repositoryType/repoFocus; kept for backward compatibility. */
   repoRole?: string;
   /** @deprecated Use repoFocus instead. Kept for backward compat. */
   repositoryType?: ContextPackRepositoryType;
@@ -186,6 +188,8 @@ export type ContextPackBootstrapFocusAreaInput = {
   relativePath?: string;
   path?: string;
   focusType?: string;
+  focusCategory?: ContextPackRepoCategory;
+  focusCategoryAuthored?: boolean;
   group?: string;
   defaultFocusable?: boolean;
   activationPriority?: number;
@@ -276,7 +280,7 @@ export type ContextPackFocusTarget = {
   repoLocalPath?: string | null;
   serviceName: string | null;
   systemLayer: string | null;
-  /** @deprecated Superseded by repositoryType; removal deferred (Phase 6 Gate G7). */
+  /** @deprecated Superseded by repositoryType; kept for backward compatibility. */
   repoRole: string | null;
   repositoryType: ContextPackRepositoryType | null;
   repoCategory?: ContextPackRepoCategory | null;
@@ -299,9 +303,8 @@ export type PackSeedState = 'seeded' | 'bootstrap-empty';
  * reader (``main.contextPackCatalog.ts``) is responsible for the snake→camel
  * translation; renderer code consumes only this shape.
  *
- * ``details`` is preserved as an opaque dict so future inner keys (today
- * ``plan_overall_status``, ``plan_repo_statuses``, ``plan_parsed`` from G1)
- * flow through without a contract change.
+ * ``details`` is preserved as an opaque dict so future inner keys flow through
+ * without a contract change.
  */
 export type PackSeedStateInfo = {
   state: PackSeedState;
@@ -329,14 +332,13 @@ export type ContextPackCatalogEntry = {
   repoCount: number;
   primaryWorkingRepoIds: string[];
   focusTargets: ContextPackFocusTarget[];
-  /** Absent means the pack was created before Phase 5 and is treated as seeded. */
+  /** Absent means the pack predates seed-state tracking and is treated as seeded. */
   packSeedState?: PackSeedState;
   /**
    * Full pack seed-state record (camel-cased from on-disk ``seed-state.json``).
-   * Carries the diagnostic fields written by Phase 5 G1 (``createdAt``,
-   * ``reason``, ``details``) and G2 (``lastSeedAt``, ``lastSeedRunId``) so the
-   * UI can render a richer "needs population" message without re-reading
-   * the marker file.  Absent for pre-Phase-5 packs.
+   * Carries seeding diagnostics so the UI can render a richer "needs
+   * population" message without re-reading the marker file. Absent for packs
+   * created before seed-state tracking.
    */
   packSeedStateInfo?: PackSeedStateInfo;
   status?: ContextPackRuntimeStatus;

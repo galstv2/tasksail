@@ -13,7 +13,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.backend.mcp.context_estate_discovery import discover_estate
+from src.backend.mcp.context_estate.discovery import discover_estate
 
 
 def missing_git_message(repo_name: str) -> str:

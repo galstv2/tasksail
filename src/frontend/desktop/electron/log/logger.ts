@@ -82,6 +82,7 @@ let installedHandlers:
   | {
       uncaught: (err: Error) => void;
       rejection: (reason: unknown) => void;
+      stdioError: (err: Error) => void;
     }
   | undefined;
 
@@ -117,10 +118,18 @@ export function installProcessHandlers(): () => void {
     logger.error('process.unhandled_rejection', reason);
     app.exit(exitCodeFor(reason));
   };
+  const stdioError = (err: Error): void => {
+    if (isIgnorableStdioError(err)) {
+      return;
+    }
+    throw err;
+  };
 
   process.on('uncaughtException', uncaught);
   process.on('unhandledRejection', rejection);
-  installedHandlers = { uncaught, rejection };
+  process.stdout.on('error', stdioError);
+  process.stderr.on('error', stdioError);
+  installedHandlers = { uncaught, rejection, stdioError };
   return uninstallProcessHandlers;
 }
 
@@ -161,7 +170,14 @@ function uninstallProcessHandlers(): void {
 
   process.off('uncaughtException', installedHandlers.uncaught);
   process.off('unhandledRejection', installedHandlers.rejection);
+  process.stdout.off('error', installedHandlers.stdioError);
+  process.stderr.off('error', installedHandlers.stdioError);
   installedHandlers = undefined;
+}
+
+function isIgnorableStdioError(err: Error): boolean {
+  const code = (err as NodeJS.ErrnoException).code;
+  return code === 'EPIPE' || code === 'EIO';
 }
 
 function emit(

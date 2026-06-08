@@ -51,25 +51,19 @@ class ReportRendererTests(unittest.TestCase):
 
         markdown = renderer.render_run_markdown(run_data)
 
-        # Title and aggregate status.
         self.assertIn("# QMD Live Seed Run", markdown)
         self.assertIn("completed-with-blocked-repos", markdown)
 
-        # Both repos must appear.
         self.assertIn("### repo-a", markdown)
         self.assertIn("### repo-b", markdown)
 
-        # repo-a's warning and error must be rendered.
         self.assertIn("workspace missing", markdown)
         self.assertIn("seed failed", markdown)
 
-        # repo-b had no warnings/errors — verify it still appears with
-        # its status (seeded) and record count.
         repo_b_idx = markdown.index("### repo-b")
         repo_b_section = markdown[repo_b_idx:]
         self.assertIn("seeded", repo_b_section.lower())
 
-        # Heading hierarchy: h1 → h3 (no h2 gap unless the renderer uses h2).
         lines = markdown.splitlines()
         heading_levels = [
             len(line) - len(line.lstrip("#"))
@@ -119,19 +113,15 @@ class ReportRendererTests(unittest.TestCase):
 
         markdown = renderer.render_task_lineage_summary(lineage_data)
 
-        # Subject task must appear in the title.
         self.assertIn("CAP-1001", markdown)
 
-        # Parent and child sections.
         self.assertIn("## Subject Archive", markdown)
         self.assertIn("## Immediate Parent", markdown)
         self.assertIn("CAP-1000", markdown)
 
-        # Direct children section must include the grandchild.
         self.assertIn("CAP-1002", markdown)
         self.assertIn("Grandchild", markdown)
 
-        # Section ordering: Subject should appear before children.
         subject_idx = markdown.index("## Subject Archive")
         children_idx = markdown.index("CAP-1002")
         self.assertLess(

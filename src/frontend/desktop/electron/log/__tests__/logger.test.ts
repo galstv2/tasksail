@@ -290,6 +290,20 @@ describe('installProcessHandlers', () => {
     expect(appMock.exit).toHaveBeenCalledWith(70);
   });
 
+  it('ignores terminal stdio EIO and EPIPE errors', () => {
+    uninstallProcessHandlers = installProcessHandlers();
+    const stderrError = new Error('write EIO') as NodeJS.ErrnoException;
+    stderrError.code = 'EIO';
+    const stdoutError = new Error('write EPIPE') as NodeJS.ErrnoException;
+    stdoutError.code = 'EPIPE';
+
+    process.stderr.emit('error', stderrError);
+    process.stdout.emit('error', stdoutError);
+
+    expect(appMock.exit).not.toHaveBeenCalled();
+    expect(readLevel('electron', 'error')).toHaveLength(0);
+  });
+
   it('is idempotent when installed twice', () => {
     const before = process.listenerCount('unhandledRejection');
     uninstallProcessHandlers = installProcessHandlers();

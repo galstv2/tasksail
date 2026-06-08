@@ -58,21 +58,11 @@ class _TmpDirMixin:
         self.addCleanup(shutil.rmtree, self._tmp, True)  # type: ignore[attr-defined]
 
 
-# ---------------------------------------------------------------------------
-# lib.cli
-# ---------------------------------------------------------------------------
-
-
 class FailTests(unittest.TestCase):
     def test_exits_with_code_1(self) -> None:
         with self.assertRaises(SystemExit) as ctx:
             fail("boom")
         self.assertEqual(ctx.exception.code, 1)
-
-
-# ---------------------------------------------------------------------------
-# lib.io
-# ---------------------------------------------------------------------------
 
 
 class LoadTextTests(_TmpDirMixin, unittest.TestCase):
@@ -170,11 +160,6 @@ class AtomicWriteTextTests(_TmpDirMixin, unittest.TestCase):
         self.assertEqual(list(self._tmp.glob(".keep.txt.*")), [])
 
 
-# ---------------------------------------------------------------------------
-# lib.markdown
-# ---------------------------------------------------------------------------
-
-
 class ParseSectionsTests(unittest.TestCase):
     def test_extracts_headings(self) -> None:
         md = textwrap.dedent("""\
@@ -198,11 +183,6 @@ class ParseMetadataTests(unittest.TestCase):
         lines = ["- Name: Alice", "- Role: Engineer", "plain text"]
         meta = parse_metadata(lines)
         self.assertEqual(meta, {"Name": "Alice", "Role": "Engineer"})
-
-
-# ---------------------------------------------------------------------------
-# lib.paths
-# ---------------------------------------------------------------------------
 
 
 class NormalizeRepoRelativePathTests(unittest.TestCase):
@@ -270,10 +250,9 @@ class EnsureWithinRootTests(_TmpDirMixin, unittest.TestCase):
 
 
 class AssertSafePathSegmentTests(unittest.TestCase):
-    """SEC-PY-02: untrusted task IDs used as a single index-path segment."""
+    """Untrusted task IDs are constrained to one index-path segment."""
 
     def test_accepts_flat_identifiers(self) -> None:
-        # Real task IDs (incl. uppercase) must pass through unchanged.
         for value in ("CAP-1000", "CAP-2001", "task_42", "abc"):
             with self.subTest(value=value):
                 self.assertEqual(assert_safe_path_segment(value, "task_id"), value)
@@ -295,11 +274,6 @@ class NormalizeBoundaryPathTests(_TmpDirMixin, unittest.TestCase):
             with self.subTest(label=label):
                 result = normalize_boundary_path(self._tmp, input_val)
                 self.assertEqual(result, expected)
-
-
-# ---------------------------------------------------------------------------
-# lib.text
-# ---------------------------------------------------------------------------
 
 
 class SlugifyTests(unittest.TestCase):
@@ -381,11 +355,6 @@ class NormalizeStringListTests(unittest.TestCase):
             normalize_string_list(42)
 
 
-# ---------------------------------------------------------------------------
-# lib.time
-# ---------------------------------------------------------------------------
-
-
 class CurrentUtcTimestampTests(unittest.TestCase):
     def test_returns_iso_format(self) -> None:
         ts = current_utc_timestamp()
@@ -417,11 +386,6 @@ class ComputeRuntimeAgeSecondsTests(unittest.TestCase):
 
     def test_returns_none_for_bad_timestamp(self) -> None:
         self.assertIsNone(compute_runtime_age_seconds("garbage"))
-
-
-# ---------------------------------------------------------------------------
-# lib.locking
-# ---------------------------------------------------------------------------
 
 
 class FileLockingTests(_TmpDirMixin, unittest.TestCase):

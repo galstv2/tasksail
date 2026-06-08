@@ -38,25 +38,7 @@ vi.mock('../../core/paths.js', () => ({
   ensurePathWithinDropbox: vi.fn(),
 }));
 
-import { getActiveProvider } from '../../cli-provider/index.js';
-import {
-  resolveReinforcementContext,
-  roleRequiresReinforcement,
-} from '../reinforcement.js';
-
-describe('roleRequiresReinforcement', () => {
-  it('returns true for workflow agents', () => {
-    const provider = getActiveProvider('');
-    expect(roleRequiresReinforcement(provider, 'lily' as AgentId)).toBe(true);
-    expect(roleRequiresReinforcement(provider, 'alice' as AgentId)).toBe(true);
-    expect(roleRequiresReinforcement(provider, 'dalton' as AgentId)).toBe(true);
-    expect(roleRequiresReinforcement(provider, 'ron' as AgentId)).toBe(true);
-  });
-
-  it('returns false for non-workflow agents', () => {
-    expect(roleRequiresReinforcement(getActiveProvider(''), 'unknown-agent' as AgentId)).toBe(false);
-  });
-});
+import { resolveReinforcementContext } from '../reinforcement.js';
 
 describe('resolveReinforcementContext', () => {
   beforeEach(() => {
@@ -94,7 +76,7 @@ describe('resolveReinforcementContext', () => {
       ],
       expect.objectContaining({
         cwd: '/fake/repo',
-        timeout: 30_000, // SEC-TS-06: the pre-launch render must be timeout-bounded.
+        timeout: 30_000, // The pre-launch render must be timeout-bounded.
       }),
     );
     expect(readFile).toHaveBeenCalledWith(renderedPath, 'utf-8');

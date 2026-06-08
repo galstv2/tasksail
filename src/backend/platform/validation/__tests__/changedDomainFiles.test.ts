@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import path from 'node:path';
 import {
+  buildTargetedTestEnv,
   buildTargetedTestArgs,
   discoverChangedFiles,
   parseChangedDomainArgs,
@@ -51,6 +53,17 @@ describe('buildTargetedTestArgs', () => {
     expect(
       buildTargetedTestArgs({ scriptPath: 's.py', manifestPath: 'm.json', changedFiles: ['a'], resolveOnly: false }),
     ).toEqual(['s.py', '--manifest', 'm.json', '--changed-path', 'a']);
+  });
+});
+
+describe('buildTargetedTestEnv', () => {
+  it('passes the active provider registry path to Python test subprocesses', () => {
+    const repoRoot = path.resolve('/workspace/tasksail');
+
+    expect(buildTargetedTestEnv(repoRoot, { EXISTING: '1' })).toEqual({
+      EXISTING: '1',
+      TASKSAIL_AGENT_REGISTRY_PATH: path.join(repoRoot, '.github', 'agents', 'registry.json'),
+    });
   });
 });
 

@@ -1,6 +1,6 @@
 """Tests for archive scanner staging-dir exclusion and index-write ordering.
 
-Covers Track E (R4) fixes:
+Covers staging-dir behavior:
   (a) _iter_records_by_type excludes .staging-* paths.
   (b) Normal records outside staging are still returned (no over-exclusion).
   (c) After canonical promotion, write_archive_indexes writes a tasks.json

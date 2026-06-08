@@ -3,7 +3,7 @@
  * Owns .sidebar-footer, .sidebar-footer--hidden, .sidebar-actions,
  * .sidebar-actions__*, and .sidebar-toolbar-btn selectors.
  */
-/* ── §9  Sidebar Footer ─────────────────────────────────────────────── */
+/* Sidebar Footer */
 
 .sidebar-footer {
   flex-shrink: 0;
@@ -43,7 +43,7 @@
   border-radius: var(--ts-radius-md);
 }
 
-/* ── Toolbar row ─────────────────────────────────────────────────────── */
+/* Toolbar row */
 
 .sidebar-actions__toolbar {
   display: grid;

@@ -177,7 +177,7 @@ export function createMockClient(
         mode: 'updated',
         accepted: true,
         message: 'Planner personality updated.',
-        lilyPersonalityId: 'balanced',
+        plannerPersonalityId: 'balanced',
       },
     }),
     validateChildTaskFocus: vi

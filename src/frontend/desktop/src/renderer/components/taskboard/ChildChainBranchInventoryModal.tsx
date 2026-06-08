@@ -2,7 +2,7 @@ import type {
   TaskBoardChildChainBranchSourceKind,
   TaskBoardReadChildChainBranchInventoryResponse,
 } from '../../../shared/desktopContract';
-import ModalShell, { ModalShellEscHint } from '../ModalShell';
+import ModalShell, { ModalShellEscHint } from '../shared/ModalShell';
 
 export type ChildChainBranchInventoryModalProps = {
   response: TaskBoardReadChildChainBranchInventoryResponse;

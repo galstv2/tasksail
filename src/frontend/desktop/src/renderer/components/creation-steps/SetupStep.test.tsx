@@ -1,8 +1,8 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { ContextPackCreationDraft } from '../../contextPackCreationTypes';
-import { INITIAL_DRAFT } from '../../hooks/useContextPackDraft';
+import type { ContextPackCreationDraft } from '../../contextPack/contextPackCreationTypes';
+import { INITIAL_DRAFT } from '../../hooks/context-pack/useContextPackDraft';
 import SetupStep from './SetupStep';
 
 afterEach(() => {

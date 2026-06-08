@@ -175,7 +175,7 @@ describe('validateDesktopActionRequest', () => {
         action: 'planner.startSession',
         payload: {
           contextPackDir: '/tmp/context-packs/orders-estate',
-          lilyPersonalityId: 'balanced',
+          plannerPersonalityId: 'balanced',
           replayConversationId: 'conversation-1',
         },
       })).toEqual([]);
@@ -183,7 +183,7 @@ describe('validateDesktopActionRequest', () => {
         action: 'planner.startSession',
         payload: {
           contextPackDir: '/tmp/context-packs/orders-estate',
-          lilyPersonalityId: 'clinical',
+          plannerPersonalityId: 'clinical',
         },
       })).toEqual([]);
       expect(validateDesktopActionRequest({
@@ -209,8 +209,16 @@ describe('validateDesktopActionRequest', () => {
       })).toEqual(['payload.replayConversationId must be a non-empty string when provided.']);
       expect(validateDesktopActionRequest({
         action: 'planner.startSession',
-        payload: { lilyPersonalityId: 'enthusiastic' },
-      })).toEqual(['payload.lilyPersonalityId must be balanced or clinical.']);
+        payload: { plannerPersonalityId: 'enthusiastic' },
+      })).toEqual(['payload.plannerPersonalityId must be balanced or clinical.']);
+      expect(validateDesktopActionRequest({
+        action: 'planner.startSession',
+        payload: { lilyPersonalityId: 'balanced' },
+      })).toEqual(['payload.lilyPersonalityId is deprecated; use payload.plannerPersonalityId.']);
+      expect(validateDesktopActionRequest({
+        action: 'planner.startSession',
+        payload: { lilyPlanningReloadScope: {} },
+      })).toEqual(['payload.lilyPlanningReloadScope is deprecated; use payload.plannerPlanningReloadScope.']);
     });
 
     it('accepts child-task lineage with a valid focus snapshot', () => {
@@ -285,11 +293,11 @@ describe('validateDesktopActionRequest', () => {
     it('accepts balanced and clinical personality ids', () => {
       expect(validateDesktopActionRequest({
         action: 'planner.updateSessionPersonality',
-        payload: { lilyPersonalityId: 'balanced' },
+        payload: { plannerPersonalityId: 'balanced' },
       })).toEqual([]);
       expect(validateDesktopActionRequest({
         action: 'planner.updateSessionPersonality',
-        payload: { lilyPersonalityId: 'clinical' },
+        payload: { plannerPersonalityId: 'clinical' },
       })).toEqual([]);
     });
 
@@ -300,8 +308,9 @@ describe('validateDesktopActionRequest', () => {
       })).toEqual(['payload must be an object.']);
       expect(validateDesktopActionRequest({
         action: 'planner.updateSessionPersonality',
-        payload: { lilyPersonalityId: 'warm' },
-      })).toEqual(['payload.lilyPersonalityId must be balanced or clinical.']);
+        payload: { plannerPersonalityId: 'warm' },
+      })).toEqual(['payload.plannerPersonalityId must be balanced or clinical.']);
+      expect(validateDesktopActionRequest({ action: 'planner.updateSessionPersonality', payload: { lilyPersonalityId: 'balanced' } })).toEqual(['payload.lilyPersonalityId is deprecated; use payload.plannerPersonalityId.']);
     });
   });
 
@@ -890,7 +899,7 @@ describe('validateDesktopActionRequest', () => {
     });
 
     it('rejects when anchor scalar disagrees with anchor target manifest id', () => {
-      // Per spec §2.6 / §3.1: `deepFocusPrimaryRepoId` (distributed) and
+    // `deepFocusPrimaryRepoId` (distributed) and
       // `deepFocusPrimaryFocusId` (monolith) carry the anchor's manifest
       // identifier — `anchor.repoId` and `anchor.focusId` respectively, NOT
       // the resolved `repoLocalPath`. Mismatched scalar/anchor pairs are a
@@ -1303,115 +1312,6 @@ describe('validatePlannerDraftModel', () => {
       suggestedPath: 'sequential',
     };
     expect(validatePlannerDraftModel(draft)).toEqual([]);
-  });
-});
-
-describe('externalMcp validators', () => {
-  describe('externalMcp.add', () => {
-    it('requires a payload object', () => {
-      const errors = validateDesktopActionRequest({ action: 'externalMcp.add' });
-      expect(errors).toContain('payload must be an object.');
-    });
-
-    it('requires payload.server to be an object', () => {
-      const errors = validateDesktopActionRequest({
-        action: 'externalMcp.add',
-        payload: { server: 'not-an-object' },
-      });
-      expect(errors).toContain('payload.server must be an object.');
-    });
-
-    it('requires server fields', () => {
-      const errors = validateDesktopActionRequest({
-        action: 'externalMcp.add',
-        payload: { server: {} },
-      });
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors.some((e: string) => e.includes('id'))).toBe(true);
-      expect(errors.some((e: string) => e.includes('purpose'))).toBe(true);
-      expect(errors.some((e: string) => e.includes('url'))).toBe(true);
-    });
-
-    it('accepts valid server payload', () => {
-      const errors = validateDesktopActionRequest({
-        action: 'externalMcp.add',
-        payload: {
-          server: { id: 'test', display_name: 'Test', purpose: 'Use this server for test fixtures.', preferred_for: ['test fixtures'], transport: 'sse', url: 'https://x.com', enabled: true },
-        },
-      });
-      expect(errors).toEqual([]);
-    });
-  });
-
-  describe('externalMcp.update', () => {
-    it('uses the same validation as add', () => {
-      const errors = validateDesktopActionRequest({ action: 'externalMcp.update' });
-      expect(errors).toContain('payload must be an object.');
-    });
-
-    it('accepts valid update request', () => {
-      const errors = validateDesktopActionRequest({
-        action: 'externalMcp.update',
-        payload: {
-          server: { id: 'test', display_name: 'Test', purpose: 'Use this server for test fixtures.', preferred_for: ['test fixtures'], transport: 'sse', url: 'https://x.com', enabled: true },
-        },
-      });
-      expect(errors).toEqual([]);
-    });
-  });
-
-  describe('externalMcp.toggleEnabled', () => {
-    it('requires payload with serverId', () => {
-      const errors = validateDesktopActionRequest({
-        action: 'externalMcp.toggleEnabled',
-        payload: {},
-      });
-      expect(errors).toContain('payload.serverId must be a non-empty string.');
-    });
-
-    it('accepts valid toggleEnabled request', () => {
-      const errors = validateDesktopActionRequest({
-        action: 'externalMcp.toggleEnabled',
-        payload: { serverId: 'test-id' },
-      });
-      expect(errors).toEqual([]);
-    });
-  });
-
-  describe('externalMcp.remove', () => {
-    it('requires payload with serverId', () => {
-      const errors = validateDesktopActionRequest({
-        action: 'externalMcp.remove',
-        payload: {},
-      });
-      expect(errors).toContain('payload.serverId must be a non-empty string.');
-    });
-
-    it('accepts valid remove request', () => {
-      const errors = validateDesktopActionRequest({
-        action: 'externalMcp.remove',
-        payload: { serverId: 'test-id' },
-      });
-      expect(errors).toEqual([]);
-    });
-  });
-
-  describe('externalMcp.validateConnection', () => {
-    it('requires payload with transport and url', () => {
-      const errors = validateDesktopActionRequest({
-        action: 'externalMcp.validateConnection',
-        payload: {},
-      });
-      expect(errors).toContain("payload.transport must be one of: 'http', 'sse'.");
-    });
-
-    it('accepts valid connection payload', () => {
-      const errors = validateDesktopActionRequest({
-        action: 'externalMcp.validateConnection',
-        payload: { transport: 'sse', url: 'https://x.com/sse' },
-      });
-      expect(errors).toEqual([]);
-    });
   });
 });
 

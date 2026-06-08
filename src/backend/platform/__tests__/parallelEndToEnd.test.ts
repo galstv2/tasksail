@@ -87,24 +87,48 @@ describe('parallel end-to-end — shared MCP isolation contracts', () => {
     ).toBe(`/workspace/contextpacks/${TASK_B}`);
   });
 
-  it('shared bootstrap env scrubs task identity instead of deriving per-task containers', () => {
-    const env = createSharedMcpBootstrapEnv(8811, {
-      PATH: '/bin',
-      TASKSAIL_TASK_ID: TASK_A,
-      ACTIVE_CONTEXT_PACK_DIR: `/workspace/contextpacks/${TASK_A}`,
-      COMPOSE_PROJECT_NAME: `tasksail-${TASK_A}`,
-      REPO_CONTEXT_MCP_CONTAINER_NAME: `repo-context-mcp-${TASK_A}`,
-      REPO_CONTEXT_MCP_PORT: '8819',
-    });
+  // Dropped-key invariant: these keys must NEVER appear in the shared bootstrap env,
+  // regardless of what the caller passes in (in-repo pack or external-mount pack).
+  const SCRUB_CASES = [
+    [
+      'in-repo pack',
+      {
+        PATH: '/bin',
+        TASKSAIL_TASK_ID: TASK_A,
+        ACTIVE_CONTEXT_PACK_DIR: `/workspace/contextpacks/${TASK_A}`,
+        COMPOSE_PROJECT_NAME: `tasksail-${TASK_A}`,
+        REPO_CONTEXT_MCP_CONTAINER_NAME: `repo-context-mcp-${TASK_A}`,
+        REPO_CONTEXT_MCP_PORT: '8819',
+      },
+    ],
+    [
+      'external-mount pack',
+      {
+        PATH: '/bin',
+        TASKSAIL_TASK_ID: 'old-task',
+        ACTIVE_CONTEXT_PACK_DIR: '/workspace/old',
+        COMPOSE_PROJECT_NAME: 'tasksail-old-task',
+        REPO_CONTEXT_MCP_CONTAINER_NAME: 'repo-context-mcp-old-task',
+        REPO_CONTEXT_MCP_PORT: '9999',
+        REPO_CONTEXT_MCP_CONTAINER_PORT: '9998',
+      },
+    ],
+  ] as const;
 
-    expect(env['PATH']).toBe('/bin');
-    expect(env['REPO_CONTEXT_MCP_PORT']).toBe('8811');
-    expect(env['REPO_CONTEXT_MCP_CONTAINER_PORT']).toBe('8811');
-    expect(env).not.toHaveProperty('TASKSAIL_TASK_ID');
-    expect(env).not.toHaveProperty('ACTIVE_CONTEXT_PACK_DIR');
-    expect(env).not.toHaveProperty('COMPOSE_PROJECT_NAME');
-    expect(env).not.toHaveProperty('REPO_CONTEXT_MCP_CONTAINER_NAME');
-  });
+  it.each(SCRUB_CASES)(
+    'shared bootstrap env scrubs task-identity keys (%s)',
+    (_label: string, inputEnv: Record<string, string>) => {
+      const env = createSharedMcpBootstrapEnv(8811, inputEnv);
+
+      expect(env['PATH']).toBe('/bin');
+      expect(env['REPO_CONTEXT_MCP_PORT']).toBe('8811');
+      expect(env['REPO_CONTEXT_MCP_CONTAINER_PORT']).toBe('8811');
+      expect(env).not.toHaveProperty('TASKSAIL_TASK_ID');
+      expect(env).not.toHaveProperty('ACTIVE_CONTEXT_PACK_DIR');
+      expect(env).not.toHaveProperty('COMPOSE_PROJECT_NAME');
+      expect(env).not.toHaveProperty('REPO_CONTEXT_MCP_CONTAINER_NAME');
+    },
+  );
 
   it('finalizing one task schedules only that task runtime for GC and preserves peers', async () => {
     const taskARuntime = path.join(repoRoot, '.platform-state', 'runtime', 'tasks', TASK_A);

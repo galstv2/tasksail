@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createFocusAreaEntry } from '../../hooks/useContextPackDraft';
+import { createFocusAreaEntry } from '../../hooks/context-pack/useContextPackDraft';
 import FocusAreaCard from './FocusAreaCard';
 
 afterEach(() => {
@@ -21,7 +21,6 @@ const defaultProps = {
   index: 0,
   busy: false,
   onFocusAreaFieldChange: vi.fn(),
-  onSetPrimaryFocusArea: vi.fn(),
   onRemoveFocusArea: vi.fn(),
 };
 
@@ -38,14 +37,7 @@ describe('FocusAreaCard', () => {
     expect(onRemoveFocusArea).toHaveBeenCalledWith('f1');
   });
 
-  it('primary toggle calls onSetPrimaryFocusArea', () => {
-    const onSetPrimaryFocusArea = vi.fn();
-    render(<FocusAreaCard {...defaultProps} onSetPrimaryFocusArea={onSetPrimaryFocusArea} />);
-    fireEvent.click(screen.getByRole('button', { name: /Support/i }));
-    expect(onSetPrimaryFocusArea).toHaveBeenCalledWith('f1');
-  });
-
-  it('shows primary working folder label and repository type badge', () => {
+  it('does not show a Primary/Support focus badge or toggle', () => {
     render(
       <FocusAreaCard
         {...defaultProps}
@@ -53,8 +45,27 @@ describe('FocusAreaCard', () => {
       />,
     );
 
-    expect(screen.getByRole('button', { name: /Primary/i })).toBeInTheDocument();
-    expect(screen.getAllByText(/Primary/).length).toBeGreaterThanOrEqual(1);
+    expect(
+      screen.queryByRole('button', { name: /Primary|Support/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText('Primary')).not.toBeInTheDocument();
+    expect(screen.queryByText('Support')).not.toBeInTheDocument();
+  });
+
+  it('renders a Category dropdown wired to focusCategory and hides Group/Focus type', () => {
+    const onFocusAreaFieldChange = vi.fn();
+    render(
+      <FocusAreaCard
+        {...defaultProps}
+        focusArea={{ ...focusArea, focusCategory: 'service' }}
+        onFocusAreaFieldChange={onFocusAreaFieldChange}
+      />,
+    );
+    const categorySelect = screen.getByDisplayValue('Service');
+    fireEvent.change(categorySelect, { target: { value: 'library' } });
+    expect(onFocusAreaFieldChange).toHaveBeenCalledWith('f1', 'focusCategory', 'library');
+    expect(screen.queryByText('Group')).not.toBeInTheDocument();
+    expect(screen.queryByText('Focus type')).not.toBeInTheDocument();
   });
 
   it('field change calls onFocusAreaFieldChange', () => {

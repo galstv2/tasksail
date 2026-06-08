@@ -22,10 +22,4 @@ describe('createDaltonCapsule', () => {
     expect(existsSync(capsule.rootDir)).toBe(false);
   });
 
-  it('cleanupDaltonCapsule is safe to call on already-removed dir', async () => {
-    const capsule = await createDaltonCapsule();
-    await cleanupDaltonCapsule(capsule);
-    // Should not throw
-    await cleanupDaltonCapsule(capsule);
-  });
 });

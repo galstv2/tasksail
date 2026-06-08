@@ -1,70 +1,40 @@
-/* ── Task Notification Center ──────────────────────────────────────────
-   Apple-design-forward refinement:
-   - Vibrancy panel surface with deep blur + saturation
-   - iOS-style floating notification cards on the vibrancy
-   - Information hierarchy per card:
-       pack label (caption, wraps to 2 lines)
-       task title (semibold)
-       task status (severity-tinted)
-       timestamp (pinned bottom-right)
-   ──────────────────────────────────────────────────────────────────── */
+/* Task notification floating panel and card hierarchy. */
 
 .task-notifications__panel {
   position: fixed;
-  /* The top bar is 42px and the terminal panel begins at 50px (shell-main's
-     8px top padding), so the bar↔terminal seam is that 8px band. Anchor the
-     card's top inside the seam (46px) — not on the terminal's 50px top edge —
-     so it floats in the gap between the two instead of docking to the terminal. */
+  /* Anchor inside the 8px top-bar/terminal gap so the panel floats between them. */
   top: calc(42px + 4px);
   left: 50%;
   transform: translateX(-50%);
   transform-origin: 50% 0;
   width: 360px;
   max-width: calc(100vw - 24px);
-  /* Cap at 40% of viewport — iOS-style "recent few + scroll for older",
-     screen-size independent. Anchored at top ~50px, so 40vh always fits. */
+  /* Cap at 40% of the viewport for a recent-few view with older items scrolling. */
   max-height: 40vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   padding: 0;
-  /* Light: source is half-way between pure white and --ts-bg (landing a touch
-     brighter than --ts-bg alone but short of the "glowing white
-     sheet" failure mode of pure --ts-surface), blended at 96% to keep a
-     whisper of vibrancy while choking off the dark workspace bleed-through.
-     Cards stay pure white; delta ~3 lightness units = subtly noticeable.
-     Dark override below lifts the card surface instead, since dark
-     `--ts-surface-alt` collapses into `--ts-bg`. */
-  background: color-mix(
-    in srgb,
-    color-mix(in srgb, var(--ts-surface) 55%, var(--ts-bg)) 96%,
-    transparent
-  );
-  backdrop-filter: blur(28px) saturate(180%);
-  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  background: color-mix(in srgb, var(--ts-surface) 94%, var(--ts-bg));
   border: 1px solid var(--ts-border);
   border-radius: 18px;
   box-shadow:
     0 0 0 0.5px color-mix(in srgb, var(--ts-surface-terminal) 6%, transparent),
-    0 10px 28px color-mix(in srgb, var(--ts-surface-terminal) 16%, transparent),
-    0 32px 72px color-mix(in srgb, var(--ts-surface-terminal) 22%, transparent);
+    0 12px 34px color-mix(in srgb, var(--ts-surface-terminal) 18%, transparent);
   z-index: var(--ts-z-popover);
-  animation: task-notifications-panel-open 260ms var(--ts-spring);
+  will-change: opacity, transform;
+  animation: task-notifications-panel-open 110ms var(--ts-ease);
 }
 
 :root.theme-dark .task-notifications__panel {
-  background: color-mix(in srgb, var(--ts-surface) 82%, transparent);
-  /* On the near-black terminal a dark drop shadow is invisible, so the card
-     reads as docked. Lift it the dark-surface way: a light hairline edge
-     highlight plus a deep ambient halo = a card that clearly floats. */
+  background: var(--ts-surface);
   box-shadow:
     0 0 0 0.5px color-mix(in srgb, var(--ts-text-inverse) 8%, transparent),
-    0 10px 28px color-mix(in srgb, var(--ts-surface-terminal) 46%, transparent),
-    0 32px 72px color-mix(in srgb, var(--ts-surface-terminal) 56%, transparent);
+    0 12px 34px color-mix(in srgb, var(--ts-surface-terminal) 46%, transparent);
 }
 
 .task-notifications__panel[data-closing="true"] {
-  animation: task-notifications-panel-close 160ms var(--ts-ease) forwards;
+  animation: task-notifications-panel-close 90ms var(--ts-ease) forwards;
   pointer-events: none;
 }
 
@@ -113,7 +83,7 @@
   letter-spacing: 0.01em;
 }
 
-/* ── Card (iOS-style floating notification tile) ──────────────────────── */
+/* Floating notification tile. */
 
 .task-notifications__banner {
   position: relative;
@@ -122,7 +92,7 @@
   column-gap: 0.6rem;
   row-gap: 1px;
   padding: 0.6rem 0.75rem 0.55rem 0.75rem;
-  /* Light: crisp pure-white tile lifted off the tinted panel. */
+  /* Light tile lifted off the tinted panel. */
   background: var(--ts-surface);
   border: 1px solid var(--ts-border);
   border-radius: 12px;
@@ -132,8 +102,7 @@
               transform var(--ts-duration) var(--ts-ease);
 }
 
-/* Dark: lift the tile a half-stop above the panel using the dedicated
-   raised-surface token. Same iOS-card raised-tile read, different anchor. */
+/* Dark tile uses the raised-surface token above the panel. */
 :root.theme-dark .task-notifications__banner {
   background: var(--ts-surface-strong);
 }
@@ -143,7 +112,7 @@
   transform: translateY(-1px);
 }
 
-/* Unseen — accent bar inset on the left edge (Apple-card pattern) */
+/* Unseen items get an inset accent bar on the left edge. */
 .task-notifications__banner--unseen {
   box-shadow: inset 3px 0 0 var(--ts-accent), var(--ts-shadow-sm);
 }
@@ -152,7 +121,7 @@
   box-shadow: inset 3px 0 0 var(--ts-accent), var(--ts-shadow-md);
 }
 
-/* ── Severity glyph (top-left, soft tinted circle) ────────────────────── */
+/* Severity glyph (top-left, soft tinted circle) */
 
 .task-notifications__severity-tile {
   grid-column: 1;
@@ -184,9 +153,9 @@
   color: var(--ts-error);
 }
 
-/* ── Information hierarchy ────────────────────────────────────────────── */
+/* Information hierarchy */
 
-/* Row 1: context pack — caption style, full visibility (2-line clamp) */
+/* Row 1: context pack, caption style, two-line clamp. */
 .task-notifications__pack {
   grid-column: 2;
   grid-row: 1;
@@ -206,7 +175,7 @@
   overflow: hidden;
 }
 
-/* Row 2: task title — semibold, single line, ellipsis */
+/* Row 2: task title, semibold, single-line ellipsis. */
 .task-notifications__title {
   grid-column: 2;
   grid-row: 2;
@@ -222,7 +191,7 @@
   text-overflow: ellipsis;
 }
 
-/* Row 3: task status — severity tinted */
+/* Row 3: severity-tinted task status. */
 .task-notifications__type {
   grid-column: 2;
   grid-row: 3;
@@ -233,7 +202,7 @@
   letter-spacing: 0.005em;
 }
 
-/* Row 4: timestamp — pinned bottom-right */
+/* Row 4: timestamp pinned bottom-right. */
 .task-notifications__timestamp {
   grid-column: 1 / -1;
   grid-row: 4;
@@ -246,7 +215,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* ── Dismiss button (top-right, reveal on hover) ──────────────────────── */
+/* Dismiss button (top-right, reveal on hover) */
 
 .task-notifications__dismiss {
   position: absolute;
@@ -280,30 +249,30 @@
   opacity: 1;
 }
 
-/* ── Open / close animation ───────────────────────────────────────────── */
+/* Open / close animation */
 
 @keyframes task-notifications-panel-open {
   from {
     opacity: 0;
-    transform: translateX(-50%) translateY(-8px) scale(0.97);
+    transform: translateX(-50%) translateY(-4px);
     transform-origin: 50% 0;
   }
 
   to {
     opacity: 1;
-    transform: translateX(-50%) translateY(0) scale(1);
+    transform: translateX(-50%) translateY(0);
   }
 }
 
 @keyframes task-notifications-panel-close {
   from {
     opacity: 1;
-    transform: translateX(-50%) translateY(0) scale(1);
+    transform: translateX(-50%) translateY(0);
     transform-origin: 50% 0;
   }
 
   to {
     opacity: 0;
-    transform: translateX(-50%) translateY(-8px) scale(0.97);
+    transform: translateX(-50%) translateY(-4px);
   }
 }

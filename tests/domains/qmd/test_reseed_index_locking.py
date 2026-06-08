@@ -175,7 +175,7 @@ def test_manifest_and_index_writes_occur_inside_marker_window(tmp_path: Path) ->
 
     # Force enrich_manifest_missing_git_roots to return True so the manifest
     # write always fires — making the observation deterministic.
-    git_roots_mod = importlib.import_module("src.backend.mcp.git_roots")
+    git_roots_mod = importlib.import_module("src.backend.mcp.probes.git_roots")
     real_enrich = git_roots_mod.enrich_manifest_missing_git_roots
 
     def patched_enrich(manifest: dict, *, context_pack_dir: Path) -> bool:

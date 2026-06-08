@@ -1,8 +1,4 @@
-/* ═══════════════════════════════════════════════════════════════════════════
-   CardGrid — Shared Clickable Card Pattern
-   ═══════════════════════════════════════════════════════════════════════════
-   Aesthetic: Instrument-panel cards with brass accent hover reveals
-   ──��──────────────────────────────────────────────────────────────────────── */
+/* CardGrid Shared Clickable Card Pattern */
 
 .card-grid {
   display: grid;
@@ -20,7 +16,7 @@
   text-align: center;
 }
 
-/* ── Card Item ────────────────────────────────────────────────────────── */
+/* Card Item */
 
 .card-grid__item {
   display: flex;
@@ -65,7 +61,7 @@
   to   { border-color: var(--ts-accent); }
 }
 
-/* ── Card content ─────────────────────────────────────────────────────── */
+/* Card content */
 
 .card-grid__title-row {
   display: flex;
@@ -100,7 +96,7 @@
   opacity: 1;
 }
 
-/* ── Dirty indicator ──────────────────────────────────────────────────── */
+/* Dirty indicator */
 
 .card-grid__dirty-dot {
   color: var(--ts-accent);
@@ -110,7 +106,7 @@
   text-shadow: 0 0 4px color-mix(in srgb, var(--ts-accent) 40%, transparent);
 }
 
-/* ── Shimmer loading skeleton ─────────────────────────────────────────── */
+/* Shimmer loading skeleton */
 
 .card-grid__shimmer {
   height: 50px;

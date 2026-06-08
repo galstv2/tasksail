@@ -1,9 +1,9 @@
 """Plan construction and loading helpers for SeedingService.
 
-Extracted from seeding_service.py (Phase 6 Gate G1).  These functions hold
-the ``build_plan`` / ``load_plan`` / ``get_live_plan`` logic that was
-previously on the class.  They receive ``normalize_repo_entry`` as an
-explicit parameter so the injection contract is preserved.
+These functions hold the ``build_plan`` / ``load_plan`` / ``get_live_plan``
+logic that was previously on the class.  They receive
+``normalize_repo_entry`` as an explicit parameter so the injection contract is
+preserved.
 """
 from __future__ import annotations
 
@@ -11,9 +11,9 @@ import logging
 from pathlib import Path
 from typing import Any, Callable
 
-from src.backend.mcp.pack_constants import qmd_scope_root_for
+from src.backend.mcp.pack.constants import qmd_scope_root_for
 from src.backend.mcp.pack_schemas import validate_plan as _validate_plan_schema
-from src.backend.mcp.path_resolution import ContainerPathMissing
+from src.backend.mcp.probes.path_resolution import ContainerPathMissing
 
 from ..utils import ensure_non_empty_string, load_json
 from .scope import normalize_qmd_scope_root

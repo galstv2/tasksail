@@ -1,7 +1,7 @@
 /**
- * §4.15 Worktree finalize and teardown — test suite.
+ * Worktree finalize and teardown test suite.
  *
- * All Done-when assertions from the spec chunk are covered here.
+ * Worktree-finalize done-when assertions are covered here.
  * Tests that require real `git worktree` operations use actual git repos
  * created in tmpdir. Tests that cover environment injection mock file reads.
  *
@@ -35,9 +35,6 @@ import { buildAgentEnvironment } from '../../agent-runner/environment.js';
 import type { AgentProfile } from '../../agent-runner/types.js';
 import { _clearPlatformConfigCache } from '../../platform-config/get.js';
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 /**
  * Create a minimal git repo with at least one commit.
@@ -179,9 +176,6 @@ function listBranches(originalRoot: string): string {
   }
 }
 
-// ---------------------------------------------------------------------------
-// §4.15 Done-when: completed path — worktree removed, branch survives
-// ---------------------------------------------------------------------------
 
 describe('§4.15 finalizeTaskWorktrees — completed', () => {
   let tmpRoot: string;
@@ -304,9 +298,6 @@ describe('§4.15 finalizeTaskWorktrees — completed', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// §4.15 Done-when: prune after remove — completed
-// ---------------------------------------------------------------------------
 
 describe('§4.15 prune after out-of-band remove — completed', () => {
   let tmpRoot: string;
@@ -335,7 +326,7 @@ describe('§4.15 prune after out-of-band remove — completed', () => {
     createWorktree(originalRoot, worktreeRoot, worktreeBranch);
     writeTaskJson(repoRoot, taskId, originalRoot, worktreeRoot, worktreeBranch);
 
-    // Simulate §4.10 out-of-band removal (sync rmSync before finalize)
+    // Simulate out-of-band removal before finalize.
     rmSync(worktreeRoot, { recursive: true, force: true });
 
     const binding = {
@@ -362,9 +353,6 @@ describe('§4.15 prune after out-of-band remove — completed', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// §4.15 Done-when: failed + retain=true
-// ---------------------------------------------------------------------------
 
 describe('§4.15 finalizeTaskWorktrees — failed + retain=true', () => {
   let tmpRoot: string;
@@ -440,9 +428,6 @@ describe('§4.15 finalizeTaskWorktrees — failed + retain=true', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// §4.15 Done-when: failed + retain=false
-// ---------------------------------------------------------------------------
 
 describe('§4.15 finalizeTaskWorktrees — failed + retain=false', () => {
   let tmpRoot: string;
@@ -548,9 +533,6 @@ describe('§4.15 finalizeTaskWorktrees — failed + retain=false', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// §4.15 Done-when: prune after remove — failed+no-retain
-// ---------------------------------------------------------------------------
 
 describe('§4.15 prune after out-of-band remove — failed+no-retain', () => {
   let tmpRoot: string;
@@ -606,9 +588,6 @@ describe('§4.15 prune after out-of-band remove — failed+no-retain', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// §4.15 Done-when: TASKSAIL_TASK_BRANCHES env injection
-// ---------------------------------------------------------------------------
 
 describe('§4.15 buildAgentEnvironment — TASKSAIL_TASK_BRANCHES injection', () => {
   let tmpRoot: string;
@@ -748,9 +727,6 @@ describe('§4.15 buildAgentEnvironment — TASKSAIL_TASK_BRANCHES injection', ()
   });
 });
 
-// ---------------------------------------------------------------------------
-// §4.15 Done-when: FIFO eviction — max_retained_failed_task_worktrees=2
-// ---------------------------------------------------------------------------
 
 describe('§4.15 FIFO eviction', () => {
   let tmpRoot: string;
@@ -950,9 +926,6 @@ describe('§4.15 FIFO eviction', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// §4.15 Done-when: eviction error isolation
-// ---------------------------------------------------------------------------
 
 describe('§4.15 eviction error isolation', () => {
   let tmpRoot: string;
@@ -1045,9 +1018,6 @@ describe('§4.15 eviction error isolation', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// §4.15 Done-when: F7 — pipeline.lock cleared on retained failure
-// ---------------------------------------------------------------------------
 
 describe('§4.15 F7 — pipeline.lock cleared on retained failure', () => {
   let tmpRoot: string;
@@ -1083,13 +1053,8 @@ describe('§4.15 F7 — pipeline.lock cleared on retained failure', () => {
     const receiptPath = path.join(taskRuntime, 'pipeline-receipt.json');
     writeFileSync(receiptPath, JSON.stringify({ result: 'failed' }));
 
-    // §4.14A (not yet landed) would call rmSync on the pipeline.lock BEFORE
-    // calling finalizeTaskWorktrees. The F7 test verifies the lock is cleared
-    // by the caller; we simulate the caller removing it here.
-    // Per spec §4.14A F7: "Before finalizeTaskWorktrees is called on a failed
-    // task, the per-task pipeline.lock MUST be unconditionally removed."
-    // Since §4.14A is a peer unit, we verify the contract from §4.15's side:
-    // finalizeTaskWorktrees must NOT re-create the lock.
+    // The caller removes pipeline.lock before calling finalizeTaskWorktrees;
+    // this test verifies finalizeTaskWorktrees does not re-create the lock.
     rmSync(lockDir, { recursive: true, force: true });
 
     await finalizeTaskWorktrees(taskId, 'failed', repoRoot);
@@ -1102,9 +1067,6 @@ describe('§4.15 F7 — pipeline.lock cleared on retained failure', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// §4.15 Done-when: stale reap simulation
-// ---------------------------------------------------------------------------
 
 describe('§4.15 stale reap — failed task on restart', () => {
   let tmpRoot: string;
@@ -1152,9 +1114,6 @@ describe('§4.15 stale reap — failed task on restart', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// §4.15 Done-when: eviction serialization (lock exclusivity)
-// ---------------------------------------------------------------------------
 
 describe('§4.15 eviction serialization — concurrent finalize', () => {
   let tmpRoot: string;
@@ -1257,9 +1216,7 @@ describe('§4.15 eviction serialization — concurrent finalize', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// §4.15 B4 — per-binding git error isolation
-// ---------------------------------------------------------------------------
+// Per-binding git error isolation.
 
 describe('§4.15 B4 per-binding git error isolation', () => {
   let tmpRoot: string;
@@ -1385,9 +1342,7 @@ describe('§4.15 B4 per-binding git error isolation', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // discardRetainedTaskWorktrees — operator-initiated requeue cleanup
-// ---------------------------------------------------------------------------
 
 describe('discardRetainedTaskWorktrees', () => {
   let tmpRoot: string;

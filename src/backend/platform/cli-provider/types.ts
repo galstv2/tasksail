@@ -248,8 +248,8 @@ export type AgentLaunchExtensionDirs = {
   skillDirs: readonly string[];
 };
 
-// Compatibility alias for the Lily planner launch path. Type-identical to
-// AgentLaunchExtensionDirs so existing planner consumers compile unchanged.
+// Compatibility alias for planner launch consumers. Type-identical to
+// AgentLaunchExtensionDirs so existing consumers compile unchanged.
 export type PlannerLaunchExtensionDirs = AgentLaunchExtensionDirs;
 
 export interface PlannerLaunchOptions {
@@ -265,15 +265,15 @@ export interface PlannerLaunchOptions {
   additionalEnv?: Record<string, string>;
   /**
    * Structured focus and path metadata, identical to the shape passed to
-   * provider.buildEnv for role agents. The planner launch-spec implementation
+   * provider.buildEnv for role agents. The planner launch implementation
    * owns model and agentId.
    */
   focusEnv?: Omit<GenericAgentEnv, 'model' | 'agentId'>;
-  lilyPersonalityId?: PlannerLilyPersonalityId;
+  plannerPersonalityId?: PlannerPersonalityId;
   launchExtensions?: PlannerLaunchExtensionDirs;
 }
 
-export type PlannerLilyPersonalityId = 'balanced' | 'clinical';
+export type PlannerPersonalityId = 'balanced' | 'clinical';
 
 export interface PlannerLaunchSpec {
   agentId: string;

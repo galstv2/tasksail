@@ -32,9 +32,9 @@ from ..utils import (
 logger = logging.getLogger("repo-context-mcp")
 TASK_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
-# SEC-PY-03: GET routes that serve context-pack file content (gated when
-# REPO_CONTEXT_MCP_REQUIRE_GET_AUTH is enabled). Discovery/health routes
-# (/health, /sse, /status, /capabilities) stay open.
+# GET routes that serve context-pack file content can require auth when
+# REPO_CONTEXT_MCP_REQUIRE_GET_AUTH is enabled. Discovery/health routes
+# stay open.
 _GATED_GET_ROUTES = frozenset(
     {
         "/shared-retrospective-memory",
@@ -452,7 +452,7 @@ class RepoContextHttpHandler:
                 return allowed
 
             def _host_origin_allowed(self, request_id: str) -> bool:
-                # SEC-PY-05: reject a foreign Host/Origin to mitigate DNS-rebinding
+                # Reject foreign Host/Origin headers to mitigate DNS-rebinding
                 # against the loopback-exposed service. Always enforced.
                 allowed = self._allowed_request_hosts()
 
@@ -529,7 +529,7 @@ class RepoContextHttpHandler:
                 return True
 
             def _authorize_get(self, request_id: str) -> bool:
-                # SEC-PY-03: opt-in token gate for file-content GET routes.
+                # Optional token check for file-content GET routes.
                 # Default off to preserve the unauthenticated read contract;
                 # enable with REPO_CONTEXT_MCP_REQUIRE_GET_AUTH once callers are
                 # confirmed to send the token.

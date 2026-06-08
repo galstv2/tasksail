@@ -26,6 +26,9 @@ class TaskArchiveAtomicityTests(TaskArchiveFilingTestBase):
     ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env["TASKSAIL_TASK_ID"] = task_id
+        env["TASKSAIL_AGENT_REGISTRY_PATH"] = str(
+            repo_root / ".github" / "agents" / "registry.json"
+        )
         return subprocess.run(
             [
                 sys.executable,
@@ -128,8 +131,7 @@ class TaskArchiveAtomicityTests(TaskArchiveFilingTestBase):
             )
 
     def test_crash_during_global_history_leaves_no_orphaned_files(self) -> None:
-        """Simulate failure at step 5 (global history), verify no final
-        archive exists."""
+        """Simulate global-history failure and verify no final archive exists."""
         with tempfile.TemporaryDirectory() as temp_root:
             temp_path = Path(temp_root)
             repo_root = temp_path / "repo"
@@ -166,8 +168,7 @@ class TaskArchiveAtomicityTests(TaskArchiveFilingTestBase):
                 os.chmod(str(history_dir), 0o755)
 
     def test_resume_skips_completed_steps(self) -> None:
-        """Write a manifest with steps 1-3 complete, run with --resume,
-        verify steps 1-3 are not re-executed."""
+        """Resume skips archive and retrospective work already marked complete."""
         with tempfile.TemporaryDirectory() as temp_root:
             temp_path = Path(temp_root)
             repo_root = temp_path / "repo"
@@ -185,7 +186,8 @@ class TaskArchiveAtomicityTests(TaskArchiveFilingTestBase):
 
             # Delete the final archive but leave downstream files.
             # Create a staging directory with manifest + archive to simulate
-            # a partial run that completed steps 1-3 but failed at promotion.
+            # a partial run that completed archive/retrospective work but
+            # failed at promotion.
             record_path = Path(first_result["record_path"])
             payload = json.loads(record_path.read_text(encoding="utf-8"))
 
@@ -221,9 +223,7 @@ class TaskArchiveAtomicityTests(TaskArchiveFilingTestBase):
             self.assertTrue(Path(resumed_result["record_path"]).exists())
 
     def test_resume_without_staged_archive_or_record_errors_cleanly(self) -> None:
-        """EH-3: --resume with a surviving manifest but no staged archive.json
-        and no canonical record fails with a structured error, not a raw
-        FileNotFoundError traceback."""
+        """--resume without staged or canonical archive data fails cleanly."""
         with tempfile.TemporaryDirectory() as temp_root:
             temp_path = Path(temp_root)
             repo_root = temp_path / "repo"
@@ -283,7 +283,7 @@ class TaskArchiveAtomicityTests(TaskArchiveFilingTestBase):
             original_history = history_md_path.read_text(encoding="utf-8")
 
             # Simulate partial run: create staging dir with manifest that has
-            # archive + retrospective + global_history steps done
+            # Archive, retrospective, and global history work already done.
             record_path = Path(first_result["record_path"])
             payload = json.loads(record_path.read_text(encoding="utf-8"))
 
@@ -304,7 +304,7 @@ class TaskArchiveAtomicityTests(TaskArchiveFilingTestBase):
             )
             record_path.unlink()
 
-            # Resume — global history steps should be skipped
+            # Resume should skip global history work.
             resumed = self.run_archive_script_with_resume(
                 repo_root=repo_root,
                 context_pack_dir=context_pack_dir,
@@ -416,7 +416,15 @@ class TaskArchiveAtomicityTests(TaskArchiveFilingTestBase):
                     raise OSError("forced promotion failure")
                 return original_copytree(source, destination, *args, **kwargs)
 
-            with patch.dict(os.environ, {"TASKSAIL_TASK_ID": "CAP-2001"}):
+            with patch.dict(
+                os.environ,
+                {
+                    "TASKSAIL_TASK_ID": "CAP-2001",
+                    "TASKSAIL_AGENT_REGISTRY_PATH": str(
+                        repo_root / ".github" / "agents" / "registry.json"
+                    ),
+                },
+            ):
                 with patch.object(archive_mod.shutil, "copytree", side_effect=fail_canonical_artifact_promotion):
                     failed = archive_mod.main([
                         "--repo-root",
@@ -543,8 +551,7 @@ class TaskArchiveAtomicityTests(TaskArchiveFilingTestBase):
             self.assertIn("CHILD-IDX-1", final["followup_refs"])
 
     def test_lock_covers_global_history_through_indexes(self) -> None:
-        """Verify the lock is held from global history (step 4) through
-        retrospective indexes (step 10).
+        """Verify the lock spans global history through retrospective indexes.
 
         We confirm this structurally by checking that the shared_memory_lock_path
         lock file is created, and that global history + shared memory + retro

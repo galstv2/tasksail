@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from src.backend.mcp.context_estate.constants import SKIP_DIR_NAMES
-from src.backend.mcp.path_resolution import normalize_manifest_local_path
+from src.backend.mcp.probes.path_resolution import normalize_manifest_local_path
 
 logger = logging.getLogger(__name__)
 

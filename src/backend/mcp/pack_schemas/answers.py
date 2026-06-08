@@ -15,10 +15,15 @@ class BootstrapRepository:
     repo_root: str
     system_layer: str
     owner: str
-    # DEPRECATED: repo_role is superseded by repository_type; removal deferred.
-    # See context-pack-creation-hardening Phase 6 Gate G7.
+    # DEPRECATED: repo_role is superseded by repository_type; removal is
+    # deferred for compatibility with existing packs.
     repo_role: str
     repository_type: str | None
+    # KIND axis (mirrors repo_category/repo_category_authored in the manifest).
+    # Optional + omitted-when-None on dump so pre-existing answers fixtures and
+    # on-disk packs round-trip unchanged.
+    repo_category: str | None = None
+    repo_category_authored: bool | None = None
     languages: list[str] = field(default_factory=list)
     artifact_roots: list[str] = field(default_factory=list)
     document_paths: list[str] = field(default_factory=list)
@@ -80,6 +85,14 @@ def _validate_repo(raw: Any, index: int, errors: list[str]) -> BootstrapReposito
         repo_role=str(raw.get("repo_role") or ""),
         repository_type=(
             str(raw["repository_type"]) if raw.get("repository_type") is not None else None
+        ),
+        repo_category=(
+            str(raw["repo_category"]) if raw.get("repo_category") is not None else None
+        ),
+        repo_category_authored=(
+            bool(raw["repo_category_authored"])
+            if raw.get("repo_category_authored") is not None
+            else None
         ),
         languages=list(raw.get("languages") or []),
         artifact_roots=list(raw.get("artifact_roots") or []),
@@ -147,7 +160,14 @@ def validate_answers(
 def dump_answers(model: BootstrapAnswers) -> dict[str, Any]:
     """Convert a BootstrapAnswers to a dict.
 
-    Preserves None values (serialized as JSON null) since the answers schema
-    uses explicit null for optional fields like repository_type.
+    Preserves None values (serialized as JSON null) for established optional
+    fields like repository_type, which use explicit null. The additive
+    repo_category/repo_category_authored fields are omitted when None so
+    pre-existing answers (without them) round-trip byte-for-byte.
     """
-    return dataclasses.asdict(model)
+    result = dataclasses.asdict(model)
+    for repo in result.get("repositories") or []:
+        for key in ("repo_category", "repo_category_authored"):
+            if repo.get(key) is None:
+                repo.pop(key, None)
+    return result

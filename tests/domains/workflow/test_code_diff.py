@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import contextlib
-import io
 import json
 import shutil
 import subprocess
@@ -368,11 +366,10 @@ class CaptureCodeDiffTests(unittest.TestCase):
         task_id = "task-write-failure"
         _original, _worktree, binding = self._create_worktree_binding(task_id)
         self._write_sidecar(task_id, [binding])
-        stderr = io.StringIO()
 
         with (
             mock.patch.object(code_diff, "_atomic_write_text", side_effect=OSError("disk full")),
-            contextlib.redirect_stderr(stderr),
+            self.assertLogs(code_diff.logger, level="ERROR") as captured,
         ):
             exit_code, repo_names = code_diff.capture_code_diff(
                 repo_root=str(self.platform_root),
@@ -382,10 +379,12 @@ class CaptureCodeDiffTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 1)
         self.assertEqual(repo_names, [Path(binding["worktreeRoot"]).name])
-        logged = json.loads(stderr.getvalue())
-        self.assertEqual(logged["msg"], "code_diff.artifact_write_failed")
-        self.assertEqual(logged["extra"]["error"], "disk full")
-        self.assertEqual(logged["err"]["message"], "disk full")
+        self.assertEqual(len(captured.records), 1)
+        record = captured.records[0]
+        self.assertEqual(record.getMessage(), "code_diff.artifact_write_failed")
+        self.assertEqual(getattr(record, "error"), "disk full")
+        self.assertEqual(getattr(record, "output_path"), str(self.tmpdir / "broken.diff"))
+        self.assertIsInstance(record.exc_info[1], OSError)
 
 
 if __name__ == "__main__":

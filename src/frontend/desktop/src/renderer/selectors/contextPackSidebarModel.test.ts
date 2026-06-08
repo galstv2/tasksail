@@ -143,17 +143,11 @@ describe('buildFocusHint', () => {
 
   it('returns distributed-platform hint for selected repos', () => {
     const hint = buildFocusHint({ selectedPack: makePack() });
-    expect(hint).toContain('Primary repository');
-  });
-
-  it('returns monolith hint for non-distributed packs', () => {
-    const hint = buildFocusHint({
-      selectedPack: makePack({ estateType: 'monolith' }),
-    });
     expect(hint).toBe(
-      'Agents work in the Primary folder. Other checked folders are available as read-only support.',
+      'Mark every active work area as Primary and read-only reference context as Support; multiple Primary and Support selections are supported.',
     );
   });
+
 });
 
 describe('summarizeSwitchResult', () => {
@@ -250,6 +244,18 @@ describe('buildCompactSidebarModel', () => {
     expect(labels).toContain('Distributed');
     expect(labels).toContain('1 repo');
     expect(labels).toContain('1 focus');
+  });
+
+  it('treats plain distributed packs as distributed repo selection', () => {
+    const model = buildCompactSidebarModel({
+      ...baseArgs,
+      contextPacks: [makePack({ estateType: 'distributed' })],
+      selectedRepoIds: ['orders-api'],
+      selectedFocusIds: [],
+    });
+    const labels = model.selectedPackSummary.map((c) => c.label);
+    expect(labels).toContain('Distributed');
+    expect(model.selectedWorkingFocusSummary).toBe('Orders API');
   });
 
   it('returns empty selectedPackSummary when no pack is selected', () => {

@@ -22,8 +22,8 @@ import type {
 } from './types.js';
 
 // Stage events are logged through the plain logger channel (not the typed
-// progress<E> union) because core/logger.ts is outside this gate's allowed
-// files. The event name is the message; structured fields go in `extra`.
+// progress<E> union) to keep this module independent of core/logger's event
+// schema. The event name is the message; structured fields go in `extra`.
 const log = createLogger('platform/agent-extensions/stage');
 
 const STAGE_ROOT_SEGMENTS = ['.platform-state', 'runtime', 'agent-extension-stage'] as const;
@@ -207,8 +207,7 @@ export async function createAgentExtensionStage(
   // read through snapshot copy completion. Every helper called inside is lock-free
   // (withDirLock is non-reentrant), so there is no self-deadlock. The lock's inherited
   // retry/backoff budget (~51s before throwing) lets a concurrent staging, reseed, or
-  // delete WAIT rather than fail — ample for local snapshot-copy duration. Revisiting
-  // lock granularity is deferred to the launch-integration gate (spec: lock-scope-tradeoff).
+  // delete WAIT rather than fail, which is ample for local snapshot-copy duration.
   return withAgentExtensionsLock(repoRoot, 'createAgentExtensionStage', async () => {
     const assignments = await loadAssignments(repoRoot, fs);
     const assignedIds =

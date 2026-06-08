@@ -5,7 +5,7 @@ import dataclasses
 from dataclasses import dataclass, field
 from typing import Any
 
-from src.backend.mcp.pack_constants import ALLOWED_ESTATE_TYPES
+from src.backend.mcp.pack.constants import ALLOWED_ESTATE_TYPES
 from src.backend.mcp.pack_schemas.errors import PackSchemaError
 
 
@@ -18,10 +18,9 @@ class ManifestRepository:
     default_focusable: bool = False
     activation_priority: int = 0
     repository_type: str = ""
-    # DEPRECATED: repo_role is superseded by repository_type; removal deferred.
-    # See context-pack-creation-hardening Phase 6 Gate G7.
+    # DEPRECATED: repo_role is superseded by repository_type; removal is
+    # deferred for compatibility with existing packs.
     repo_role: str = ""
-    # optional fields
     languages: list[str] | None = None
     artifact_roots: list[str] | None = None
     document_paths: list[str] | None = None
@@ -50,6 +49,8 @@ class ManifestFocusableArea:
     default_focusable: bool = False
     activation_priority: int = 0
     repository_type: str | None = None
+    focus_category: str | None = None
+    focus_category_authored: bool | None = None
 
 
 @dataclass(slots=True)
@@ -64,7 +65,6 @@ class RepoSourcesManifest:
     repositories: list[ManifestRepository] | None = None
     focusable_areas: list[ManifestFocusableArea] | None = None
     repository: ManifestRepository | None = None
-    # optional top-level fields present in real manifests
     approved_at: str | None = None
     display_name: str | None = None
     default_scope_mode: str | None = None
@@ -162,6 +162,12 @@ def _validate_focus_area(raw: Any, index: int, errors: list[str]) -> ManifestFoc
         focus_name=str(raw["focus_name"]),
         focus_type=str(raw["focus_type"]),
         relative_path=str(raw["relative_path"]),
+        focus_category=str(raw["focus_category"]) if raw.get("focus_category") else None,
+        focus_category_authored=(
+            bool(raw["focus_category_authored"])
+            if raw.get("focus_category_authored") is not None
+            else None
+        ),
         group=str(raw["group"]) if raw.get("group") is not None else None,
         adjacent_focus_area_ids=(
             list(raw["adjacent_focus_area_ids"])

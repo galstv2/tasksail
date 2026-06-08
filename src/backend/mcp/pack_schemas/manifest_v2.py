@@ -18,8 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from src.backend.mcp.git_roots import coerce_git_root_field
-from src.backend.mcp.pack_constants import (
+from src.backend.mcp.pack.constants import (
     ALLOWED_ESTATE_TYPES,
     ALLOWED_REPO_CATEGORIES,
     MANIFEST_VERSION_V2,
@@ -32,6 +31,7 @@ from src.backend.mcp.pack_schemas.manifest import (
     _strip_none,
     validate_manifest,
 )
+from src.backend.mcp.probes.git_roots import coerce_git_root_field
 
 RepoCategory = Literal[
     "service", "application", "frontend", "library",
@@ -77,10 +77,8 @@ class ManifestRepositoryV2:
     # DEPRECATED: repo_role is superseded by repository_type; grace period in
     # effect because it still has readers/writers in bootstrap normalization,
     # catalog, conventions summary, and desktop contracts.
-    # See context-pack-creation-hardening Phase 6 Gate G7.
     repo_role: str = ""
     repository_type: str = ""
-    # optional fields (same as v1)
     languages: list[str] | None = None
     artifact_roots: list[str] | None = None
     document_paths: list[str] | None = None
@@ -214,6 +212,12 @@ def _parse_focus_area_v2(raw: dict[str, Any]) -> ManifestFocusableArea:
         focus_name=raw.get("focus_name", ""),
         focus_type=raw.get("focus_type", ""),
         relative_path=raw.get("relative_path", ""),
+        focus_category=raw.get("focus_category") or None,
+        focus_category_authored=(
+            bool(raw["focus_category_authored"])
+            if raw.get("focus_category_authored") is not None
+            else None
+        ),
         repository_type=raw.get("repository_type") or None,
         group=raw.get("group"),
         default_focusable=bool(raw.get("default_focusable", False)),

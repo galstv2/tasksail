@@ -24,9 +24,11 @@
       "tests.domains.context_pack.test_switch_context_pack_workspace"
     ],
     "contracts": [
+      "tests.domains.docs_contracts.test_agent_entrypoint_contract",
       "tests.domains.docs_contracts.test_agent_registry_contract",
       "tests.domains.docs_contracts.test_copilot_agent_profiles",
       "tests.domains.docs_contracts.test_docs_operating_model",
+      "tests.domains.docs_contracts.test_workflow_contract_parity",
       "tests.domains.docs_contracts.test_workflow_policy_docs"
     ]
   },
@@ -35,7 +37,6 @@
       "tests.domains.workflow.test_child_task_handoff_validation",
       "tests.domains.workflow.test_run_role_agent",
       "tests.domains.workflow.test_external_mcp_renderer",
-      "tests.domains.workflow.test_external_mcp_hardening",
       "tests.domains.workflow.test_tests_md_append"
     ],
     "queue": [
@@ -74,7 +75,6 @@
       "tests.domains.repo_context.test_repo_context_http_transport",
       "tests.domains.repo_context.test_repo_context_packaging",
       "tests.domains.repo_context.test_repo_context_request_id",
-      "tests.domains.repo_context.test_repo_context_server_lifecycle",
       "tests.domains.repo_context.test_seeding_service_multi_path"
     ],
     "archive": [
@@ -87,9 +87,11 @@
       "tests.domains.archive.test_task_archive_service"
     ],
     "docs_contracts": [
+      "tests.domains.docs_contracts.test_agent_entrypoint_contract",
       "tests.domains.docs_contracts.test_agent_registry_contract",
       "tests.domains.docs_contracts.test_copilot_agent_profiles",
       "tests.domains.docs_contracts.test_docs_operating_model",
+      "tests.domains.docs_contracts.test_workflow_contract_parity",
       "tests.domains.docs_contracts.test_workflow_policy_docs"
     ],
     "qmd": [
@@ -102,7 +104,7 @@
     "test_infra": [
       "tests.domains.test_infra.test_run_targeted_tests",
       "tests.domains.test_infra.test_script_lib",
-      "tests.domains.test_infra.test_atomic_writes"
+      "tests.domains.test_infra.test_mcp_module_imports"
     ],
     "reinforcement": [
       "tests.domains.reinforcement.test_persistence",
@@ -146,7 +148,7 @@
     "tests/domains/pack_io/": ["pack_io"],
     "tests/domains/pack_schemas/": ["pack_schemas"],
     "tests/domains/pack_writer/": ["pack_writer"],
-    "src/backend/mcp/pack_io.py": ["pack_io"],
+    "src/backend/mcp/pack/io.py": ["pack_io"],
     "tests/domains/repo_context/": ["repo_context"],
     "tests/domains/archive/": ["archive"],
     "tests/domains/docs_contracts/": ["docs_contracts"],

@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { detectOS, setupRepo } from '../setup.js';
+import { setupRepo } from '../setup.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -23,14 +23,6 @@ const MIRROR_ENV_KEYS = [
   'TASKSAIL_PYTHON_BASE_IMAGE',
   'TASKSAIL_ALPINE_BASE_IMAGE',
 ];
-
-describe('detectOS', () => {
-  it('returns the current platform', () => {
-    const result = detectOS();
-    expect(['darwin', 'linux', 'win32']).toContain(result);
-    expect(result).toBe(process.platform);
-  });
-});
 
 describe('setupRepo', () => {
   let tmpDir: string;
@@ -95,13 +87,15 @@ describe('setupRepo', () => {
     expect(mcpRegistryIndex).toBeGreaterThan(platformConfigIndex);
   });
 
-  it('runs enterprise-mirrors immediately after ensure-env and before platform-config-seed', async () => {
+  it('runs secure-env then enterprise-mirrors after ensure-env and before platform-config-seed', async () => {
     const result = await setupRepo({ repoRoot: tmpDir, skipContainerServices: true });
     const ensureEnvIndex = result.steps.findIndex((s) => s.name === 'ensure-env');
+    const secureEnvIndex = result.steps.findIndex((s) => s.name === 'secure-env');
     const mirrorIndex = result.steps.findIndex((s) => s.name === 'enterprise-mirrors');
     const platformConfigIndex = result.steps.findIndex((s) => s.name === 'platform-config-seed');
     expect(ensureEnvIndex).toBeGreaterThan(-1);
-    expect(mirrorIndex).toBe(ensureEnvIndex + 1);
+    expect(secureEnvIndex).toBe(ensureEnvIndex + 1);
+    expect(mirrorIndex).toBe(secureEnvIndex + 1);
     expect(platformConfigIndex).toBe(mirrorIndex + 1);
   });
 
@@ -157,12 +151,6 @@ describe('setupRepo', () => {
     const containerServicesStep = result.steps.find(s => s.name === 'container-services');
     expect(containerServicesStep?.status).toBe('skipped');
     expect(containerServicesStep?.message).toBe('skipContainerServices=true');
-  });
-
-  it('supports skipDocker as a deprecated alias', async () => {
-    const result = await setupRepo({ repoRoot: tmpDir, skipDocker: true });
-    const containerServicesStep = result.steps.find(s => s.name === 'container-services');
-    expect(containerServicesStep?.status).toBe('skipped');
   });
 
   it('returns detected OS in result', async () => {

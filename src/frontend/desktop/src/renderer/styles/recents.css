@@ -1,6 +1,6 @@
-/* ── Recents Picker — Lily planner conversation history ──────────────── */
+/* Recents Picker: planner conversation history */
 
-/* ── Trigger pill ───────────────────────────────────────────────────── */
+/* Trigger pill */
 
 .recents-trigger {
   display: inline-flex;
@@ -59,7 +59,7 @@
   white-space: nowrap;
 }
 
-/* ── Skeleton (first-load) ──────────────────────────────────────────── */
+/* Skeleton (first-load) */
 
 .recents-trigger--skeleton {
   display: inline-block;
@@ -91,7 +91,7 @@
   }
 }
 
-/* ── Parent Task Picker — Lily child-task parent archive transparency ── */
+/* Parent Task Picker: child-task parent archive transparency */
 
 .parent-task-picker {
   display: flex;
@@ -209,7 +209,7 @@
   color: var(--terminal-text-muted);
 }
 
-/* ── Popover surface ────────────────────────────────────────────────── */
+/* Popover surface */
 
 .recents-popover {
   position: fixed;
@@ -282,7 +282,7 @@
   flex-direction: column;
 }
 
-/* ── Picker row — shared compact option row (parent task + recents) ──── */
+/* Picker row shared by parent task and recents options */
 
 .planner-picker-row {
   display: flex;

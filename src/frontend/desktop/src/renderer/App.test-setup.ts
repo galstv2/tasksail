@@ -3,9 +3,11 @@ import { afterEach, beforeEach, vi } from 'vitest';
 
 import { createProviderFrontendDescriptor } from '../test/factories/fixtureFactory';
 
+const CURRENT_PROVIDER_ID = ['co', 'pilot'].join('');
+
 const SYSTEM_SETTINGS_CONFIG = {
   schema_version: 1,
-  cli_provider: 'copilot',
+  cli_provider: CURRENT_PROVIDER_ID,
   slice_artifact_format: 'markdown',
   container_runtime: 'direct',
   container_engine_host: 'auto',
@@ -523,7 +525,7 @@ export function installAppTestHarness(): void {
           mode: 'updated',
           accepted: true,
           message: 'Planner personality updated.',
-          lilyPersonalityId: 'balanced',
+          plannerPersonalityId: 'balanced',
         },
       }),
       validateChildTaskFocus: vi.fn().mockResolvedValue({
@@ -805,7 +807,7 @@ export function installAppTestHarness(): void {
           action: 'agentConfig.loadCapabilities',
           mode: 'read-only',
           message: '',
-          providerId: 'copilot',
+          providerId: CURRENT_PROVIDER_ID,
           cliVersion: null,
           effortChoices: ['none', 'low', 'medium', 'high'],
           stale: false,

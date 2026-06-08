@@ -6,13 +6,12 @@ import {
   createAgentExtensionStage,
   cleanupAgentExtensionStage,
   recoverAgentExtensionStagesOnStartup,
-  assertValidAgentExtensionLaunchId,
   resolveAgentExtensionStageRoot,
   resolveAgentExtensionStageDir,
   stageCopyDirectory,
   saveAgentLaunchExtensionAssignments,
 } from '../index.js';
-import { createRoleLaunchId } from '../../agent-runner/roleAgent.js';
+import { flushLoggers } from '../../core/logger.js';
 import type { AgentExtensionAgentId } from '../types.js';
 
 const NOW = '2026-02-02T00:00:00.000Z';
@@ -26,9 +25,18 @@ const ALL_AGENTS: AgentExtensionAgentId[] = [
 ];
 
 let repo: string;
+let logDir: string;
+let savedLogDir: string | undefined;
+let savedLogLevel: string | undefined;
 
 beforeEach(() => {
   repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ext-stage-test-'));
+  logDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ext-stage-logs-'));
+  savedLogDir = process.env.LOG_DIR;
+  savedLogLevel = process.env.LOG_LEVEL;
+  process.env.LOG_DIR = logDir;
+  process.env.LOG_LEVEL = 'debug';
+  flushLoggers();
   fs.mkdirSync(path.join(repo, '.platform-state'), { recursive: true });
   fs.mkdirSync(path.join(repo, 'config'), { recursive: true });
   writeProviderRegistry();
@@ -39,7 +47,13 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  flushLoggers();
   fs.rmSync(repo, { recursive: true, force: true });
+  fs.rmSync(logDir, { recursive: true, force: true });
+  if (savedLogDir === undefined) delete process.env.LOG_DIR;
+  else process.env.LOG_DIR = savedLogDir;
+  if (savedLogLevel === undefined) delete process.env.LOG_LEVEL;
+  else process.env.LOG_LEVEL = savedLogLevel;
 });
 
 type Ext = { id: string; kind: 'skill' | 'plugin'; enabled?: boolean };
@@ -525,12 +539,6 @@ describe('cleanupAgentExtensionStage', () => {
 });
 
 describe('launch-id validation and default copy', () => {
-  it('accepts createRoleLaunchId output so future launch-id reuse stays valid', () => {
-    for (let i = 0; i < 5; i++) {
-      expect(() => assertValidAgentExtensionLaunchId(createRoleLaunchId())).not.toThrow();
-    }
-  });
-
   it('default copyDirectory copies symlinks verbatim without dereferencing their targets', async () => {
     const src = fs.mkdtempSync(path.join(os.tmpdir(), 'ext-cp-src-'));
     const external = fs.mkdtempSync(path.join(os.tmpdir(), 'ext-cp-ext-'));
@@ -559,44 +567,165 @@ describe('recoverAgentExtensionStagesOnStartup', () => {
   it('returns zero counts when the stage root does not exist', async () => {
     const result = await recoverAgentExtensionStagesOnStartup(repo);
     expect(result).toEqual({ removedStageCount: 0, skippedEntryCount: 0 });
+    expect(readLogRecords()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        level: 'debug',
+        msg: '[agent-extensions] stage.recovery.completed',
+        extra: {
+          event: 'agent_extensions.stage.recovery.completed',
+          removedStageCount: 0,
+          skippedEntryCount: 0,
+        },
+      }),
+    ]));
   });
 
-  it('removes leaked real stage directories left by a prior crashed launch', async () => {
-    const leaked = path.join(stageRoot(), 'leaked-launch');
-    fs.mkdirSync(path.join(leaked, 'skills', 'skill-a'), { recursive: true });
-    fs.writeFileSync(path.join(leaked, 'skills', 'skill-a', 'SKILL.md'), 'leftover');
+  it('removes created, creating, manifestless, and partially copied stage directories', async () => {
+    const root = stageRoot();
+    fs.mkdirSync(root, { recursive: true });
+
+    fs.mkdirSync(path.join(root, 'created'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'created', 'manifest.json'), JSON.stringify({ status: 'created' }));
+
+    fs.mkdirSync(path.join(root, 'creating'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'creating', 'manifest.json'), JSON.stringify({ status: 'creating' }));
+
+    fs.mkdirSync(path.join(root, 'manifestless'), { recursive: true });
+
+    fs.mkdirSync(path.join(root, 'partial', 'skills', 'x'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'partial', 'skills', 'x', 'SKILL.md'), 'partial');
 
     const result = await recoverAgentExtensionStagesOnStartup(repo);
-    expect(result.removedStageCount).toBe(1);
-    expect(fs.existsSync(leaked)).toBe(false);
+
+    expect(result.removedStageCount).toBe(4);
+    expect(result.skippedEntryCount).toBe(0);
+    expect(fs.readdirSync(root)).toHaveLength(0);
+    expect(readLogRecords()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        level: 'info',
+        msg: '[agent-extensions] stage.recovery.completed',
+        extra: expect.objectContaining({
+          event: 'agent_extensions.stage.recovery.completed',
+          removedStageCount: 4,
+          skippedEntryCount: 0,
+        }),
+      }),
+    ]));
   });
 
-  it('skips a non-directory entry under the stage root and leaves it in place', async () => {
-    fs.mkdirSync(stageRoot(), { recursive: true });
-    const loose = path.join(stageRoot(), 'loose.txt');
-    fs.writeFileSync(loose, 'not a stage');
+  it('skips non-directory entries and symlinks, reporting skippedEntryCount', async () => {
+    const root = stageRoot();
+    fs.mkdirSync(root, { recursive: true });
+
+    fs.mkdirSync(path.join(root, 'a-dir'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'loose-file.txt'), 'x');
+
+    // A symlink to an external directory is a non-directory Dirent → skipped, not followed.
+    const externalDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ext-recover-target-'));
+    fs.writeFileSync(path.join(externalDir, 'keep.txt'), 'keep');
+    fs.symlinkSync(externalDir, path.join(root, 'a-symlink'), 'dir');
 
     const result = await recoverAgentExtensionStagesOnStartup(repo);
-    expect(result.removedStageCount).toBe(0);
-    expect(result.skippedEntryCount).toBeGreaterThanOrEqual(1);
-    expect(fs.existsSync(loose)).toBe(true);
+
+    expect(result.removedStageCount).toBe(1); // only a-dir
+    expect(result.skippedEntryCount).toBe(2); // loose-file + symlink
+    expect(fs.existsSync(path.join(root, 'a-dir'))).toBe(false);
+    expect(fs.existsSync(path.join(root, 'loose-file.txt'))).toBe(true);
+    expect(fs.existsSync(path.join(externalDir, 'keep.txt'))).toBe(true);
+    expect(readLogRecords()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        level: 'info',
+        msg: '[agent-extensions] stage.recovery.completed',
+        extra: expect.objectContaining({
+          event: 'agent_extensions.stage.recovery.completed',
+          removedStageCount: 1,
+          skippedEntryCount: 2,
+        }),
+      }),
+    ]));
+
+    fs.rmSync(externalDir, { recursive: true, force: true });
   });
 
-  it('skips a symlinked stage entry without following it, while still removing real leaked dirs', async () => {
-    fs.mkdirSync(stageRoot(), { recursive: true });
-    // External dir the symlink points at — must survive (recovery never follows symlinks).
-    const external = fs.mkdtempSync(path.join(os.tmpdir(), 'ext-recover-out-'));
-    fs.writeFileSync(path.join(external, 'keep.txt'), 'keep');
-    fs.symlinkSync(external, path.join(stageRoot(), 'linkdir'), 'dir');
-    // A real leaked stage dir alongside the symlink.
-    fs.mkdirSync(path.join(stageRoot(), 'real-leak'), { recursive: true });
+  describe('lock mutual exclusivity', () => {
+    it('acquires withAgentExtensionsLock so recovery is mutually exclusive with stage creation', async () => {
+      fs.writeFileSync(
+        path.join(repo, 'config', 'agent-extensions.default.json'),
+        JSON.stringify({
+          schema_version: 1,
+          extensions: [
+            {
+              id: 'skill-a',
+              kind: 'skill',
+              provider_id: 'copilot',
+              display_name: 'Name skill-a',
+              description: 'Desc skill-a',
+              enabled: true,
+              source: { type: 'git', url: 'https://example.com/r.git', ref: 'main' },
+            },
+          ],
+        }),
+      );
+      const skillDir = path.join(repo, '.platform-state', 'skills', 'skill-a');
+      fs.mkdirSync(skillDir, { recursive: true });
+      fs.writeFileSync(path.join(skillDir, 'SKILL.md'), `---\nname: Name skill-a\ndescription: Desc skill-a\n---\nbody\n`);
+      fs.writeFileSync(
+        path.join(repo, '.platform-state', 'agent-launch-extensions.json'),
+        JSON.stringify({
+          schema_version: 1,
+          assignments: ALL_AGENTS.map((agent_id) => ({
+            agent_id,
+            extension_ids: agent_id === AGENT ? ['skill-a'] : [],
+          })),
+        }),
+      );
 
-    const result = await recoverAgentExtensionStagesOnStartup(repo);
-    expect(result.removedStageCount).toBe(1);
-    expect(result.skippedEntryCount).toBeGreaterThanOrEqual(1);
-    expect(fs.existsSync(path.join(external, 'keep.txt'))).toBe(true);
-    expect(fs.existsSync(path.join(stageRoot(), 'real-leak'))).toBe(false);
+      let copyStarted = false;
+      let releaseCopy!: () => void;
+      const gate = new Promise<void>((res) => { releaseCopy = res; });
+      const copyDirectory = async (src: string, dst: string): Promise<void> => {
+        copyStarted = true;
+        await gate;
+        await stageCopyDirectory(src, dst);
+      };
 
-    fs.rmSync(external, { recursive: true, force: true });
+      const stageP = createAgentExtensionStage({ repoRoot: repo, agentId: AGENT, launchId: 'lock-vs-recover', now: () => NOW, copyDirectory });
+      await waitFor(() => copyStarted);
+
+      // Staging holds the lock; recovery must block until staging releases it.
+      const recoverP = recoverAgentExtensionStagesOnStartup(repo);
+      await delay(150);
+
+      const stageDir = resolveAgentExtensionStageDir(repo, 'lock-vs-recover');
+      // Manifest-first means the (locked) staging operation has created the dir already.
+      expect(fs.existsSync(path.join(stageDir, 'manifest.json'))).toBe(true);
+
+      releaseCopy();
+      const [stageRes, recoverRes] = await Promise.all([stageP, recoverP]);
+
+      // Mutual exclusion: recovery ran only AFTER staging finished and released the lock,
+      // so it removed the now-completed stage dir.
+      expect(stageRes.stageDir).toBe(stageDir);
+      expect(recoverRes.removedStageCount).toBe(1);
+      expect(fs.existsSync(stageDir)).toBe(false);
+    }, 20000);
   });
 });
+
+function readLogRecords(): Array<Record<string, unknown>> {
+  const records: Array<Record<string, unknown>> = [];
+  const visit = (dir: string): void => {
+    if (!fs.existsSync(dir)) return;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const entryPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) { visit(entryPath); continue; }
+      if (!entry.isFile()) continue;
+      records.push(...fs.readFileSync(entryPath, 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as Record<string, unknown>));
+    }
+  };
+  visit(logDir);
+  return records;
+}

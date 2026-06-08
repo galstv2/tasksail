@@ -100,7 +100,7 @@ describe('promptPathAudit — §1.7 migration', () => {
 });
 
 /**
- * Phase 6 — Codebase-wide regression guard.
+ * Codebase-wide regression guard.
  *
  * Asserts that no tracked file in the repo contains bare legacy singleton
  * paths (`AgentWorkSpace/handoffs` or `AgentWorkSpace/ImplementationSteps`)

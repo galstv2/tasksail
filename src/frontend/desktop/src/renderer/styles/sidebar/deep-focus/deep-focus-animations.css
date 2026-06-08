@@ -41,7 +41,7 @@
   }
 }
 
-/* ── Deep Focus keyframes ─────────────────────────────────────────────── */
+/* Deep Focus keyframes */
 
 @keyframes deepFocusKnobOn {
   0%   { transform: translateX(0); }

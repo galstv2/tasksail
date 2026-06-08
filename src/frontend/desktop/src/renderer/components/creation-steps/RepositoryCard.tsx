@@ -1,13 +1,13 @@
 import { useMemo, useState } from 'react';
 
-import { ChevronIcon, CloseIcon, PrimaryToggleLabel } from './icons';
+import { ChevronIcon, CloseIcon } from '../icons';
 
 import type {
   ContextPackCreationDraft,
   ContextPackCreationModalProps,
   RepositoryEntryDraft,
-} from '../../contextPackCreationTypes';
-import { isMonolithEstateMode } from '../../contextPackModeUtils';
+} from '../../contextPack/contextPackCreationTypes';
+import { isMonolithEstateMode } from '../../contextPack/contextPackModeUtils';
 import { classNames } from '../../utils/classNames';
 import { toTitleCase } from '../../utils/toTitleCase';
 
@@ -17,7 +17,6 @@ type RepositoryCardProps = {
   mode: ContextPackCreationDraft['mode'];
   busy: boolean;
   onRepositoryFieldChange: ContextPackCreationModalProps['onRepositoryFieldChange'];
-  onSetPrimaryRepository: ContextPackCreationModalProps['onSetPrimaryRepository'];
   onRemoveRepository: ContextPackCreationModalProps['onRemoveRepository'];
 };
 
@@ -38,19 +37,13 @@ function RepositoryCard({
   mode,
   busy,
   onRepositoryFieldChange,
-  onSetPrimaryRepository,
   onRemoveRepository,
 }: RepositoryCardProps): JSX.Element {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const advancedCount = useMemo(() => countConfiguredAdvanced(repository), [repository]);
 
   return (
-    <article
-      className={classNames(
-        'context-pack-modal__editor-card',
-        repository.primary && 'context-pack-modal__editor-card--primary',
-      )}
-    >
+    <article className="context-pack-modal__editor-card">
       <div className="panel__title-row context-pack-modal__card-header">
         <div>
           <span className="context-pack-modal__card-label">
@@ -60,17 +53,6 @@ function RepositoryCard({
           </span>
         </div>
         <div className="context-pack-modal__card-header-actions">
-          <button
-            type="button"
-            className={classNames(
-              'context-pack-modal__toggle-pill',
-              repository.primary && 'context-pack-modal__toggle-pill--active',
-            )}
-            onClick={() => onSetPrimaryRepository(repository.key)}
-            aria-pressed={repository.primary}
-          >
-            <PrimaryToggleLabel primary={repository.primary} />
-          </button>
           {index > 0 ? (
             <button
               type="button"
@@ -120,6 +102,31 @@ function RepositoryCard({
               'database',
               'documents',
               'shared',
+            ].map((option) => (
+              <option key={option} value={option}>
+                {toTitleCase(option)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="composer-field">
+          <span>Category</span>
+          <select
+            value={repository.repoCategory}
+            onChange={(event) =>
+              onRepositoryFieldChange(repository.key, 'repoCategory', event.target.value)
+            }
+          >
+            {[
+              'service',
+              'application',
+              'frontend',
+              'library',
+              'infrastructure',
+              'data',
+              'documentation',
+              'tool',
+              'unknown',
             ].map((option) => (
               <option key={option} value={option}>
                 {toTitleCase(option)}

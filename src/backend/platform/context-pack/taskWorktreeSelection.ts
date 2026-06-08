@@ -67,6 +67,10 @@ export async function resolveSelectedMaterializationRoots(options: {
     const repoId = repo.repo_id?.trim();
     if (repoId) repoById.set(repoId, repo);
   }
+  const isMonolith = manifest.estate_type === 'monolith' || manifest.estate_type === 'monolith-platform';
+  const monolithRepoId = isMonolith
+    ? (manifest.repository ?? manifest.repositories?.[0])?.repo_id?.trim()
+    : undefined;
 
   if (options.binding.deepFocusEnabled === true) {
     const addTarget = (target: TaskContextPackTarget | undefined | null, role: SelectedMaterializationRole, indexLabel: string): void => {
@@ -78,6 +82,7 @@ export async function resolveSelectedMaterializationRoots(options: {
         repoById,
         contextPackDir,
         taskId: options.taskId,
+        monolithRepoId,
       });
       if (root) addRoot(root);
     };
@@ -111,7 +116,10 @@ export async function resolveSelectedMaterializationRoots(options: {
       if (roots.length === 0) {
         const monolithRepo = manifest.repository ?? manifest.repositories?.[0];
         const repoId = monolithRepo?.repo_id?.trim();
-        if (monolithRepo && repoId && options.binding.selectedFocusIds.length > 0) {
+        const hasMonolithFocusSelection = options.binding.selectedFocusIds.length > 0
+          || Boolean(options.binding.deepFocusPrimaryFocusId?.trim())
+          || Boolean(options.binding.primaryFocusId?.trim());
+        if (monolithRepo && repoId && hasMonolithFocusSelection) {
           addRoot(resolveRepoRoot({
             repoId,
             role: 'primary',
@@ -223,6 +231,7 @@ function rootFromTarget(options: {
   repoById: ReadonlyMap<string, ManifestRepo>;
   contextPackDir: string;
   taskId: string;
+  monolithRepoId: string | undefined;
 }): SelectedMaterializationRoot | null {
   const repoId = options.target.repoId?.trim();
   const selectedRoot = options.target.repoLocalPath?.trim();
@@ -245,6 +254,15 @@ function rootFromTarget(options: {
   if (repoId) {
     return resolveRepoRoot({
       repoId,
+      role: options.role,
+      repoById: options.repoById,
+      contextPackDir: options.contextPackDir,
+      taskId: options.taskId,
+    });
+  }
+  if (options.target.focusId?.trim() && options.monolithRepoId) {
+    return resolveRepoRoot({
+      repoId: options.monolithRepoId,
       role: options.role,
       repoById: options.repoById,
       contextPackDir: options.contextPackDir,

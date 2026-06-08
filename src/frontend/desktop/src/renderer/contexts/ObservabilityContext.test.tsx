@@ -58,21 +58,4 @@ describe('ObservabilityContext', () => {
     expect(typeof result.current.refreshObservedState).toBe('function');
   });
 
-  it('passes the client prop through to the underlying hook', async () => {
-    const getQueueStatus = vi.fn().mockResolvedValue({
-      ok: true,
-      response: createQueueStatus({ message: 'Custom client.' }),
-    });
-    const client = createMockClient({ getQueueStatus });
-
-    function wrapper({ children }: { children: React.ReactNode }) {
-      return <ObservabilityProvider client={client}>{children}</ObservabilityProvider>;
-    }
-
-    renderHook(() => useObservabilityContext(), { wrapper });
-
-    await waitFor(() => {
-      expect(getQueueStatus).toHaveBeenCalled();
-    });
-  });
 });

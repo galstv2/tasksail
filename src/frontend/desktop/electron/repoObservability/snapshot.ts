@@ -17,8 +17,8 @@ import {
   readVisibleTaskMarkdownItems,
   resolveActiveContextPackTaskScope,
   type ContextPackLister,
-} from '../main.contextPackTaskVisibility';
-import { readTaskRecoveryState } from '../main.recoveryState';
+} from '../contextPack/taskVisibility';
+import { readTaskRecoveryState } from '../app/recoveryState';
 import { REPO_ROOT } from '../paths';
 import { repoFs, type ReadOnlyRepoFs } from '../utils';
 import { buildAgentLabelLookup } from './agentLabels';

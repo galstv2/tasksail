@@ -219,13 +219,11 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['src/test/setup.ts', childGuardPath, 'src/test/logIsolation.ts'],
     pool: 'forks',
-    poolOptions: {
-      forks: {
-        maxForks: MAX_WORKERS,
-        minForks: 1,
-        execArgv: ['--max-old-space-size=1536'],
-      },
-    },
+    // Vitest 4 removed poolOptions; the equivalents are top-level.
+    // maxWorkers replaces poolOptions.forks.maxForks; execArgv stays (heap cap);
+    // minForks is dropped (no longer has any effect in v4).
+    maxWorkers: MAX_WORKERS,
+    execArgv: ['--max-old-space-size=1536'],
     restoreMocks: true,
     coverage: {
       provider: 'v8',

@@ -83,9 +83,6 @@ class ReinforcementStore:
     def root(self) -> Path:
         return self._root
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
     def _locked_read_modify_write(
         self,
         path: Path,
@@ -135,9 +132,6 @@ class ReinforcementStore:
         data.setdefault("entries", [])
         return data
 
-    # ------------------------------------------------------------------
-    # Task ledger
-    # ------------------------------------------------------------------
     def _task_ledger_path(self) -> Path:
         return store_file(self._repo_root, "task-ledger.json")
 
@@ -159,7 +153,7 @@ class ReinforcementStore:
         finally:
             release_file_lock(fd)
 
-    # -- "held" variants: caller already holds ledger_lock -------------
+    # "held" variants: caller already holds ledger_lock.
 
     def load_task_ledger_held(self) -> list[TaskLedgerEntry]:
         """Load ledger entries — caller must already hold ``ledger_lock``."""
@@ -192,7 +186,7 @@ class ReinforcementStore:
                 e["settlement_id"] = settlement_id
         atomic_write_json(path, data)
 
-    # -- Public convenience methods (acquire their own lock) -----------
+    # Public convenience methods acquire their own lock.
 
     def load_task_ledger(self) -> list[TaskLedgerEntry]:
         with self.ledger_lock():
@@ -210,9 +204,6 @@ class ReinforcementStore:
         with self.ledger_lock():
             self.mark_tasks_rewarded_held(task_ids, settlement_id)
 
-    # ------------------------------------------------------------------
-    # Agent rewards
-    # ------------------------------------------------------------------
     def _agent_rewards_path(self) -> Path:
         return store_file(self._repo_root, "agent-rewards.json")
 
@@ -265,9 +256,6 @@ class ReinforcementStore:
             self._agent_rewards_read_path(),
         )
 
-    # ------------------------------------------------------------------
-    # Settlements
-    # ------------------------------------------------------------------
     def _settlements_path(self) -> Path:
         return store_file(self._repo_root, "settlements.json")
 
@@ -294,9 +282,6 @@ class ReinforcementStore:
             self._settlements_path(), _append, self._settlements_read_path(),
         )
 
-    # ------------------------------------------------------------------
-    # Feedback events
-    # ------------------------------------------------------------------
     def _feedback_path(self) -> Path:
         return store_file(self._repo_root, "feedback-events.json")
 
@@ -323,9 +308,6 @@ class ReinforcementStore:
             self._feedback_path(), _append, self._feedback_read_path(),
         )
 
-    # ------------------------------------------------------------------
-    # Realignment sessions
-    # ------------------------------------------------------------------
     def _realignment_sessions_path(self) -> Path:
         return store_file(self._repo_root, "realignment", "sessions.json")
 
@@ -407,9 +389,6 @@ class ReinforcementStore:
         atomic_write_text(notes_path, notes)
         return notes_path
 
-    # ------------------------------------------------------------------
-    # Global Realignment Document
-    # ------------------------------------------------------------------
     def _global_doc_path(self) -> Path:
         return store_file(self._repo_root, "global-realignment-doc.json")
 

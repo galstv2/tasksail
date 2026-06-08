@@ -1,5 +1,5 @@
 /**
- * §B1 Worktree CWD injection.
+ * Worktree CWD injection.
  *
  * When a task has a `.task.json` sidecar listing branch-owned repoBindings or
  * readonlyContextBindings, every agent process must launch with CWD inside the
@@ -16,7 +16,7 @@
  *
  * Path-prefix substitution is `path === orig || path.startsWith(orig + sep)`
  * — never raw `startsWith(orig)`. This defeats the `/repo/foo` vs
- * `/repo/foobar` false-positive (spec risk 5.6).
+ * `/repo/foobar` similar-prefix false-positive.
  */
 
 import path from 'node:path';
@@ -51,13 +51,10 @@ export async function buildWorktreeBindingMap(
   ];
   if (bindings.length === 0) return EMPTY_BINDING_MAP;
 
-  // SEC-TS-01: a binding's worktreeRoot is the destination that the confinement
-  // allowedDirs (and focused-repo CWD) get rewritten to. The platform only ever
-  // materializes worktrees under this per-task base (queue/operations.ts), so a
-  // canonical worktreeRoot that escapes it comes from a tampered .task.json —
-  // skip it (fail safe: no substitution keeps the agent confined to
-  // originalRoot) rather than redirect confinement off-base. The check is on the
-  // realpath'd value, so a symlink planted under the base cannot escape either.
+  // Only rewrite confinement paths to worktrees inside the per-task base. A
+  // canonical worktreeRoot outside that base indicates tampered task metadata;
+  // skipping substitution keeps the agent confined, and realpath checks prevent
+  // symlink escapes.
   const worktreeBase = path.join(
     canonicalRoot(repoRoot), 'AgentWorkSpace', 'tasks', taskId, 'worktrees',
   );
@@ -90,6 +87,7 @@ export function applyWorktreeInjectionToFocused(
     visibleRepoRoots: focused.visibleRepoRoots.map((r) => rewritePath(r, bindingMap)),
     declaredRepoRoots: focused.declaredRepoRoots.map((r) => rewritePath(r, bindingMap)),
     primaryFocusTargets: rewritePrimaryFocusTargets(focused.primaryFocusTargets, bindingMap),
+    supportTargets: rewriteFocusTargets(focused.supportTargets, bindingMap),
     writableRoots: rewriteRepoLocalRoots(focused.writableRoots, bindingMap),
     readonlyContextRoots: rewriteRepoLocalRoots(focused.readonlyContextRoots, bindingMap),
   };
@@ -106,7 +104,39 @@ function rewritePrimaryFocusTargets<T extends { repoLocalPath?: string }>(
   targets: readonly T[] | undefined,
   bindingMap: WorktreeBindingMap,
 ): T[] | undefined {
+  return targets?.map((target) => rewriteDeepFocusTarget(target, bindingMap));
+}
+
+function rewriteFocusTargets<T extends { repoLocalPath?: string }>(
+  targets: readonly T[] | undefined,
+  bindingMap: WorktreeBindingMap,
+): T[] | undefined {
   return targets?.map((target) => rewriteRepoLocalPath(target, bindingMap));
+}
+
+function rewriteDeepFocusTarget<
+  T extends {
+    repoLocalPath?: string;
+    testTarget?: { repoLocalPath?: string } | null;
+    supportTargets?: Array<{ repoLocalPath?: string }>;
+  },
+>(
+  target: T,
+  bindingMap: WorktreeBindingMap,
+): T {
+  return {
+    ...rewriteRepoLocalPath(target, bindingMap),
+    ...(target.testTarget !== undefined
+      ? {
+          testTarget: target.testTarget === null
+            ? null
+            : rewriteRepoLocalPath(target.testTarget, bindingMap),
+        }
+      : {}),
+    ...(target.supportTargets
+      ? { supportTargets: rewriteFocusTargets(target.supportTargets, bindingMap) }
+      : {}),
+  };
 }
 
 function rewriteRepoLocalRoots<

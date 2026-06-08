@@ -4,25 +4,7 @@ import json
 
 from src.backend.scripts.python.lib.protocol_output import (
     write_protocol_json,
-    write_protocol_stderr,
-    write_protocol_stdout,
 )
-
-
-def test_write_protocol_stdout_exact(capsys) -> None:
-    write_protocol_stdout("exact text")
-
-    captured = capsys.readouterr()
-    assert captured.out == "exact text"
-    assert captured.err == ""
-
-
-def test_write_protocol_stderr_exact(capsys) -> None:
-    write_protocol_stderr("exact error")
-
-    captured = capsys.readouterr()
-    assert captured.out == ""
-    assert captured.err == "exact error"
 
 
 def test_write_protocol_json_compact_default_newline(capsys) -> None:

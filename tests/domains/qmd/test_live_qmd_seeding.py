@@ -974,9 +974,7 @@ class LiveQmdSeedingTests(unittest.TestCase):
                 )
 
 
-    # ------------------------------------------------------------------
-    # Slice-03 tests: file count enforcement
-    # ------------------------------------------------------------------
+    # File count enforcement.
 
     def test_seed_repository_enforces_max_files_per_repo(self) -> None:
         """Seed a repo with more files than the limit, verify only
@@ -986,7 +984,6 @@ class LiveQmdSeedingTests(unittest.TestCase):
             repo_dir = temp_dir / "big-repo"
             src_dir = repo_dir / "src"
             src_dir.mkdir(parents=True)
-            # Create 5 source files
             for i in range(5):
                 (src_dir / f"file{i}.py").write_text(
                     f"# file {i}\n", encoding="utf-8"
@@ -1128,7 +1125,7 @@ class LiveQmdSeedingTests(unittest.TestCase):
                 ],
             )
 
-            from src.backend.mcp import pack_writer as _pack_writer_mod
+            from src.backend.mcp.pack import writer as _pack_writer_mod
 
             with mock.patch.object(
                 _pack_writer_mod.PackWriter,

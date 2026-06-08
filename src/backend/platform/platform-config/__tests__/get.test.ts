@@ -123,23 +123,13 @@ describe('getPlatformConfig', () => {
     expect(config.max_parallel_tasks).toBe(3);
   });
 
-  it('TASKSAIL_MAX_PARALLEL_TASKS="bogus" rejects with validation error (fail-closed)', async () => {
+  it.each([
+    ['bogus'],
+    ['0'],
+    ['-1'],
+  ] as const)('TASKSAIL_MAX_PARALLEL_TASKS=%s rejects with validation error (fail-closed)', async (value) => {
     writeRuntimeConfig(tmpDir, FULL_CONFIG);
-    process.env['TASKSAIL_MAX_PARALLEL_TASKS'] = 'bogus';
-
-    await expect(getPlatformConfig(tmpDir)).rejects.toThrow();
-  });
-
-  it('TASKSAIL_MAX_PARALLEL_TASKS="0" rejects (must be ≥ 1)', async () => {
-    writeRuntimeConfig(tmpDir, FULL_CONFIG);
-    process.env['TASKSAIL_MAX_PARALLEL_TASKS'] = '0';
-
-    await expect(getPlatformConfig(tmpDir)).rejects.toThrow();
-  });
-
-  it('TASKSAIL_MAX_PARALLEL_TASKS="-1" rejects (must be ≥ 1)', async () => {
-    writeRuntimeConfig(tmpDir, FULL_CONFIG);
-    process.env['TASKSAIL_MAX_PARALLEL_TASKS'] = '-1';
+    process.env['TASKSAIL_MAX_PARALLEL_TASKS'] = value;
 
     await expect(getPlatformConfig(tmpDir)).rejects.toThrow();
   });
@@ -156,14 +146,6 @@ describe('getPlatformConfig', () => {
     // TASKSAIL_CLI_PROVIDER → cli-provider/registry.ts
     const expected = ['TASKSAIL_MAX_PARALLEL_TASKS', 'CONTAINER_RUNTIME', 'TASKSAIL_CLI_PROVIDER'];
     expect([..._ENV_SNAPSHOT_KEYS]).toEqual(expected);
-  });
-
-  it('CONTAINER_RUNTIME env var is included in the env snapshot', () => {
-    expect(_ENV_SNAPSHOT_KEYS).toContain('CONTAINER_RUNTIME');
-  });
-
-  it('TASKSAIL_CLI_PROVIDER env var is included in the env snapshot', () => {
-    expect(_ENV_SNAPSHOT_KEYS).toContain('TASKSAIL_CLI_PROVIDER');
   });
 
   it('returns slice_artifact_format=markdown when absent from runtime config', async () => {

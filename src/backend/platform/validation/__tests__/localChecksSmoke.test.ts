@@ -44,6 +44,22 @@ vi.mock('../externalMcpCheck.js', () => ({
   }),
 }));
 
+vi.mock('../openSourceReadiness.js', () => ({
+  checkOpenSourceReadiness: vi.fn().mockResolvedValue({
+    valid: true,
+    errors: [],
+    warnings: [],
+    summary: {
+      repoRoot: '/workspace/tasksail',
+      trackedFiles: 0,
+      checkedTextFiles: 0,
+      assetFiles: [],
+      packageFilesChecked: 0,
+      pnpmImporters: [],
+    },
+  }),
+}));
+
 vi.mock('../../workflow-policy/contracts/markdownContract.js', () => ({
   validateMarkdownContract: vi.fn(),
 }));
@@ -62,6 +78,7 @@ describe('runLocalChecks smoke profile', () => {
     const result = await runLocalChecks({ repoRoot, profile: 'smoke' });
 
     expect(result.passed).toBe(true);
+    expect(result.results.map(r => r.name)).toContain('open-source-readiness');
     expect(runPython).toHaveBeenCalledTimes(2);
     expect(runPython).toHaveBeenCalledWith(
       '-c',
@@ -76,7 +93,13 @@ describe('runLocalChecks smoke profile', () => {
         '--lane',
         'smoke',
       ],
-      { cwd: repoRoot, timeout: 300_000 },
+      {
+        cwd: repoRoot,
+        env: {
+          TASKSAIL_AGENT_REGISTRY_PATH: path.join(repoRoot, '.github', 'agents', 'registry.json'),
+        },
+        timeout: 300_000,
+      },
     );
     const broadPytestCall = vi.mocked(runPython).mock.calls.some(([scriptPath, args]) => {
       return scriptPath === '-m'

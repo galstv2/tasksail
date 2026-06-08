@@ -275,10 +275,6 @@ function confinementReceiptBoundaryContext(focused: FocusedRepoResult): {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Post-run confinement validation + retry orchestration
-// ---------------------------------------------------------------------------
-
 export interface ConfinementValidationDeps {
   repoRoot: string;
   taskId?: string;

@@ -1,4 +1,4 @@
-import type { ContextPackCreationDraft } from '../../contextPackCreationTypes';
+import type { ContextPackCreationDraft } from '../../contextPack/contextPackCreationTypes';
 import { classNames } from '../../utils/classNames';
 
 type WizardProjectTypeProps = {

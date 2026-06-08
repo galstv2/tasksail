@@ -74,60 +74,32 @@ describe('checkLoggingDiscipline', () => {
     expect(result.errors.join('\n')).toContain('console.*');
   });
 
-  it('fails raw stdout writes in queue production code', async () => {
-    const result = await check({
-      'src/backend/platform/queue/operations.fixture-only.ts': 'process.stdout.write("bad\\n");\n',
-    });
+  it.each([
+    ['queue', 'src/backend/platform/queue/operations.fixture-only.ts'],
+    ['agent-runner', 'src/backend/platform/agent-runner/agentSession.fixture-only.ts'],
+  ])('fails raw stdout writes in %s production code', async (_label, filePath) => {
+    const result = await check({ [filePath]: 'process.stdout.write("bad\\n");\n' });
 
     expect(result.valid).toBe(false);
     expect(result.violations).toEqual([
       expect.objectContaining({
-        path: 'src/backend/platform/queue/operations.fixture-only.ts',
+        path: filePath,
         line: 1,
         message: expect.stringContaining('process.stdout.write'),
       }),
     ]);
   });
 
-  it('fails raw stdout writes in agent-runner production code', async () => {
-    const result = await check({
-      'src/backend/platform/agent-runner/agentSession.fixture-only.ts': 'process.stdout.write("bad\\n");\n',
-    });
+  it.each([
+    ['console.log in queue', 'src/backend/platform/queue/operations.fixture-only.ts', 'console.log("bad");\n'],
+    ['console.warn in agent-runner', 'src/backend/platform/agent-runner/agentSession.fixture-only.ts', 'console.warn("bad");\n'],
+  ])('fails %s production code', async (_label, filePath, content) => {
+    const result = await check({ [filePath]: content });
 
     expect(result.valid).toBe(false);
     expect(result.violations).toEqual([
       expect.objectContaining({
-        path: 'src/backend/platform/agent-runner/agentSession.fixture-only.ts',
-        line: 1,
-        message: expect.stringContaining('process.stdout.write'),
-      }),
-    ]);
-  });
-
-  it('fails console.log in queue production code', async () => {
-    const result = await check({
-      'src/backend/platform/queue/operations.fixture-only.ts': 'console.log("bad");\n',
-    });
-
-    expect(result.valid).toBe(false);
-    expect(result.violations).toEqual([
-      expect.objectContaining({
-        path: 'src/backend/platform/queue/operations.fixture-only.ts',
-        line: 1,
-        message: expect.stringContaining('console.*'),
-      }),
-    ]);
-  });
-
-  it('fails console.warn in agent-runner production code', async () => {
-    const result = await check({
-      'src/backend/platform/agent-runner/agentSession.fixture-only.ts': 'console.warn("bad");\n',
-    });
-
-    expect(result.valid).toBe(false);
-    expect(result.violations).toEqual([
-      expect.objectContaining({
-        path: 'src/backend/platform/agent-runner/agentSession.fixture-only.ts',
+        path: filePath,
         line: 1,
         message: expect.stringContaining('console.*'),
       }),

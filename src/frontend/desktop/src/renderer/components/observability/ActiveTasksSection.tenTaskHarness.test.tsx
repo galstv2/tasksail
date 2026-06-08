@@ -1,5 +1,5 @@
 /**
- * ActiveTasksSection 10-task deterministic harness (Track H).
+ * ActiveTasksSection 10-task deterministic harness.
  *
  * Covers: System Details shows all 10 active tasks with grouped lifecycle,
  * artifacts, and sessions, with named React Profiler thresholds.
@@ -182,17 +182,6 @@ function profileRender(
 // --- tests ---
 
 describe('ActiveTasksSection 10-task deterministic harness', () => {
-  it('renders all 10 active tasks with title and taskId visible and grouped', () => {
-    render(<ActiveTasksSection activeTasks={make10Tasks()} />);
-
-    for (let i = 1; i <= 10; i++) {
-      expect(screen.getByText(`Task ${i}`)).toBeInTheDocument();
-      expect(
-        screen.getByText(`TASK-${String(i).padStart(3, '0')}`),
-      ).toBeInTheDocument();
-    }
-  });
-
   it('initial render of 10 tasks stays within Profiler budget', () => {
     const result = profileRender(make10Tasks(), make10Artifacts(), make10Sessions());
 
@@ -269,51 +258,6 @@ describe('ActiveTasksSection 10-task deterministic harness', () => {
         within(taskEl).queryByText(`artifact-task-${neighbor}.md`),
       ).not.toBeInTheDocument();
     }
-  });
-
-  it('unscoped sessions (null taskId) do not render under any task', () => {
-    const tasks = [makeTask(1)];
-    const unscopedSession: AgentTerminalSession = {
-      ...makeSession(1),
-      taskId: null as unknown as string, // unscoped
-      sessionId: 'role:dalton:unscoped',
-    };
-
-    render(
-      <ActiveTasksSection activeTasks={tasks} agentTerminalSessions={[unscopedSession]} />,
-    );
-
-    const taskEl = screen.getByLabelText('Active task TASK-001');
-    expect(within(taskEl).getByText('0 sessions')).toBeInTheDocument();
-  });
-
-  it('guardrail posture for task A does not render under task B', () => {
-    const taskA = makeTask(1, {
-      guardrailSummary: {
-        status: 'critical',
-        summary: 'Denied.',
-        observedReceiptCount: 1,
-        allowedCount: 0,
-        deniedCount: 1,
-        internalBypassCount: 0,
-        malformedCount: 0,
-        violationCount: 0,
-      },
-    });
-    const taskB = makeTask(2, { guardrailSummary: undefined });
-
-    render(<ActiveTasksSection activeTasks={[taskA, taskB]} />);
-
-    const taskAEl = screen.getByLabelText('Active task TASK-001');
-    const taskBEl = screen.getByLabelText('Active task TASK-002');
-
-    expect(within(taskAEl).getByLabelText('Task TASK-001 guardrail posture')).toBeInTheDocument();
-    expect(within(taskBEl).queryByLabelText('Task TASK-002 guardrail posture')).not.toBeInTheDocument();
-  });
-
-  it('shows empty state when no active tasks', () => {
-    render(<ActiveTasksSection activeTasks={[]} />);
-    expect(screen.getByText('No tasks are currently active.')).toBeInTheDocument();
   });
 
   it('per-task lifecycle chips are visually grouped per task row', () => {

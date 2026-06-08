@@ -7,8 +7,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.backend.mcp.context_estate_discovery import discover_estate
-from src.backend.mcp.context_estate_draft_index import (
+from src.backend.mcp.context_estate.discovery import discover_estate
+from src.backend.mcp.context_estate.draft_index import (
     DEFAULT_DRAFT_FILE,
     resolve_draft_artifact_path,
     write_draft_artifact,

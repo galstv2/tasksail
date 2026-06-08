@@ -108,7 +108,7 @@ export function inferLifecycleState(args: {
 
 /**
  * activeTasks array is populated from active markers in .active-items/;
- * activeTaskId is derived as activeTasks[0]?.taskId ?? null (F39 back-compat scalar).
+ * activeTaskId is derived as activeTasks[0]?.taskId ?? null for back compat.
  */
 export function inferOperatorStatus(args: {
   activeTaskIds: string[];
@@ -130,7 +130,7 @@ export function inferOperatorStatus(args: {
       return { taskId, phase, startedAt };
     });
 
-  // F39: back-compat activeTaskId scalar
+  // Back-compat activeTaskId scalar.
   const activeTaskId = activeTasks[0]?.taskId ?? null;
 
   return { activeTasks, activeTaskId };

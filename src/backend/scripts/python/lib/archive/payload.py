@@ -51,7 +51,6 @@ def resolve_slice_format(repo_root: Path, task_id: str) -> str:
             f'Archive filing blocked: sliceArtifactFormat in .task.json is invalid '
             f'(got {raw_format!r}); expected "markdown" or "xml" for task {normalized_task_id}'
         )
-    # Return the validated value as the local slice_format
     slice_format: str = raw_format
     return slice_format
 
@@ -190,7 +189,7 @@ def _read_branch_handoffs(_handoffs: Path) -> list[dict[str, Any]]:
 
 
 def infer_workflow_path(workflow_sections: dict[str, list[str]] | None = None) -> str:
-    """Detect workflow path for archival. Fast path is retired."""
+    """Detect workflow path for archival."""
     if workflow_sections is not None:
         _normalize_archive_text(workflow_sections.get("Path Decision", []))
     return "standard"

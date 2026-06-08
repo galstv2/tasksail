@@ -142,7 +142,7 @@ class RepoContextHttpBoundaryTests(unittest.TestCase):
         self.assertEqual(captured["body"], {"error": "internal server error"})
 
     def test_foreign_host_rejected(self) -> None:
-        # SEC-PY-05: a crafted Host (DNS-rebinding) is rejected before dispatch.
+        # A crafted Host is rejected before dispatch to block DNS rebinding.
         for host in ("evil.com", "evil.com:8811", "localhost.evil.com"):
             with self.subTest(host=host):
                 resp = self._request("GET", "/health", headers={"Host": host})
@@ -198,8 +198,8 @@ class RepoContextHttpBoundaryTests(unittest.TestCase):
             self.assertEqual(bad.status, 403)
 
     def test_get_500_does_not_leak_exception_detail(self) -> None:
-        # SEC-PY-04: an unexpected error on a GET file-content route returns a
-        # generic body, not str(exc) (which could disclose internal paths).
+        # Unexpected GET file-content errors return a generic body, not
+        # str(exc), which could disclose internal paths.
         secret = "/secret/internal/path-should-not-leak"
 
         def _boom() -> dict:
@@ -212,7 +212,7 @@ class RepoContextHttpBoundaryTests(unittest.TestCase):
         self.assertIn("internal server error", resp.text())
 
     def test_get_auth_flag_off_allows_unauthenticated_read(self) -> None:
-        # SEC-PY-03 default: the unauthenticated read contract is preserved.
+        # The unauthenticated read contract is preserved by default.
         resp = self._request("GET", "/shared-retrospective-memory")
         self.assertEqual(resp.status, 200)
 
@@ -233,6 +233,10 @@ class RepoContextHttpBoundaryTests(unittest.TestCase):
                 headers={"X-Repo-Context-Token": "test-token"},
             )
             self.assertEqual(ok.status, 200)
+            # Default-on safety: the ungated healthcheck route must NOT require a
+            # token under the flag, or the container healthcheck would fail.
+            health = self._request("GET", "/health")
+            self.assertEqual(health.status, 200)
 
 
 if __name__ == "__main__":

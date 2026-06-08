@@ -611,7 +611,7 @@ describe('artifactCompletion', () => {
     );
     await expect(detectParallelOk(handoffsDir)).resolves.toBe(true);
 
-    // SEC-TS-03: agent-authored prose that merely CONTAINS 'complex' must NOT
+    // Agent-authored prose that merely CONTAINS 'complex' must NOT
     // unlock fleet execution (the old substring match did).
     writeFileSync(
       path.join(handoffsDir, 'parallel-ok.md'),
@@ -1014,9 +1014,6 @@ describe('artifactCompletion', () => {
     })).resolves.toBe(true);
   });
 
-  // ---------------------------------------------------------------------------
-  // XML format — product manager completion
-  // ---------------------------------------------------------------------------
 
   function writeXmlTaskJson(taskId: string, dir: string): void {
     const taskDir = path.join(dir, 'AgentWorkSpace', 'tasks', taskId);
@@ -1274,7 +1271,6 @@ pnpm test
       'utf-8',
     );
 
-    // Should be incomplete: missing xml slices
     await expect(checkAgentArtifactCompletion({
       agentId: 'product-manager',
       handoffsDir,
@@ -1296,7 +1292,6 @@ pnpm test
       '# Parallel OK\n\n## Decision\n\nsimple\n\n## Independent Slices\n\nNone.\n',
       'utf-8',
     );
-    // No slices written — should trigger missing slice files reason
 
     const prompt = await buildAgentArtifactRemediationPrompt({
       agentId: 'product-manager',
@@ -1371,10 +1366,8 @@ pnpm test
     expect(healed).not.toContain('id="slice-99"');
   });
 
-  // ---------------------------------------------------------------------------
   // Non-repairable XML structural rejections are surfaced as completion reasons
   // (not silently passed) — R1.
-  // ---------------------------------------------------------------------------
 
   it('rejects an XML slice with no executionSlice root (structural rejection surfaced)', async () => {
     writeXmlTaskJson(TEST_TASK_ID, repoRoot);
@@ -1458,10 +1451,8 @@ pnpm test
     )).toBe(true);
   });
 
-  // ---------------------------------------------------------------------------
   // Wrong-format active slice files are rejected at the completion gate even
   // when a valid-format slice also exists — R5.
-  // ---------------------------------------------------------------------------
 
   it('XML mode rejects a wrong-format slice-N.md alongside a valid slice-N.xml', async () => {
     writeXmlTaskJson(TEST_TASK_ID, repoRoot);
@@ -1506,9 +1497,6 @@ pnpm test
     )).toBe(true);
   });
 
-  // ---------------------------------------------------------------------------
-  // Complex Independent Slices reject a wrong-format .md reference in XML mode — R4.
-  // ---------------------------------------------------------------------------
 
   it('XML Complex parallel-ok rejects a slice-N.md independent-slice reference', async () => {
     writeXmlTaskJson(TEST_TASK_ID, repoRoot);
@@ -1524,7 +1512,7 @@ pnpm test
       agentId: 'product-manager', handoffsDir, implStepsDir, repoRoot, taskId: TEST_TASK_ID,
     });
     expect(details.complete).toBe(false);
-    // slice-1.md is dropped (not normalized to slice-1), so Complex has no valid independent slices.
+    // The markdown slice reference is dropped, so Complex has no valid independent slices.
     expect(details.reasons).toContain(
       'parallel-ok.md Complex decision requires Independent Slices to list existing slice-N.xml files',
     );

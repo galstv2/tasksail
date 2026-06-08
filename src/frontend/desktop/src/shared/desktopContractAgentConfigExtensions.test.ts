@@ -358,7 +358,7 @@ describe('agentConfig.saveExtensionAssignments validator', () => {
   });
 });
 
-// ── Track F: Skills & Plugins / Agents tab confirmation ───────────────────────
+  // Skills & Plugins / Agents tab confirmation.
 
 describe('agentConfig.saveExtensionAssignments: stable-ID contract enforcement', () => {
   it('accepts a valid stable-ID assignment for all canonical agent IDs', () => {

@@ -19,7 +19,7 @@ export const VALID_ENGINE_HOSTS: ReadonlySet<ContainerEngineHost> = new Set([
 export function isValidWslDistroName(distro: string | null): boolean {
   if (distro === null) return false;
   if (distro.trim() === '') return false;
-  // SEC-TS-10: a leading '-' would be parsed as a flag by `wsl.exe -d <distro>`
+// A leading '-' would be parsed as a flag by `wsl.exe -d <distro>`
   // before the '--' terminator. Real distro names always start alphanumerically.
   if (distro.startsWith('-')) return false;
   return !/[\\/]/.test(distro);

@@ -1,7 +1,7 @@
 """Shared constants for context estate discovery, manifest, and bootstrap."""
 from __future__ import annotations
 
-from src.backend.mcp.pack_constants import (  # noqa: F401 – re-export for backward compat
+from src.backend.mcp.pack.constants import (  # noqa: F401 – re-export for backward compat
     ALLOWED_ESTATE_TYPES,
     ALLOWED_LAYERS,
     DISTRIBUTED_ESTATE_TYPES,
@@ -9,9 +9,6 @@ from src.backend.mcp.pack_constants import (  # noqa: F401 – re-export for bac
     REPOSITORY_TYPES,
 )
 
-# ---------------------------------------------------------------------------
-# Discovery constants
-# ---------------------------------------------------------------------------
 ESTATE_TYPES = ("distributed", "monolith")
 
 ALLOWED_DISCOVERY_MODES = (
@@ -68,9 +65,6 @@ HIGH_SIGNAL_TYPE_ALIASES: dict[str, str] = {
 
 DEFAULT_DISTRIBUTED_SCAN_DEPTH = 4
 
-# ---------------------------------------------------------------------------
-# Manifest constants
-# ---------------------------------------------------------------------------
 ALLOWED_REPO_ROLES = {
     "frontend", "backend-service", "shared-lib", "infra",
     "database", "service", "application", "library", "shared",
@@ -86,9 +80,6 @@ ALLOWED_FOCUS_TYPES = {
 
 DEFAULT_REPOSITORY_TYPE = "support"
 
-# ---------------------------------------------------------------------------
-# Bootstrap constants
-# ---------------------------------------------------------------------------
 DEFAULT_SCOPE_MODE = "focused"
 
 EXTENSION_LANGUAGE_MAP: dict[str, str] = {

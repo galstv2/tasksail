@@ -172,10 +172,6 @@ function normalizeRecoveredBodyForSelectedRoots(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Git helpers (retained for commitTaskSnapshot worktree commits)
-// ---------------------------------------------------------------------------
-
 class GitCommandError extends Error {
   constructor(
     message: string,
@@ -217,10 +213,6 @@ function runGit(repoRoot: string, args: string[]): Promise<{ stdout: string; std
     });
   });
 }
-
-// ---------------------------------------------------------------------------
-// Programmatic task snapshot commit
-// ---------------------------------------------------------------------------
 
 /**
  * Commit all agent work to a local git snapshot inside each task worktree.
@@ -301,7 +293,6 @@ export async function commitTaskSnapshot(
         '-m', `[tasksail] ${taskId}: ${label}`,
         '--no-verify',
       ]);
-      // NOTE: resetHead behavior deleted — worktree will be finalized/torn down.
     } catch (err) {
       log.warn('task_snapshot.commit.failed', {
         worktreeRoot: binding.worktreeRoot,
@@ -313,10 +304,6 @@ export async function commitTaskSnapshot(
 
   return true;
 }
-
-// ---------------------------------------------------------------------------
-// Retry-suffix collision helpers (for requeueErrorItem)
-// ---------------------------------------------------------------------------
 
 /**
  * Scan across the UNION of all originalRoots in the task's repoBindings to find
@@ -376,10 +363,6 @@ export async function assertQueueLockHeld(repoRoot: string): Promise<void> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Move failed item to error-items
-// ---------------------------------------------------------------------------
-
 export interface MoveFailedItemResult {
   movedItem: string;
   errorItemPath: string;
@@ -388,11 +371,10 @@ export interface MoveFailedItemResult {
 
 /**
  * Move the currently active (failed) pending item to `error-items/`,
- * finalize task worktrees via §4.15 finalizeTaskWorktrees,
+ * finalize task worktrees via finalizeTaskWorktrees,
  * reset handoff artifacts, and auto-advance the queue.
  *
- * `taskId` is REQUIRED — the fallback directory enumeration has been deleted.
- * Callers must supply the failing task's ID directly.
+ * `taskId` is required; callers must supply the failing task's ID directly.
  */
 export async function moveFailedItemToErrorItems(options: {
   repoRoot?: string;
@@ -425,7 +407,7 @@ export async function moveFailedItemToErrorItems(options: {
 
   let alreadyTerminal = false;
   await withDirLock(queuePaths.queueLockDir, 'Move failed item', async () => {
-    // B1 terminal-ownership gate: under the queue lock, if this task has NEITHER
+    // Terminal-ownership gate: under the queue lock, if this task has NEITHER
     // an active marker NOR a pending source file, a prior complete/fail (which
     // holds this same lock) already disposed it — terminal disposal removes both.
     // Re-failing would only write a stale error-items artifact and emit a false
@@ -440,7 +422,7 @@ export async function moveFailedItemToErrorItems(options: {
       alreadyTerminal = true;
       return;
     }
-    // F7: unconditional pipeline.lock removal BEFORE finalizeTaskWorktrees.
+    // Unconditional pipeline.lock removal BEFORE finalizeTaskWorktrees.
     // Stale locks would block re-activation if the same taskId is requeued with
     // retain_failed_task_worktrees=true.
     const taskRuntimePath = path.join(root, '.platform-state', 'runtime', 'tasks', taskId);
@@ -448,7 +430,7 @@ export async function moveFailedItemToErrorItems(options: {
 
     await commitTaskSnapshot(root, taskId, 'failed');
 
-    // §4.15: finalize all worktrees for this task only. This also stamps
+    // Finalize all worktrees for this task only. This also stamps
     // .task.json.state = "failed" and finalizedAt.
     await emitTaskProgressEvent({
       logger: log.child({ taskId }),
@@ -465,7 +447,7 @@ export async function moveFailedItemToErrorItems(options: {
         throw err;
       }
       // Backward-compatible recovery for tasks activated by the broken interim
-      // implementation that removed pendingitems/<taskId>.md at activation time.
+      // implementation that removed the pending task file at activation time.
       // Capture the original intake before finalization can reap handoffs so the
       // error item keeps the operator-authored title instead of template H1 text.
       let missingPendingBody = recoveredMissingPendingBody;
@@ -486,7 +468,7 @@ export async function moveFailedItemToErrorItems(options: {
       await writeFile(destPath, `${recoveredBody.trimEnd()}\n`, 'utf-8');
     }
 
-    // §4.5 array-shaped active[]: findAndRemove uses splice (never blanket-clears peers).
+    // Array-shaped active[]: findAndRemove uses splice and never blanket-clears peers.
     try { await transitionTask(root, taskId, 'active', 'failed'); } catch { /* best-effort */ }
 
     // Remove ONLY this task's marker — never the directory, never peer markers.
@@ -546,7 +528,6 @@ export async function moveFailedItemToErrorItems(options: {
     throw err;
   }
 
-  // Singleton-handoffs reset block DELETED (lines 260-262 in pre-§4.14A code).
   // Under the parallel model the per-task copy is at AgentWorkSpace/tasks/<taskId>/handoffs/
   // and is reaped by finalizeTaskWorktrees above. Touching the shared handoffs dir
   // here would be a blast-radius violation against peer tasks.
@@ -573,17 +554,13 @@ export async function moveFailedItemToErrorItems(options: {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Requeue a failed item back to pending
-// ---------------------------------------------------------------------------
-
 /**
  * Move a failed item from `error-items/` back to `pendingitems/` and insert
  * it into the queue ordering manifest at the specified position.
  *
  * On requeue, derives a monotonic -retry<N> suffix to avoid branch collisions
  * when retain_failed_task_worktrees=true. The pending item file is renamed to
- * `<original-slug>-retry<N>.md` so that activation picks up the correct taskId
+ * a retry-specific task file so that activation picks up the correct taskId
  * without needing an override parameter. Enforces max_retry_generations_per_slug.
  * Owns its queue mutation critical section internally.
  *
@@ -658,8 +635,8 @@ export async function requeueErrorItem(options: {
 
     await rename(sourcePath, destPath);
 
-    // Retire the failed task's registry entry. The new pending file is
-    // <originalSlug>-retry<N>.md (different taskId), and activation will
+    // Retire the failed task's registry entry. The new pending file uses a
+    // different retry taskId, and activation will
     // register the retry entry fresh. Transitioning the old entry to "pending"
     // would leave it as an orphan with no backing file — remove it instead.
     try { await removeTask(root, requeuedTaskId); } catch { /* best-effort */ }
@@ -674,8 +651,8 @@ export async function requeueErrorItem(options: {
   // about. Best-effort — never throws.
   await discardRetainedTaskWorktrees(requeuedTaskId, root);
 
-  // Singleton-handoffs reset block DELETED (lines 309-310 in pre-§4.14A code).
-  // Touching the shared handoffs dir here is a blast-radius violation.
+  // Per-task handoffs are reset above; touching the shared handoffs dir here is
+  // a blast-radius violation.
 
   let activatedItem: string | null = null;
   const activateResult2 = await activateNextPendingItemIfReady({

@@ -1,10 +1,10 @@
 /**
- * §5.2 Pipeline Supervisor — in-process singleton for managing pipeline child processes.
+ * In-process singleton for managing pipeline child processes.
  *
  * Process boundary: loaded by both Electron main process and CLI entrypoint.
  * NOT an IPC server — callers interact through direct function calls.
  *
- * Includes MG-3 and MG-11 runtime safeguards.
+ * Includes runtime safeguards for startup recovery and in-flight spawn idempotency.
  */
 import { createInterface } from 'node:readline';
 import { existsSync, readdirSync, unlinkSync } from 'node:fs';
@@ -25,10 +25,6 @@ import { sweepActivationProgressMarkers } from '../queue/activationProgress.js';
 
 const log = createLogger('platform/agent-runner/pipelineSupervisor');
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 export type PipelineEntry = {
   taskId: string;
   pid: number;
@@ -36,15 +32,11 @@ export type PipelineEntry = {
   cleanupOwner?: 'caller' | 'child-exit-handler';
 };
 
-// ---------------------------------------------------------------------------
-// Module-scope state (singleton)
-// ---------------------------------------------------------------------------
-
 /** Map of taskId → live pipeline entry. */
 const pidMap = new Map<string, PipelineEntry & { exitPromise: Promise<number>; stdout: NodeJS.ReadableStream; stderr: NodeJS.ReadableStream }>();
 
 /**
- * F36 — ephemeral in-flight lock map.
+ * Ephemeral in-flight lock map.
  * Keyed by taskId. Claimed synchronously at the top of startPipeline BEFORE the
  * first await, so concurrent duplicate calls converge on a single spawn.
  * Cleared once the entry is committed to pidMap (or spawn fails).
@@ -52,14 +44,10 @@ const pidMap = new Map<string, PipelineEntry & { exitPromise: Promise<number>; s
 const startingMap = new Map<string, Promise<{ status: 'started'; pid: number }>>();
 
 /**
- * F5 — isRecovering guard.
+ * Startup recovery guard.
  * While recoverOnStartup is in progress, startPipeline calls return { deferred: true }.
  */
 let isRecovering = false;
-
-// ---------------------------------------------------------------------------
-// Child stdout/stderr envelope (MUST per §5.2)
-// ---------------------------------------------------------------------------
 
 type ChildOutputEnvelope = {
   type: 'stdout' | 'stderr';
@@ -87,10 +75,6 @@ function wrapChildOutput(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Child-exit handler (MUST per §5.2 blast-radius critical)
-// ---------------------------------------------------------------------------
-
 async function handleChildExit(
   taskId: string,
   repoRoot: string,
@@ -105,7 +89,7 @@ async function handleChildExit(
   }
 
   if (code === 0 && signal === null) {
-    // F: success path. Child triggers its own cleanup via completePendingItem.
+    // Success path: the child triggers its own cleanup via completePendingItem.
     return;
   }
 
@@ -134,12 +118,8 @@ async function handleChildExit(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
 /**
- * F25 — startPipeline idempotency (MUST).
+ * Idempotent pipeline start.
  * If taskId is already in the pid map, returns { status: 'already-running', pid }.
  * While isRecovering, returns { deferred: true }.
  */
@@ -147,20 +127,18 @@ export async function startPipeline(
   taskId: string,
   repoRoot: string,
 ): Promise<{ status: 'started'; pid: number } | { status: 'already-running'; pid: number } | { deferred: true }> {
-  // F5 guard
   if (isRecovering) {
     return { deferred: true };
   }
 
-  // F25 idempotency — fast path: already committed to pidMap.
   const existing = pidMap.get(taskId);
   if (existing) {
     return { status: 'already-running', pid: existing.pid };
   }
 
-  // F36 — synchronous in-flight check. If another caller is mid-spawn for the
-  // same taskId, await its pid and return 'already-running'. This closes the
-  // TOCTOU hole across the await spawnPipelineForTask boundary.
+  // If another caller is mid-spawn for the same taskId, await its pid and
+  // return 'already-running'. This closes the TOCTOU hole across the await
+  // spawnPipelineForTask boundary.
   const inFlight = startingMap.get(taskId);
   if (inFlight) {
     const result = await inFlight;
@@ -183,11 +161,11 @@ export async function startPipeline(
       stderr: child.stderr,
     });
 
-    // Wrap stdio in typed envelopes (MUST per §5.2 child stdout/stderr envelope contract).
+    // Wrap stdio in typed envelopes; callers rely on this child output contract.
     wrapChildOutput(taskId, child.stdout, 'stdout');
     wrapChildOutput(taskId, child.stderr, 'stderr');
 
-    // Register exit handler with closure over captured taskId (MUST per §5.2 blast-radius).
+    // Capture taskId in the exit handler so failure handling stays task-scoped.
     void child.exit
       .then((code) => {
         void handleChildExit(taskId, repoRoot, code ?? null, null);
@@ -274,7 +252,7 @@ export async function stopPipeline(
  * Stop all tracked pipelines. GLOBAL-ONLY.
  * Legitimate callers: main.ts pre-quit hook and Vitest teardown helpers.
  * MUST NOT be called from any in-session failure path, child-exit handler,
- * per-task IPC handler, or §4.10's sync quit cleanup.
+ * per-task IPC handler, or sync quit cleanup.
  */
 export async function stopAll(): Promise<void> {
   const taskIds = [...pidMap.keys()];
@@ -288,22 +266,18 @@ export function listActivePipelines(): Array<{ taskId: string; pid: number; star
   return [...pidMap.values()].map(({ taskId, pid, startedAt }) => ({ taskId, pid, startedAt }));
 }
 
-// ---------------------------------------------------------------------------
-// recoverOnStartup — 5-step sequence (§5.2)
-// ---------------------------------------------------------------------------
-
 /**
- * F5 — recoverOnStartup MUST be awaited before the dropbox watcher, recovery
+ * recoverOnStartup MUST be awaited before the dropbox watcher, recovery
  * controller, or any IPC handler that can trigger activation.
  */
 export async function recoverOnStartup(repoRoot: string): Promise<void> {
-  // F5: set the guard so startPipeline defers during recovery.
+  // Set the guard so startPipeline defers during recovery.
   isRecovering = true;
 
   try {
     await _recoverOnStartupImpl(repoRoot);
   } finally {
-    // F5: always clear the guard, even on error.
+    // Always clear the guard, even on error.
     isRecovering = false;
   }
 }
@@ -323,7 +297,6 @@ async function _recoverOnStartupImpl(repoRoot: string): Promise<void> {
     reason: 'startup-recovery',
   });
 
-  // ── Orphan-branch sweep ──────────────────────────────────────────────────
   // Read all .task.json files to get taskIds for carveout checks.
   let knownTaskIds = new Set<string>();
   const tasksSidecarDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks');
@@ -445,7 +418,7 @@ async function _recoverOnStartupImpl(repoRoot: string): Promise<void> {
           continue;
         }
         try {
-          // SEC-TS-05: '--' guards against a branch ref name starting with '-'.
+          // '--' guards against a branch ref name starting with '-'.
           await execFileAsync('git', ['branch', '-D', '--', branch], { cwd: repoRoot });
         } catch {
           // Skip — worktree dir may still exist (valid retained worktree).
@@ -456,7 +429,7 @@ async function _recoverOnStartupImpl(repoRoot: string): Promise<void> {
     // git may not be available or repo may have no branches — skip.
   }
 
-  // ── Step 3: Crash-recovery scan (per-marker) ────────────────────────────
+  // Crash-recovery scan for active markers.
   for (const markerTaskId of activeMarkerTaskIds) {
     // Check if pid is still live via latest role-session receipt
     const taskRuntime = path.join(repoRoot, '.platform-state', 'runtime', 'tasks', markerTaskId);
@@ -488,13 +461,13 @@ async function _recoverOnStartupImpl(repoRoot: string): Promise<void> {
 
     // Classify outcome via sentinel: the `.completing` sentinel is the durable
     // progress record, while pipeline receipts are forensic-only. Any task
-    // whose sentinel exists (step 1 written) but is not yet unlinked (step 5)
+    // whose sentinel exists (completion started) but is not yet unlinked
     // is a resume candidate; `resumeCloseoutFromSentinel` further gates on
     // `archiveSucceeded === true`.
     const sentinelPath = path.join(activeItemsDir, `${markerTaskId}.completing`);
     let outcome: 'completed' | 'failed' = existsSync(sentinelPath) ? 'completed' : 'failed';
 
-    // 3b: Missing .task.json branch
+    // Missing .task.json branch.
     const taskJsonPath = path.join(repoRoot, 'AgentWorkSpace', 'tasks', markerTaskId, '.task.json');
     if (!existsSync(taskJsonPath)) {
       // Override to failed regardless of sentinel presence
@@ -502,7 +475,7 @@ async function _recoverOnStartupImpl(repoRoot: string): Promise<void> {
       log.info('task_crash.recovered', { taskId: markerTaskId, reason: 'missing-task-json', reclassifiedAs: 'failed' });
 
       // Skip archival and finalizeTaskWorktrees (no bindings to tear down)
-      // Proceed to step 3e+: registry transition handled by moveFailedItemToErrorItems
+      // Registry transition is handled by moveFailedItemToErrorItems.
       try {
         await moveFailedItemToErrorItems({ repoRoot, taskId: markerTaskId });
       } catch (err) {
@@ -512,17 +485,17 @@ async function _recoverOnStartupImpl(repoRoot: string): Promise<void> {
         });
       }
 
-      // 3g: Remove marker
+      // Remove marker.
       try { unlinkSync(path.join(activeItemsDir, markerTaskId)); } catch { /* best-effort */ }
-      // 3h: Remove sentinel
+      // Remove sentinel.
       try { unlinkSync(sentinelPath); } catch { /* best-effort ENOENT */ }
       continue;
     }
 
-    // 3c: If sentinel says "completed", re-drive the closeout via
+    // If sentinel says "completed", re-drive the closeout via
     // recoverStuckMidCompletion. That call invokes completePendingItem with
     // skipArchive:true, which itself runs finalizeTaskWorktrees + unlinks the
-    // marker + unlinks the sentinel as steps 3-5 of the five-step sequence,
+      // marker + unlinks the sentinel as the final steps of the sequence,
     // and removes the pending file, transitions the registry, and (if needed)
     // syncs the retrospective counter. Do NOT call finalizeTaskWorktrees or
     // unlink anything here when recovery succeeded — that would double-finalize.
@@ -549,14 +522,14 @@ async function _recoverOnStartupImpl(repoRoot: string): Promise<void> {
       }
     }
 
-    // 3d: Invoke finalizeTaskWorktrees (MANDATORY unless step 3b fired or 3c recovered)
+    // Invoke finalizeTaskWorktrees unless the missing-sidecar or completion-recovery paths handled it.
     try {
       await finalizeTaskWorktrees(markerTaskId, outcome, repoRoot);
     } catch (err) {
       log.error('worktree_finalize.failed', err, { taskId: markerTaskId });
     }
 
-    // 3e: Transition registry + handle failure case
+    // Transition registry and handle failure case.
     if (outcome === 'failed') {
       try {
         await moveFailedItemToErrorItems({ repoRoot, taskId: markerTaskId });
@@ -569,19 +542,19 @@ async function _recoverOnStartupImpl(repoRoot: string): Promise<void> {
       }
     }
 
-    // 3f: Emit task-crash-recovered
+    // Emit task-crash-recovered.
     log.info('task_crash.recovered', { taskId: markerTaskId, reason: 'pid-gone', reclassifiedAs: outcome });
 
-    // 3g: Remove marker
+    // Remove marker.
     try { unlinkSync(path.join(activeItemsDir, markerTaskId)); } catch { /* best-effort */ }
-    // 3h: Remove sentinel
+    // Remove sentinel.
     try { unlinkSync(sentinelPath); } catch { /* best-effort ENOENT */ }
   }
 
-  // ── Step 4: Orphan sweep ─────────────────────────────────────────────────
+  // Orphan sweep.
   // Clean up orphan .completing sentinels with no sibling marker.
 
-  // 4a: Remove orphan .completing sentinels with no sibling marker
+  // Remove orphan .completing sentinels with no sibling marker.
   try {
     const sentinelEntries = (await readdir(activeItemsDir)).filter((f) => f.endsWith('.completing'));
     for (const sentinel of sentinelEntries) {
@@ -596,8 +569,8 @@ async function _recoverOnStartupImpl(repoRoot: string): Promise<void> {
     }
   } catch { /* absent */ }
 
-  // ── Step 4c: F35 sentinel-driven runtime-GC sweep ────────────────────────
-  // §6.2B: reclaim `.platform-state/runtime/tasks/<id>/` subtrees whose
+  // Sentinel-driven runtime-GC sweep.
+  // Reclaim `.platform-state/runtime/tasks/<id>/` subtrees whose
   // `.gc-after-ts` epoch has passed. A crashed-before-timer session orphans the
   // dir; this sweep is the authoritative restart-side reclaim.
   try {
@@ -607,10 +580,10 @@ async function _recoverOnStartupImpl(repoRoot: string): Promise<void> {
     log.error('runtime_gc.sweep.failed', err, { error: msg });
   }
 
-  // ── Step 5: F36 assertion — lock map MUST be empty ───────────────────────
+  // Recovery should leave the lock map empty.
   // The pidMap starts empty (module-scope initialization) and remains empty
   // after recovery — in-flight operations cannot survive a process restart.
-  // No reconstruction is attempted (per F36 spec).
+  // No reconstruction is attempted after process restart.
   // Assertion: pidMap.size === 0 at end of recoverOnStartup.
   if (pidMap.size !== 0) {
     log.error('startup_recovery.pid_map_not_empty', { pidMapSize: pidMap.size });

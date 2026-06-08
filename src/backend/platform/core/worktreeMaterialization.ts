@@ -1,5 +1,5 @@
 /**
- * §4.14 Worktree + dependency materialization.
+ * Worktree and dependency materialization.
  *
  * Exports:
  *   - materializeWorktreeDeps  — CoW-clone dependency dirs into a fresh worktree.
@@ -50,10 +50,6 @@ export function parseWorktreePorcelainBlocks(porcelain: string): string[][] {
 const log = createLogger('platform/core/worktreeMaterialization');
 const SLOW_COPY_LOG_THRESHOLD_MS = 30_000;
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 export type CloneStrategy = 'apfs-clonefile' | 'reflink' | 'win-refs' | 'copy';
 
 export interface PreconditionResult {
@@ -75,18 +71,13 @@ interface MaterializeWorktreeDepsTestDeps {
   logger?: Pick<typeof log, 'child'>;
 }
 
-// ---------------------------------------------------------------------------
-// Platform-extended statfsSync result type
-// ---------------------------------------------------------------------------
-
 /**
  * Node 18.15+ `statfsSync` adds `fstypename` (macOS filesystem name, e.g. 'apfs',
  * 'hfs') and `fsid` ([lo, hi] tuple) on macOS/Linux but `@types/node` only
  * exposes the POSIX-standard numeric fields.  We use this augmented interface
  * for the cast so the compiler accepts the macOS-specific accesses.
  *
- * These fields are runtime-only — the spec intentionally relies on them being
- * present on Node 18.15+ per the §4.14 feature requirements.
+ * These runtime-only fields are expected on Node 18.15+.
  */
 interface PlatformStatsFs {
   type: number;
@@ -94,10 +85,6 @@ interface PlatformStatsFs {
   fstypename?: string;
   fsid?: [number, number];
 }
-
-// ---------------------------------------------------------------------------
-// Per-origin in-process async lock
-// ---------------------------------------------------------------------------
 
 const worktreeLocks = new Map<string, Promise<void>>();
 
@@ -128,10 +115,6 @@ export async function withOriginLock<T>(
     }
   }
 }
-
-// ---------------------------------------------------------------------------
-// Filesystem reflink detection (Linux)
-// ---------------------------------------------------------------------------
 
 const REFLINK_FILESYSTEMS = new Set(['btrfs', 'xfs', 'zfs']);
 
@@ -168,22 +151,18 @@ function filesystemSupportsReflink(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Clone strategy detection
-// ---------------------------------------------------------------------------
-
 /**
  * Determine the best CoW clone strategy for the given (source, destination)
  * volume pair.
  *
- * F20 — must NOT return 'apfs-clonefile' unconditionally on darwin:
+ * Do not return 'apfs-clonefile' unconditionally on darwin:
  *   - `cp -cR` is a true CoW clone ONLY on APFS volumes that are ALSO the
  *     same volume as the destination.  On HFS+, exFAT, SMB mounts, or
  *     cross-volume pairs it silently performs a full byte-copy, violating the
  *     "disk usage near zero" invariant.
  *   - MUST check: (1) fstypename === 'apfs' AND (2) fsid[0,1] match.
  *
- * F20 Linux: 'reflink' only when same-volume AND filesystem in {btrfs,xfs,zfs}.
+ * Linux uses 'reflink' only when same-volume AND filesystem in {btrfs,xfs,zfs}.
  *
  * @param statfsFn — optional injectable statfsSync implementation for testing.
  */
@@ -224,10 +203,6 @@ export function detectCloneStrategy(
 
   return 'copy';
 }
-
-// ---------------------------------------------------------------------------
-// Precondition checks
-// ---------------------------------------------------------------------------
 
 /**
  * Run pre-flight checks on `originalRoot` before `git worktree add`.
@@ -389,15 +364,11 @@ export async function existingBranchPreconditionsPass(
   return { ok: true };
 }
 
-// ---------------------------------------------------------------------------
-// Main export
-// ---------------------------------------------------------------------------
-
 /**
  * CoW-clone every path in `pathsToClone` from `originalRepo` into `worktreeRoot`.
  *
  * - Missing source paths are recorded in `skipped` and do NOT abort materialization.
- * - Strategy is auto-detected per F20 filesystem rules.
+ * - Strategy is auto-detected from filesystem rules.
  * - Returns { strategy, cloned, skipped } for writing into `.task.json.materialization`.
  */
 export async function materializeWorktreeDeps(
@@ -407,7 +378,7 @@ export async function materializeWorktreeDeps(
   logContext: { taskId?: string; repoLabel?: string } = {},
   deps: MaterializeWorktreeDepsTestDeps = {},
 ): Promise<{ strategy: CloneStrategy; cloned: string[]; skipped: string[] }> {
-  // F20: pass worktree parent dir so detectCloneStrategy can compare fsid for same-volume check.
+  // Pass worktree parent dir so detectCloneStrategy can compare fsid for same-volume check.
   const strategy = detectCloneStrategy(originalRepo, path.dirname(worktreeRoot), deps.statfsFn);
   const cloned: string[] = [];
   const skipped: string[] = [];

@@ -1,4 +1,4 @@
-/* ── §3  Shell Layout ──────────────────────────────────────────────────── */
+/* Shell Layout */
 
 .shell {
   display: flex;
@@ -166,4 +166,4 @@
 }
 
 
-/* §19 — FAB Planner Button removed; Plan action lives in the context-pack sidebar. */
+/* FAB Planner Button removed; Plan action lives in the context-pack sidebar */

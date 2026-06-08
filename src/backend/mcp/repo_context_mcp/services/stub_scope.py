@@ -3,8 +3,6 @@
 Writes a structurally complete but empty ``qmd/context-packs/<id>/`` tree
 so downstream readers never hit a missing directory or a missing index file
 after a new-flow pack creation where the live seed was skipped.
-
-Spec ref: phase-05-dead-pack-remediation.md §3 Gate G1.
 """
 
 from __future__ import annotations
@@ -89,9 +87,6 @@ def write_empty_scope_tree(
     """
     plan_parsed = plan_overall_status is not None or plan_repo_statuses is not None
 
-    # ------------------------------------------------------------------
-    # Load manifest to discover qmd_scope_root and repositories.
-    # ------------------------------------------------------------------
     try:
         manifest = load_json(manifest_path)
     except Exception:
@@ -142,9 +137,6 @@ def write_empty_scope_tree(
         estate_dir.mkdir(parents=True, exist_ok=True)
         (estate_dir / ".gitkeep").touch()
 
-    # ------------------------------------------------------------------
-    # Write empty index files using QmdIndexService builders.
-    # ------------------------------------------------------------------
     index_service = QmdIndexService(workspace_root=context_pack_dir)
 
     repo_index = index_service.build_repository_index(
@@ -168,9 +160,6 @@ def write_empty_scope_tree(
     )
     write_json_atomic(scope_dir / "indexes" / "context-pack-index.json", cp_index)
 
-    # ------------------------------------------------------------------
-    # Write pack-level seed-state marker.
-    # ------------------------------------------------------------------
     reason = _derive_reason(plan_repo_statuses, plan_parsed)
     marker_path = pack_seed_state_path(scope_dir)
     marker: dict[str, Any] = {

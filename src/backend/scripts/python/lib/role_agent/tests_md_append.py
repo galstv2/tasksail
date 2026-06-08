@@ -81,10 +81,6 @@ def write_stub_section(
     return append_tests_md_section(root_dir, instance_id, slice_id, slice_path, stub)
 
 
-# ---------------------------------------------------------------------------
-# CLI entry-points (called from run-role-agent-helper.py subcommands)
-# ---------------------------------------------------------------------------
-
 def cmd_check_parallel_tests_md_section(args: argparse.Namespace) -> int:
     """Exit 0 if section exists, 1 if missing."""
     return 0 if instance_section_exists(args.root_dir.resolve(), args.instance_id) else 1

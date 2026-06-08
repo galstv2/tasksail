@@ -31,13 +31,9 @@ async function main(): Promise<void> {
 
   const repoRoot = findRepoRoot();
 
-  // Sync .platform-state/platform.json from config/platform.default.json
-  // BEFORE anything else reads it. createRuntimeFromConfig (below) and
-  // getPlatformConfig (in subcommand branches) both consume the runtime file
-  // to decide the container backend and shared-MCP port; seeding here
-  // guarantees those reads see the current default. The seed inside
-  // bootstrapServices is preserved as a self-contained safety net for
-  // direct callers of that API; on this path it becomes an idempotent no-op.
+  // Seed the runtime platform config before createRuntimeFromConfig or
+  // subcommands read backend and shared-MCP settings. bootstrapServices keeps
+  // its own idempotent seed for direct API callers.
   const platformSeed = await seedPlatformConfig(repoRoot);
   if (platformSeed.action === 'failed') {
     const messages = platformSeed.errors.map(
@@ -99,9 +95,8 @@ async function main(): Promise<void> {
     }
 
     case 'seed': {
-      // §3.2: resolve context pack dir via the sidecar policy layer when
+      // Resolve context pack dir via the sidecar policy layer when
       // TASKSAIL_TASK_ID is set; fall back to the singleton helper otherwise.
-      // The raw ACTIVE_CONTEXT_PACK_DIR env read is removed from the task-launch path.
       let contextPackDir = extractArg(args, '--context-pack-dir');
       if (!contextPackDir) {
         const taskId = process.env['TASKSAIL_TASK_ID'];

@@ -309,7 +309,7 @@ describe('runPipelineSequence', () => {
   });
 
   it('does not mutate RUN_ROLE_AGENT_ALLOW_INTERNAL_BYPASS in the sequencer process — bypass gate is child-env responsibility (§5.1 MG-7)', async () => {
-    // After §5.1 MG-7 deletion, the sequencer no longer sets or restores these
+    // After helper removal, the sequencer no longer sets or restores these
     // env vars in the caller process. Instead, spawnPipelineForTask injects them
     // into the child via fork options. Pre-existing values must be left unchanged
     // by runPipelineSequence itself.

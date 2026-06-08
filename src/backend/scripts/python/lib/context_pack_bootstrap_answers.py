@@ -6,7 +6,7 @@ import logging
 import subprocess
 from pathlib import Path
 
-from src.backend.mcp.pack_constants import ALLOWED_LAYERS
+from src.backend.mcp.pack.constants import ALLOWED_LAYERS
 
 from .protocol_output import write_protocol_stdout
 from .text import normalize_string_list

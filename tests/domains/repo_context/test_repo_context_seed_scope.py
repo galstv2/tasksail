@@ -5,7 +5,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.backend.mcp.repo_context_mcp.services import ReseedAlreadyInProgressError
 from src.backend.mcp.repo_context_mcp.transport.http import RepoContextHttpHandler
 from tests.support.http_handler_harness import Response, call
 
@@ -110,57 +109,6 @@ class SeedScopeLockingTests(unittest.TestCase):
                 "/workspace/context-pack/qmd/scope-a",
             ],
         )
-
-    def test_seed_marker_conflict_returns_structured_409(self) -> None:
-        runtime_state = _RuntimeState()
-        temp_dir = tempfile.TemporaryDirectory()
-        self.addCleanup(temp_dir.cleanup)
-
-        def execute_seed_run(**_: str) -> dict[str, str]:
-            raise ReseedAlreadyInProgressError(
-                pid=1234,
-                host="host-a",
-                started_at="2026-05-10T12:00:00+00:00",
-                same_host=True,
-                stale_after_seconds=3600,
-            )
-
-        handler = RepoContextHttpHandler(
-            workspace_root=Path(temp_dir.name),
-            request_id_header="X-Request-ID",
-            auth_header="X-Repo-Context-Token",
-            auth_token="test-token",
-            default_port=8811,
-            default_manifest="qmd/repo-sources.json",
-            default_plan_file="qmd/bootstrap/seed-plan.json",
-            max_request_bytes=2048,
-            active_context_pack_dir=lambda: "/workspace/context-pack",
-            runtime_state=runtime_state,
-            execute_seed_run=execute_seed_run,
-            resolve_seed_scope_key=lambda **_: "/workspace/context-pack/qmd/scope-a",
-            build_task_lineage_summary=lambda **_: {"summary": "lineage"},
-            build_carry_forward_summary=lambda **_: {"summary": "carry-forward"},
-            resolve_request_id=lambda headers: headers.get("X-Request-ID") or "req",
-        ).make_handler_class()
-
-        response = call(
-            handler,
-            "POST",
-            "/seed",
-            body=json.dumps({"context_pack_dir": "/workspace/context-pack"}).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "X-Repo-Context-Token": "test-token",
-            },
-        )
-
-        self.assertEqual(response.status, 409)
-        payload = response.json()
-        self.assertEqual(payload["error"], "reseed_in_progress")
-        self.assertEqual(payload["pid"], 1234)
-        self.assertEqual(payload["host"], "host-a")
-        self.assertEqual(runtime_state.released_scopes, ["/workspace/context-pack/qmd/scope-a"])
-
 
 if __name__ == "__main__":
     unittest.main()

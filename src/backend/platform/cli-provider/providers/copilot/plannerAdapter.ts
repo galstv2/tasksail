@@ -357,7 +357,7 @@ export function buildCopilotPlannerLaunchSpec(options: PlannerLaunchOptions): Pl
   const plannerPrompt = options.prompt === undefined
     ? undefined
     : shouldApplyPlannerPersonality
-      ? applyCopilotPlannerPersonality(options.prompt, options.lilyPersonalityId)
+      ? applyCopilotPlannerPersonality(options.prompt, options.plannerPersonalityId)
       : options.prompt;
 
   if (plannerPrompt !== undefined) {

@@ -24,7 +24,6 @@ from lib.role_agent.external_mcp import (  # noqa: E402
 )
 from lib.role_agent.external_mcp.loader import ExternalMcpLoadError  # noqa: E402
 from lib.role_agent.json_cmds import cmd_print_json_array_lines  # noqa: E402
-from lib.role_agent.metadata import cmd_resolve_agent_metadata  # noqa: E402
 from lib.role_agent.tests_md_append import (  # noqa: E402
     cmd_check_parallel_tests_md_section,
     cmd_write_parallel_tests_md_stub,
@@ -98,11 +97,6 @@ def _cmd_render_reinforcement_context(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command", required=True)
-
-    metadata_parser = subparsers.add_parser("resolve-agent-metadata")
-    metadata_parser.add_argument("registry_path", type=Path)
-    metadata_parser.add_argument("agent_id")
-    metadata_parser.set_defaults(func=cmd_resolve_agent_metadata)
 
     json_array_parser = subparsers.add_parser("print-json-array-lines")
     json_array_parser.add_argument("json_payload")

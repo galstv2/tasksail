@@ -182,9 +182,7 @@ describe('snapshotFilters', () => {
     expect(cfg.allowOverrides).toEqual(['dist/published-package/**']);
   });
 
-  // ---------------------------------------------------------------------------
-  // Spec §6.6 — commitTaskSnapshot end-to-end against a real worktree
-  // ---------------------------------------------------------------------------
+  // commitTaskSnapshot end-to-end against a real worktree.
 
   it('default denylist excludes bin/Debug/net8.0/Acme.dll from the snapshot commit', async () => {
     const { taskId, worktreeRoot, branch, baseSha } = setupTaskWorktree(repoRoot, 'task-bin');

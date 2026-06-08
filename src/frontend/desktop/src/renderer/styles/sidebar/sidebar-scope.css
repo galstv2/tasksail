@@ -3,7 +3,7 @@
  * Owns .sidebar-scope-*, .scope-focus-*, and focus-list selectors
  * that render the active scope and focused items.
  */
-/* ── §5  Scope Card ──────────────────────────────────────────────────── */
+/* Scope Card */
 
 .scope-card {
   border: 1px solid var(--ts-border);
@@ -71,7 +71,7 @@
 }
 
 
-/* ── §7  Focus List ──────────────────────────────────────────────────── */
+/* Focus List */
 
 .scope-focus-list {
   display: grid;

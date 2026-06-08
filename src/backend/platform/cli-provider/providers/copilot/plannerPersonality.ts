@@ -2,16 +2,16 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { findRepoRoot } from '../../../core/paths.js';
-import type { PlannerLilyPersonalityId } from '../../types.js';
+import type { PlannerPersonalityId } from '../../types.js';
 
-export type { PlannerLilyPersonalityId };
+export type { PlannerPersonalityId };
 
 type CopilotPlannerPersonalityPrompt = {
-  id: PlannerLilyPersonalityId;
+  id: PlannerPersonalityId;
   promptFile: 'lily-personality-balanced.prompt.md' | 'lily-personality-clinical.prompt.md';
 };
 
-const COPILOT_PERSONALITY_PROMPTS: Record<PlannerLilyPersonalityId, CopilotPlannerPersonalityPrompt> = {
+const COPILOT_PERSONALITY_PROMPTS: Record<PlannerPersonalityId, CopilotPlannerPersonalityPrompt> = {
   balanced: {
     id: 'balanced',
     promptFile: 'lily-personality-balanced.prompt.md',
@@ -31,15 +31,15 @@ function defaultRepoRoot(): string {
   return cachedDefaultRepoRoot;
 }
 
-function resolvePersonalityPrompt(repoRoot: string, id: PlannerLilyPersonalityId): string {
+function resolvePersonalityPrompt(repoRoot: string, id: PlannerPersonalityId): string {
   return path.join(repoRoot, '.github', 'copilot', 'prompts', COPILOT_PERSONALITY_PROMPTS[id].promptFile);
 }
 
-function personalityPromptCacheKey(repoRoot: string, id: PlannerLilyPersonalityId): string {
+function personalityPromptCacheKey(repoRoot: string, id: PlannerPersonalityId): string {
   return `${repoRoot}\0${id}`;
 }
 
-function readPersonalityPrompt(repoRoot: string, id: PlannerLilyPersonalityId): string {
+function readPersonalityPrompt(repoRoot: string, id: PlannerPersonalityId): string {
   const cacheKey = personalityPromptCacheKey(repoRoot, id);
   const cached = personalityPromptCache.get(cacheKey);
   if (cached !== undefined) {
@@ -55,10 +55,10 @@ function readPersonalityPrompt(repoRoot: string, id: PlannerLilyPersonalityId): 
 
 export function applyCopilotPlannerPersonality(
   prompt: string,
-  lilyPersonalityId: PlannerLilyPersonalityId | undefined,
+  plannerPersonalityId: PlannerPersonalityId | undefined,
   repoRoot?: string,
 ): string {
-  const id = lilyPersonalityId ?? 'balanced';
+  const id = plannerPersonalityId ?? 'balanced';
   // Runtime guard against bad casts from JS callers; TypeScript narrows above.
   if (id !== 'balanced' && id !== 'clinical') {
     throw new Error(`Unknown Copilot planner personality "${String(id)}".`);

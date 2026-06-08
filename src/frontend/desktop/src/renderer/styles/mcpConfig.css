@@ -1,4 +1,4 @@
-/* ── MCP Config Modal ────────────────────────────────────────────────── */
+/* MCP Config Modal */
 
 .mcp-modal__overlay {
   position: fixed;
@@ -134,7 +134,7 @@
   margin: 0 0 0.85rem;
 }
 
-/* ── Server List ─────────────────────────────────────────────────────── */
+/* Server List */
 
 .mcp-modal__list {
   list-style: none;
@@ -217,7 +217,7 @@
   white-space: nowrap;
 }
 
-/* ── Buttons ─────────────────────────────────────────────────────────── */
+/* Buttons */
 
 .mcp-modal__btn {
   border: 1px solid var(--ts-border);
@@ -281,7 +281,7 @@
   cursor: not-allowed;
 }
 
-/* ── Footer ──────────────────────────────────────────────────────────── */
+/* Footer */
 
 .mcp-modal__footer {
   display: flex;
@@ -307,7 +307,7 @@
   color: var(--ts-danger);
 }
 
-/* ── MCP Server Form ─────────────────────────────────────────────────── */
+/* MCP Server Form */
 
 .mcp-form {
   display: grid;
@@ -447,7 +447,7 @@
   text-decoration: underline;
 }
 
-/* ── Agent scope & toggles ─────────────────────────────────────────── */
+/* Agent scope & toggles */
 
 .mcp-form__agent-list {
   display: grid;
@@ -489,7 +489,7 @@
   accent-color: var(--ts-accent);
 }
 
-/* ── Headers key-value editor ──────────────────────────────────────── */
+/* Headers key-value editor */
 
 .mcp-form__header-row {
   display: flex;
@@ -504,7 +504,7 @@
   font-size: 0.74rem;
 }
 
-/* ── Local transport setup guide ───────────────────────────────────── */
+/* Local transport setup guide */
 
 .mcp-form__local-guide {
   display: grid;
@@ -553,7 +553,7 @@
   overflow-wrap: anywhere;
 }
 
-/* ── Form actions footer ───────────────────────────────────────────── */
+/* Form actions footer */
 
 .mcp-form__actions {
   display: flex;

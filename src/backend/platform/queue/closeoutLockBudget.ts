@@ -6,8 +6,7 @@
  * can each wait their turn without exhausting retries — even if every other
  * task is holding the lock across a full archive + git finalization round.
  *
- * Architecture decision R1-bounded-wait-not-two-phase: we deliberately keep
- * all queue-state mutations inside the lock (preserve-F8) and instead widen
+ * We deliberately keep all queue-state mutations inside the lock and widen
  * the acquisition wait budget to cover the worst-case serialized hold time.
  */
 

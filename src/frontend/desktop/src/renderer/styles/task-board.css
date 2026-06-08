@@ -1,4 +1,4 @@
-/* ── Task Board ─────────────────────────────────────────────────────── */
+/* Task Board */
 
 .task-board {
   display: flex;
@@ -11,7 +11,7 @@
   min-height: 0;
 }
 
-/* ── Chrome header ─────────────────────────────────────────────────── */
+/* Chrome header */
 
 .task-board__chrome {
   display: flex;
@@ -30,7 +30,7 @@
   margin-left: auto;
 }
 
-/* ── Column grid ───────────────────────────────────────────────────── */
+/* Column grid */
 
 .task-board__columns {
   display: grid;
@@ -42,7 +42,7 @@
   padding: 0.5rem;
 }
 
-/* ── Column ────────────────────────────────────────────────────────── */
+/* Column */
 
 .task-board-column {
   display: flex;
@@ -129,7 +129,7 @@
   font-style: italic;
 }
 
-/* ── Card ──────────────────────────────────────────────────────────── */
+/* Card */
 
 .task-board-card {
   position: relative;
@@ -288,7 +288,7 @@
   border-color: color-mix(in srgb, var(--ts-text-inverse) 14%, transparent);
 }
 
-/* ── Card delete button ────────────────────────────────────────────── */
+/* Card delete button */
 
 .task-board-card__delete {
   grid-column: 2;
@@ -388,7 +388,7 @@
   border-color: color-mix(in srgb, var(--ts-danger) 40%, transparent);
 }
 
-/* ── Delete confirmation dialog ───────────────────────────────────── */
+/* Delete confirmation dialog */
 
 .task-board-confirm__overlay {
   position: fixed;
@@ -461,7 +461,7 @@
   border-color: color-mix(in srgb, var(--ts-danger) 40%, transparent);
 }
 
-/* ── Task Detail Modal (column-specific overrides — chrome is in modalShell.css) ── */
+/* Task Detail Modal (column-specific overrides chrome is in modalShell.css) */
 
 .task-detail-modal__column-dot {
   width: 8px;
@@ -502,7 +502,7 @@
 .task-detail-modal__column-badge[data-column="completed"] { color: var(--ts-brand-green); border-color: color-mix(in srgb, var(--ts-brand-green) 18%, transparent); }
 .task-detail-modal__column-badge[data-column="completed"] .task-detail-modal__badge-dot { background: var(--ts-brand-green); }
 
-/* ── Artifact Explorer ─────────────────────────────────────────────── */
+/* Artifact Explorer */
 /* Layout wrapper + completed green accent only; the dropdown palette and
  * option styling come from the shared terminalSelectMenu.css. */
 
@@ -547,7 +547,7 @@
     color-mix(in srgb, var(--ts-brand-green) 16%, transparent);
 }
 
-/* ── Markdown View ────────────────────────────────────────────────── */
+/* Markdown View */
 
 .task-md-view {
   font-family: var(--ts-font-sans);

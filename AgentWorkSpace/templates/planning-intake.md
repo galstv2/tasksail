@@ -55,7 +55,7 @@ Additional fields emitted conditionally by the staging writer:
 <!-- Prefer plain bullets. Use this section for existing behavior that must continue to work while this task changes related behavior. Include existing API behavior, direct-call behavior, UI behavior, file formats, or workflows that must remain compatible. Write exact "None" only when there are truly no compatibility requirements to preserve. -->
 
 ## Required Validation
-<!-- Prefer plain bullets with concrete evidence: an exact command, Manual check:, Structural check:, or Log snapshot:. Include focused commands, broad regression commands, structural scans, log/runtime snapshots, or manual UI checks that Alice, Dalton, and Ron must preserve. For implementation tasks, prefer at least one concrete validation signal unless the Guide explicitly says no validation is possible. Write exact "None" only when there is truly no required validation to preserve. -->
+<!-- Prefer plain bullets with concrete evidence: an exact command, Manual check:, Structural check:, or Log snapshot:. Include focused commands, broad regression commands, structural scans, log/runtime snapshots, or manual UI checks that must be preserved. For implementation tasks, prefer at least one concrete validation signal unless the Guide explicitly says no validation is possible. Write exact "None" only when there is truly no required validation to preserve. -->
 
 ## Acceptance Signals
 <!-- (1+ bullet or numbered items required; prose alone fails validation) — list the clearest checks that would show the task is done. Keep them concrete and verifiable. Include both what should change and what must still work if that matters. -->

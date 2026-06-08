@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// --- hoisted mocks ---
 const { readdirMock, readFileMock } = vi.hoisted(() => ({
   readdirMock: vi.fn(),
   readFileMock: vi.fn(),

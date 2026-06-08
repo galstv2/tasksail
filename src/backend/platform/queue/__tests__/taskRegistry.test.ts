@@ -88,7 +88,6 @@ Body
   });
 });
 
-// ── §4.5 new tests ──────────────────────────────────────────────────────────
 
 function makeEntry(taskId: string, state: TaskRegistryEntry['state']): TaskRegistryEntry {
   return {
@@ -288,7 +287,7 @@ describe('taskRegistry §4.5 — array active shape', () => {
   });
 });
 
-// ── Track L: repairTaskRegistry regression when queue lock is available ──────
+// repairTaskRegistry regression when queue lock is available.
 
 describe('repairTaskRegistry — queue-lock-available regression (Track L)', () => {
   let repoRoot: string;
@@ -319,7 +318,7 @@ describe('repairTaskRegistry — queue-lock-available regression (Track L)', () 
     );
 
     // repairTaskRegistry runs without a queue lock guard — this test verifies
-    // that it still produces the correct snapshot (no regression from Track L).
+    // that it still produces the correct snapshot.
     const repaired = await repairTaskRegistry(repoRoot);
     const all = getAllTasks(repaired);
 
@@ -333,7 +332,7 @@ describe('repairTaskRegistry — queue-lock-available regression (Track L)', () 
   });
 });
 
-// ── Track L: acquireDirLock(lockDir, 1, 0) guard contract ─────────────────
+// acquireDirLock(lockDir, 1, 0) guard contract.
 //
 // The startup repair guard in ElectronAppController calls
 // acquireDirLock(queueLockDir, 1, 0): a single non-blocking attempt.

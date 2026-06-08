@@ -1,8 +1,8 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import type { ContextPackCreationDraft } from '../../contextPackCreationTypes';
-import { INITIAL_DRAFT, createRepositoryEntry, createFocusAreaEntry } from '../../hooks/useContextPackDraft';
+import type { ContextPackCreationDraft } from '../../contextPack/contextPackCreationTypes';
+import { INITIAL_DRAFT, createRepositoryEntry, createFocusAreaEntry } from '../../hooks/context-pack/useContextPackDraft';
 import ReviewStep from './ReviewStep';
 
 afterEach(() => {
@@ -44,18 +44,19 @@ describe('ReviewStep', () => {
     expect(screen.getByText('At least one repository')).toBeInTheDocument();
   });
 
-  it('shows repo chips with primary indicator', () => {
+  it('shows repo chips with category labels, not Primary/Support', () => {
     const draft: ContextPackCreationDraft = {
       ...INITIAL_DRAFT,
       contextPackDir: '/tmp/pack',
       repositories: [
-        createRepositoryEntry({ repoName: 'api', primary: true, systemLayer: 'backend' }),
-        createRepositoryEntry({ repoName: 'web', primary: false, systemLayer: 'frontend' }),
+        createRepositoryEntry({ repoName: 'api', primary: true, repoCategory: 'service' }),
+        createRepositoryEntry({ repoName: 'web', primary: false, repoCategory: 'frontend' }),
       ],
     };
     render(<ReviewStep draft={draft} />);
-    const chips = screen.getAllByText(/Primary/);
-    expect(chips.length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText(/Primary •/)).not.toBeInTheDocument();
+    expect(screen.getByText('Service')).toBeInTheDocument();
+    expect(screen.getByText('Frontend')).toBeInTheDocument();
     expect(screen.getByText(/web/)).toBeInTheDocument();
   });
 
@@ -70,72 +71,58 @@ describe('ReviewStep', () => {
     expect(screen.getByText('At least one focus area')).toBeInTheDocument();
   });
 
-  it('shows monolith focus area chips with repository type badges', () => {
+  it('shows monolith focus area chips with kind labels, not Primary/Support', () => {
     const draft: ContextPackCreationDraft = {
       ...INITIAL_DRAFT,
       mode: 'monolith',
       repositories: [createRepositoryEntry()],
       focusAreas: [
-        createFocusAreaEntry({ focusName: 'Core Module', focusType: 'service', repositoryType: 'primary', primary: true, relativePath: 'services/core' }),
-        createFocusAreaEntry({ focusName: 'Docs', focusType: 'docs', repositoryType: 'support', primary: false }),
+        createFocusAreaEntry({ focusName: 'Core Module', focusCategory: 'service', primary: true, relativePath: 'services/core' }),
+        createFocusAreaEntry({ focusName: 'Docs', focusCategory: 'documentation', primary: false, relativePath: 'docs' }),
       ],
     };
 
     render(<ReviewStep draft={draft} />);
 
-    expect(screen.getByText(/Primary • Core Module/)).toBeInTheDocument();
-    expect(screen.getByText(/Support • Docs/)).toBeInTheDocument();
+    expect(screen.queryByText(/Primary •/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Support •/)).not.toBeInTheDocument();
+    expect(screen.getByText('Core Module')).toBeInTheDocument();
+    expect(screen.getByText(/Service/)).toBeInTheDocument();
+    expect(screen.getByText(/Documentation/)).toBeInTheDocument();
     expect(screen.getByText(/services\/core/)).toBeInTheDocument();
   });
 
-  it('shows monolith primary focus validation checks', () => {
+  it('shows monolith focus-area validation checks without focus wording', () => {
     const draft: ContextPackCreationDraft = {
       ...INITIAL_DRAFT,
       mode: 'monolith',
       repositories: [createRepositoryEntry({ repoRoot: '/repo', repoName: 'mono', primary: true })],
       focusAreas: [
-        createFocusAreaEntry({ focusName: 'Core Module', primary: true, repositoryType: 'primary', relativePath: 'services/core' }),
+        createFocusAreaEntry({ focusName: 'Core Module', primary: true, relativePath: 'services/core' }),
       ],
     };
 
     render(<ReviewStep draft={draft} />);
 
-    expect(screen.getByText('Working folder selected')).toBeInTheDocument();
-    expect(screen.getByText('Working folder has a relative path')).toBeInTheDocument();
+    expect(screen.getByText('At least one focus area')).toBeInTheDocument();
+    expect(screen.getByText('Focus areas have relative paths')).toBeInTheDocument();
+    expect(screen.queryByText('Working folder selected')).not.toBeInTheDocument();
   });
 
-  it('warns when no primary focus area is selected', () => {
+  it('fails the focus-area path check when a focus area lacks a relative path', () => {
     const draft: ContextPackCreationDraft = {
       ...INITIAL_DRAFT,
       mode: 'monolith',
       repositories: [createRepositoryEntry()],
       focusAreas: [
-        createFocusAreaEntry({ focusName: 'Core Module', primary: false, repositoryType: 'support', relativePath: 'services/core' }),
-      ],
-    };
-
-    const { container } = render(<ReviewStep draft={draft} />);
-    const selectedItem = Array.from(
-      container.querySelectorAll('.context-pack-modal__validation-item'),
-    ).find((item) => item.textContent?.includes('Working folder selected'));
-
-    expect(selectedItem).toHaveClass('context-pack-modal__validation-item--warn');
-  });
-
-  it('fails when the primary focus area is missing a relative path', () => {
-    const draft: ContextPackCreationDraft = {
-      ...INITIAL_DRAFT,
-      mode: 'monolith',
-      repositories: [createRepositoryEntry()],
-      focusAreas: [
-        createFocusAreaEntry({ focusName: 'Core Module', primary: true, repositoryType: 'primary', relativePath: '   ' }),
+        createFocusAreaEntry({ focusName: 'Core Module', primary: true, relativePath: '   ' }),
       ],
     };
 
     const { container } = render(<ReviewStep draft={draft} />);
     const relativePathItem = Array.from(
       container.querySelectorAll('.context-pack-modal__validation-item'),
-    ).find((item) => item.textContent?.includes('Working folder has a relative path'));
+    ).find((item) => item.textContent?.includes('Focus areas have relative paths'));
 
     expect(relativePathItem).toHaveClass('context-pack-modal__validation-item--fail');
   });

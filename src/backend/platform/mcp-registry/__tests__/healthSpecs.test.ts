@@ -55,26 +55,11 @@ describe('toServiceHealthSpecs', () => {
     expect(specs[0].name).toBe('enabled-svc');
   });
 
-  it('returns empty array when no services are enabled', () => {
-    const registry: McpRegistry = {
-      schema_version: 1,
-      services: [
-        makeService({ id: 'disabled-svc', enabled: false }),
-      ],
-    };
-
-    const specs = toServiceHealthSpecs(registry);
-    expect(specs).toEqual([]);
-  });
-
-  it('returns empty array for empty services list', () => {
-    const registry: McpRegistry = {
-      schema_version: 1,
-      services: [],
-    };
-
-    const specs = toServiceHealthSpecs(registry);
-    expect(specs).toEqual([]);
+  it.each([
+    [{ schema_version: 1, services: [makeService({ id: 'disabled-svc', enabled: false })] } as McpRegistry, 'all disabled'],
+    [{ schema_version: 1, services: [] } as McpRegistry, 'empty list'],
+  ])('returns empty array: %s', (registry, _label) => {
+    expect(toServiceHealthSpecs(registry)).toEqual([]);
   });
 
   it('maps multiple enabled services preserving order', () => {

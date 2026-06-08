@@ -21,8 +21,8 @@ from src.backend.mcp.context_estate.helpers import (
     normalize_activation_priority,
     resolve_candidate,
 )
-from src.backend.mcp.git_roots import local_path_entry
-from src.backend.mcp.pack_constants import ALLOWED_REPO_CATEGORIES
+from src.backend.mcp.pack.constants import ALLOWED_REPO_CATEGORIES
+from src.backend.mcp.probes.git_roots import local_path_entry
 from src.backend.mcp.repo_context_mcp.utils import (
     ensure_non_empty_string,
     normalize_bool,
@@ -33,9 +33,6 @@ from src.backend.mcp.repo_context_mcp.utils import (
 )
 
 
-# ---------------------------------------------------------------------------
-# Small type/role normalizers
-# ---------------------------------------------------------------------------
 def _normalize_repo_role(value: Any) -> str:
     normalized = normalize_optional_string(value)
     if not normalized:
@@ -72,7 +69,10 @@ def _is_authored_repository_type(raw_repo: dict[str, Any]) -> bool:
     if marker is None:
         marker = raw_repo.get("_authored_repository_type")
     if marker is None:
-        return True
+        # Absent marker means the value was system-derived (probe/discovery), not
+        # operator-authored. Defaulting to authored=True caused spurious manifest
+        # rejections when a derived repository_type disagreed with primary IDs.
+        return False
     return normalize_bool(marker, default=False)
 
 
@@ -85,9 +85,6 @@ def _normalize_focus_type(value: Any) -> str:
     return normalized
 
 
-# ---------------------------------------------------------------------------
-# Distributed repositories
-# ---------------------------------------------------------------------------
 def _normalize_distributed_repositories(
     repositories: Any,
     draft_payload: dict[str, Any],
@@ -241,9 +238,6 @@ def _normalize_distributed_repositories(
     return approved_entries
 
 
-# ---------------------------------------------------------------------------
-# Monolith repository
-# ---------------------------------------------------------------------------
 def _normalize_monolith_repository(
     repository: Any,
     draft_payload: dict[str, Any],
@@ -396,9 +390,6 @@ def _normalize_monolith_extra_repositories(
     return normalized
 
 
-# ---------------------------------------------------------------------------
-# Focusable areas (monolith)
-# ---------------------------------------------------------------------------
 def _normalize_focusable_areas(
     focusable_areas: Any,
     draft_payload: dict[str, Any],
@@ -454,6 +445,17 @@ def _normalize_focusable_areas(
         )
         if group:
             focus_entry["group"] = group
+
+        focus_category = _normalize_repo_category(
+            raw_area.get("focus_category") or candidate.get("focus_category")
+        )
+        if focus_category is not None:
+            focus_entry["focus_category"] = focus_category
+        if raw_area.get("focus_category_authored") is not None:
+            focus_entry["focus_category_authored"] = normalize_bool(
+                raw_area.get("focus_category_authored"),
+                default=False,
+            ) and focus_category is not None
 
         adjacent_ids = normalize_string_list(
             raw_area.get("adjacent_focus_area_ids")

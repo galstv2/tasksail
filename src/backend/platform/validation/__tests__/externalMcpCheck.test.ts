@@ -44,9 +44,6 @@ function writeAssignments(content: unknown): void {
   fs.writeFileSync(p, raw, 'utf-8');
 }
 
-// ---------------------------------------------------------------------------
-// No registry exists
-// ---------------------------------------------------------------------------
 
 describe('no external MCP registry', () => {
   it('returns valid with no errors or warnings', async () => {
@@ -57,9 +54,6 @@ describe('no external MCP registry', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Valid registry
-// ---------------------------------------------------------------------------
 
 describe('valid external MCP registry', () => {
   it('validates empty registry with no warnings', async () => {
@@ -93,9 +87,6 @@ describe('valid external MCP registry', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Invalid registry
-// ---------------------------------------------------------------------------
 
 describe('invalid external MCP registry', () => {
   it('reports validation errors', async () => {
@@ -106,9 +97,6 @@ describe('invalid external MCP registry', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Stale agent_scope is no longer advisory data
-// ---------------------------------------------------------------------------
 
 describe('stale agent_scope', () => {
   it('does not warn when a server carries a stale agent_scope referencing unknown agents', async () => {
@@ -133,9 +121,6 @@ describe('stale agent_scope', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// External MCP assignment file validation
-// ---------------------------------------------------------------------------
 
 describe('external MCP assignment file validation', () => {
   function seedRegistryAndRoster(): void {

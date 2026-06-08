@@ -1,7 +1,4 @@
-/*
- * Compact Deep Focus read-only Scope Summary card.
- * Header → Primary list (with inline accordion overrides) → optional Globals block.
- */
+/* Compact Deep Focus read-only scope summary card. */
 .deep-focus-summary {
   min-width: 0;
   padding: 0.1rem 0.6rem 0.6rem;
@@ -67,7 +64,7 @@
   letter-spacing: var(--df-text-body-tracking, 0.005em);
 }
 
-/* ── Primary list ────────────────────────────────────────────────────── */
+/* Primary list */
 
 .deep-focus-summary__primary-list {
   list-style: none;
@@ -193,7 +190,7 @@
   transform: rotate(90deg);
 }
 
-/* ── Per-primary inline overrides ────────────────────────────────────── */
+/* Per-primary inline overrides */
 
 .deep-focus-summary__overrides {
   display: flex;
@@ -265,7 +262,7 @@
   font-style: italic;
 }
 
-/* ── Globals block ───────────────────────────────────────────────────── */
+/* Globals block */
 
 .deep-focus-summary__globals {
   display: flex;
@@ -319,7 +316,7 @@
   min-width: 0;
 }
 
-/* ── Empty card ──────────────────────────────────────────────────────── */
+/* Empty card */
 
 .deep-focus-summary__empty-body {
   display: flex;
@@ -337,7 +334,7 @@
   letter-spacing: var(--df-text-secondary-tracking, 0.01em);
 }
 
-/* ── Edit Scope action ───────────────────────────────────────────────── */
+/* Edit Scope action */
 
 .deep-focus-summary__action {
   appearance: none;
@@ -377,7 +374,7 @@
   box-shadow: 0 0 0 2px var(--df-focus-ring, var(--ts-accent-subtle));
 }
 
-/* ── Accessibility helper (sr-only) ──────────────────────────────────── */
+/* Accessibility helper (sr-only) */
 
 .deep-focus-summary .sr-only {
   position: absolute;

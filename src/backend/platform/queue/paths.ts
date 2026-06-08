@@ -66,7 +66,7 @@ export interface QueuePaths {
   templatesDir: string;
   /**
    * Compatibility fallback: returns the single non-sentinel active-marker path
-   * when exactly one exists; returns undefined for zero or two-or-more (F37).
+   * when exactly one exists; returns undefined for zero or two-or-more.
    * Callers enumerating tasks MUST iterate activeItemsDir directly.
    */
   activeItemLink: () => string | undefined;
@@ -178,7 +178,7 @@ export function templateSourceFor(
 
 /**
  * Resolve the canonical slice-template placeholder inside ImplementationSteps/.
- * In xml mode the destination filename is slice-template.xml; otherwise slice-template.md.
+ * XML mode uses the XML slice template; markdown mode uses the markdown template.
  */
 export function implementationStepsTemplatePath(
   implementationStepsDir: string,

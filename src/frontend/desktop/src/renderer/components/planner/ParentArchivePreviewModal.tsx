@@ -1,6 +1,6 @@
 import type { PlannerReadParentArchiveMarkdownResponse } from '../../../shared/desktopContract';
-import MarkdownView from '../MarkdownView';
-import ModalShell, { ModalShellEscHint } from '../ModalShell';
+import MarkdownView from '../shared/MarkdownView';
+import ModalShell, { ModalShellEscHint } from '../shared/ModalShell';
 import { formatParentArchiveTimestamp } from './parentArchiveTimestamp';
 
 export type ParentArchivePreviewModalProps = {

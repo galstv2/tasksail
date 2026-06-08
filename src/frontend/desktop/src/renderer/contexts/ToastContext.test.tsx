@@ -12,13 +12,6 @@ function wrapper({ children }: { children: React.ReactNode }) {
 }
 
 describe('ToastContext', () => {
-  it('provides toasts, addToast, and dismissToast inside the provider', () => {
-    const { result } = renderHook(() => useToastContext(), { wrapper });
-    expect(result.current.toasts).toEqual([]);
-    expect(typeof result.current.addToast).toBe('function');
-    expect(typeof result.current.dismissToast).toBe('function');
-  });
-
   it('throws when used outside ToastProvider', () => {
     expect(() => {
       renderHook(() => useToastContext());

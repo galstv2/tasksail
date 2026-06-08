@@ -83,6 +83,32 @@ class RunTargetedTestsTests(unittest.TestCase):
         )
         return f"tests.{module_basename}"
 
+    def write_pytest_module(
+        self,
+        workspace: Path,
+        *,
+        module_basename: str,
+        marker_name: str,
+    ) -> str:
+        tests_dir = workspace / "tests"
+        tests_dir.mkdir(parents=True, exist_ok=True)
+        module_path = tests_dir / f"{module_basename}.py"
+        marker_path = workspace / marker_name
+        module_path.write_text(
+            (
+                "from pathlib import Path\n\n\n"
+                "class TestGeneratedPytest:\n"
+                "    def test_generated_pytest(self) -> None:\n"
+                f"        Path({str(marker_path)!r}).write_text(\n"
+                "            \"ran\\n\",\n"
+                "            encoding=\"utf-8\",\n"
+                "        )\n"
+                "        assert True\n"
+            ),
+            encoding="utf-8",
+        )
+        return f"tests.{module_basename}"
+
     def run_cli(
         self,
         workspace: Path,
@@ -172,7 +198,7 @@ class RunTargetedTestsTests(unittest.TestCase):
         domains = self.runner.infer_domains_from_changed_paths(
             [
                 "src/backend/platform/workflow-policy/validator.ts",
-                "docs/architecture/platform-spec.md",
+                "docs/technical/architecture/overview.md",
             ],
             manifest,
             workspace_root=REPO_ROOT,
@@ -304,6 +330,33 @@ class RunTargetedTestsTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue((workspace / "domain-selected.marker").exists())
         self.assertFalse((workspace / "domain-excluded.marker").exists())
+
+    def test_domain_invocation_executes_pytest_style_modules(self) -> None:
+        workspace = self.create_temp_dir()
+        selected_module = self.write_pytest_module(
+            workspace,
+            module_basename="test_pytest_selected",
+            marker_name="pytest-selected.marker",
+        )
+        manifest_path = self.write_manifest(
+            workspace,
+            {
+                "lanes": {"smoke": [selected_module]},
+                "domains": {"parallel": [selected_module]},
+                "path_rules": {},
+            },
+        )
+
+        result = self.run_cli(
+            workspace,
+            "--manifest",
+            str(manifest_path),
+            "--domain",
+            "parallel",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((workspace / "pytest-selected.marker").exists())
 
     def test_changed_path_targeting_executes_expected_domain_modules(
         self,

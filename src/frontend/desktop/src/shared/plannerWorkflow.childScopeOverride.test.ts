@@ -28,10 +28,10 @@ describe('buildChildTaskStarterPrompt child scope override sections', () => {
       rootTaskId: 'TASK-1',
       parentQmdScope: 'orders',
       childTaskExecutionScope: childScope,
-      lilyPlanningReloadScope: {
+      plannerPlanningReloadScope: {
         ...childScope,
         schemaVersion: 1,
-        purpose: 'lily-planning-read-context',
+        purpose: 'planner-planning-read-context',
         selectedRepoIds: ['orders-api', 'billing-api'],
       },
     });
@@ -39,7 +39,7 @@ describe('buildChildTaskStarterPrompt child scope override sections', () => {
     expect(prompt.indexOf('Child Execution Scope (Implementation Authority)')).toBeLessThan(
       prompt.indexOf('Additional Parent Context Scope (Read-Only Planning Context)'),
     );
-    expect(prompt).toContain('Dalton, Context Pack Binding, activation, and closeout use only Child Execution Scope.');
+    expect(prompt).toContain('Implementation agent, Context Pack Binding, activation, and closeout use only Child Execution Scope.');
     expect(prompt).toContain('Do not infer implementation authority from read-only planning context.');
     expect(prompt).toContain('If broader implementation authority is needed, ask the Guide to adjust Child Execution Scope.');
     expect(prompt).not.toContain('Additional Parent Context Scope (Context Pack Binding)');

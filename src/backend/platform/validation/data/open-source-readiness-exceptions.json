@@ -1,0 +1,32 @@
+{
+  "pnpmLockImporterExceptions": [
+    {
+      "importer": "packages/agent-runner",
+      "reason": "Stale lockfile importer retained until workspace lockfile regeneration; no tracked package manifest exists."
+    },
+    {
+      "importer": "packages/container-runtime",
+      "reason": "Stale lockfile importer retained until workspace lockfile regeneration; no tracked package manifest exists."
+    },
+    {
+      "importer": "packages/context-pack",
+      "reason": "Stale lockfile importer retained until workspace lockfile regeneration; no tracked package manifest exists."
+    },
+    {
+      "importer": "packages/platform-core",
+      "reason": "Stale lockfile importer retained until workspace lockfile regeneration; no tracked package manifest exists."
+    },
+    {
+      "importer": "packages/setup",
+      "reason": "Stale lockfile importer retained until workspace lockfile regeneration; no tracked package manifest exists."
+    },
+    {
+      "importer": "packages/task-queue",
+      "reason": "Stale lockfile importer retained until workspace lockfile regeneration; no tracked package manifest exists."
+    },
+    {
+      "importer": "packages/validation",
+      "reason": "Stale lockfile importer retained until workspace lockfile regeneration; no tracked package manifest exists."
+    }
+  ]
+}

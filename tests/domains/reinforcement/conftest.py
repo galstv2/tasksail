@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.backend.mcp.reinforcement.models import TaskLedgerEntry
 
 ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-
-from src.backend.mcp.reinforcement.models import TaskLedgerEntry
 
 
 def make_entry(
@@ -20,6 +22,8 @@ def make_entry(
     quality_outcome: str = "success",
 ) -> TaskLedgerEntry:
     """Factory for ``TaskLedgerEntry`` with sensible defaults."""
+    from src.backend.mcp.reinforcement.models import TaskLedgerEntry
+
     return TaskLedgerEntry(
         task_id=task_id,
         parent_task_id="",

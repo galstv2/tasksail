@@ -15,9 +15,9 @@ import {
 } from '../pipeline/runtimeControl.js';
 
 /**
- * §2.9 Phase 2 gate — cross-task isolation contract.
+ * Cross-task isolation contract.
  *
- * Exercises every per-task runtime write seam introduced by §2.1–§2.8 with
+ * Exercises every per-task runtime write seam with
  * two distinct taskIds against a shared repoRoot. Asserts each write lands
  * under `<runtimeDir>/tasks/<taskId>/` with no cross-contamination between
  * the two taskIds' state trees.
@@ -42,14 +42,14 @@ describe('§2.9 parallel isolation — per-task runtime state', () => {
 
     expect(alphaPaths.taskRuntime).not.toBe(bravoPaths.taskRuntime);
 
-    // 1. Guardrail receipt — §2.1
+  // Guardrail receipt.
     const alphaGuardrail = guardrailReceiptPath(repoRoot, 'dalton', taskAlpha);
     const bravoGuardrail = guardrailReceiptPath(repoRoot, 'dalton', taskBravo);
     expect(alphaGuardrail).not.toBe(bravoGuardrail);
     await writeGuardrailReceipt(alphaGuardrail, { status: 'passed', taskId: taskAlpha });
     await writeGuardrailReceipt(bravoGuardrail, { status: 'passed', taskId: taskBravo });
 
-    // 2. Session receipt — §2.2 (per-launch suffix under per-task runtime)
+  // Session receipt with per-launch suffix under per-task runtime.
     const alphaSession = await writeSessionStartReceipt({
       taskRuntime: alphaPaths.taskRuntime,
       launchId: '100-1000',
@@ -68,14 +68,14 @@ describe('§2.9 parallel isolation — per-task runtime state', () => {
     });
     expect(alphaSession).not.toBe(bravoSession);
 
-    // 3. Pipeline phase — §2.4
+  // Pipeline phase.
     await writePipelinePhase(alphaPaths.taskRuntime, 'test-capture-started');
     await writePipelinePhase(bravoPaths.taskRuntime, 'test-capture-completed');
     const alphaPhase = path.join(alphaPaths.taskRuntime, 'pipeline-phase.json');
     const bravoPhase = path.join(bravoPaths.taskRuntime, 'pipeline-phase.json');
     expect(alphaPhase).not.toBe(bravoPhase);
 
-    // 4. Pipeline lock surrogate — §2.4 runtimeControl kill-switch shares the
+  // Pipeline lock surrogate: runtimeControl kill-switch shares the
     //    per-task runtime dir; acquirePipelineLock is module-private, so we
     //    assert the observable runtime-control seam instead.
     const alphaKill = pipelineKillSwitchPath(repoRoot, taskAlpha);
@@ -84,7 +84,7 @@ describe('§2.9 parallel isolation — per-task runtime state', () => {
     await requestPipelineKill(repoRoot, taskAlpha, 'alpha stop');
     await requestPipelineKill(repoRoot, taskBravo, 'bravo stop');
 
-    // 5. Runtime workflow facts — §2.3 keyed on taskRuntime
+  // Runtime workflow facts keyed on taskRuntime.
     await writeRuntimeWorkflowFacts({
       repoRoot,
       taskId: taskAlpha,

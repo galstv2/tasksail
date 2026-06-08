@@ -3,7 +3,7 @@ import type {
   ArchivedParentContextBundle,
   ArchivedParentTaskContent,
   PlannerChildTaskExecutionScope,
-  PlannerLilyPlanningReloadScope,
+  PlannerPlanningReloadScope,
 } from './desktopContractPlanner';
 
 function wrapAttachedFile(content: string): string {
@@ -20,7 +20,7 @@ const DRAFT_WRITE_CAUTION =
 
 /**
  * Wraps the Guide's first message in a fresh planner session with the
- * draft-write caution so Lily does not write to staging prematurely.
+ * draft-write caution so the planner does not write to staging prematurely.
  * Child-task and markdown-review flows inject their own caution via
  * dedicated builders — this covers the regular fresh-session path.
  */
@@ -29,7 +29,7 @@ export function wrapFreshSessionMessage(guideText: string): string {
 }
 
 export const PLANNER_SAVE_DRAFT_WORKFLOW = {
-  guideMessage: 'Lily, let\u2019s save what we have so far. Please draft the spec now.',
+  guideMessage: 'Please save what we have so far. Draft the spec now.',
   prompt:
     'This is the internal Draft Spec save prompt and authorizes you to write the staged planning document now. ' +
     'Please update the existing staged planning document in AgentWorkSpace/dropbox/.staging/ now. ' +
@@ -48,14 +48,14 @@ export function buildChildTaskStarterPrompt(args: {
   parentContextBundle?: ArchivedParentContextBundle;
   parentChainArchiveBundle?: ArchivedParentChainArchiveBundle;
   childTaskExecutionScope?: PlannerChildTaskExecutionScope;
-  lilyPlanningReloadScope?: PlannerLilyPlanningReloadScope;
+  plannerPlanningReloadScope?: PlannerPlanningReloadScope;
 }): string {
   const bundleSections = formatParentContextBundle(args.parentContextBundle);
   const contentSections = bundleSections || formatParentTaskContent(args.parentTaskContent);
   const chainSections = formatParentChainArchiveBundle(args.parentChainArchiveBundle);
   const scopeSections = formatChildTaskScopeSections(
     args.childTaskExecutionScope,
-    args.lilyPlanningReloadScope,
+    args.plannerPlanningReloadScope,
   );
   return (
     'This is a child-task continuation workflow against an archived parent task. The staged planning document already contains the editable H1 title plus the platform-owned lineage, context, and source shell.\n\n' +
@@ -108,7 +108,7 @@ function formatParentChainArchiveBundle(bundle?: ArchivedParentChainArchiveBundl
 
 function formatChildTaskScopeSections(
   childScope?: PlannerChildTaskExecutionScope,
-  reloadScope?: PlannerLilyPlanningReloadScope,
+  reloadScope?: PlannerPlanningReloadScope,
 ): string {
   if (!childScope && !reloadScope) return '';
   const sections: string[] = [];
@@ -116,7 +116,7 @@ function formatChildTaskScopeSections(
     sections.push(
       [
         'Child Execution Scope (Implementation Authority):',
-        'Dalton, Context Pack Binding, activation, and closeout use only Child Execution Scope.',
+        'Implementation agent, Context Pack Binding, activation, and closeout use only Child Execution Scope.',
         formatScopeSummary(childScope),
       ].join('\n'),
     );
@@ -134,7 +134,7 @@ function formatChildTaskScopeSections(
   return sections.join('\n\n');
 }
 
-function formatScopeSummary(scope: PlannerChildTaskExecutionScope | PlannerLilyPlanningReloadScope): string {
+function formatScopeSummary(scope: PlannerChildTaskExecutionScope | PlannerPlanningReloadScope): string {
   const primaryRepos = scope.selectedRepoIds.filter((id) => scope.repositoryTypes?.[id] === 'primary');
   const supportRepos = scope.selectedRepoIds.filter((id) => (scope.repositoryTypes?.[id] ?? 'support') === 'support');
   const primaryFocusIds = scope.selectedFocusIds.filter((id) => scope.repositoryTypes?.[id] === 'primary');

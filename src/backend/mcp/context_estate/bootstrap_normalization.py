@@ -69,6 +69,12 @@ def _normalize_focus_area_overrides(value: Any) -> list[dict[str, Any]]:
                 "path": normalize_optional_string(raw_area.get("path")),
                 "focus_name": normalize_optional_string(raw_area.get("focus_name") or raw_area.get("focusName")),
                 "focus_type": normalize_optional_string(raw_area.get("focus_type") or raw_area.get("focusType")),
+                "focus_category": normalize_optional_string(raw_area.get("focus_category") or raw_area.get("focusCategory")),
+                "focus_category_authored": bool(
+                    raw_area.get("focus_category_authored")
+                    if raw_area.get("focus_category_authored") is not None
+                    else raw_area.get("focusCategoryAuthored")
+                ),
                 "group": normalize_optional_string(raw_area.get("group")),
                 "default_focusable": normalize_bool(
                     raw_area.get("default_focusable") if "default_focusable" in raw_area else raw_area.get("defaultFocusable")
@@ -146,10 +152,11 @@ def normalize_bootstrap_answers(payload: dict[str, Any]) -> dict[str, Any]:
                     or ""
                 ).lower()
                 or None,
-                # v2 fields — pass through from IPC input when provided
+                # repo_focus is the agent-pipeline focus axis (primary/support).
+                # It must come only from an explicit repo_focus signal, never be
+                # backfilled from repository_type (the kind axis at creation time).
                 "repo_focus": normalize_optional_string(
                     raw_repo.get("repo_focus") or raw_repo.get("repoFocus")
-                    or raw_repo.get("repository_type") or raw_repo.get("repositoryType")
                 ),
                 "repo_focus_authored": bool(
                     raw_repo.get("repo_focus_authored")

@@ -78,9 +78,9 @@ describe('buildChildTaskStarterPrompt parent chain archive bundle', () => {
         selectedSupportTargets: [],
         selectedTestTarget: null,
       },
-      lilyPlanningReloadScope: {
+      plannerPlanningReloadScope: {
         schemaVersion: 1,
-        purpose: 'lily-planning-read-context',
+        purpose: 'planner-planning-read-context',
         contextPackDir: '/packs/pack',
         contextPackId: 'pack',
         scopeMode: 'repo-selection',

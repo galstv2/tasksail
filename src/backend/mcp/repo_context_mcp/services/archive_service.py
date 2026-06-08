@@ -21,8 +21,8 @@ from .record_cache import ScopedRecordCache
 
 logger = logging.getLogger(__name__)
 
-# SEC-PY-07: bound the archive record scan. scope_dir is HTTP-controlled, so an
-# unbounded rglob + load_json is a DoS vector on a large or crafted tree.
+# Bound the archive record scan. scope_dir is HTTP-controlled, so an unbounded
+# rglob + load_json is a DoS vector on a large or crafted tree.
 _RECORD_SCAN_LIMIT = 10000
 _MAX_RECORD_BYTES = 1024 * 1024  # 1 MiB
 _SCAN_SKIP_DIRS = frozenset(
@@ -33,11 +33,10 @@ _SCAN_SKIP_DIRS = frozenset(
 def _iter_bounded_json_files(root: Path) -> list[Path]:
     """Bounded recursive collection of ``*.json`` files under *root*.
 
-    Mirrors the 6.1 ``repo_category_probe._rglob_any`` fix: an ``os.scandir``
-    stack-walk that skips heavy/transient dirs, does not follow directory
-    symlinks, and stops after ``_RECORD_SCAN_LIMIT`` entries — so an
-    HTTP-controlled ``scope_dir`` cannot trigger an unbounded walk. Returns a
-    sorted list for deterministic grouping.
+    Uses an ``os.scandir`` stack-walk that skips heavy/transient dirs, does not
+    follow directory symlinks, and stops after ``_RECORD_SCAN_LIMIT`` entries so
+    an HTTP-controlled ``scope_dir`` cannot trigger an unbounded walk. Returns
+    a sorted list for deterministic grouping.
     """
     paths: list[Path] = []
     examined = 0

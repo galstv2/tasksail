@@ -1,7 +1,7 @@
 /**
- * §4.16 Data-safety gate — must pass before maxParallelTasks > 1 is enabled.
+ * Data-safety gate for enabling maxParallelTasks > 1.
  *
- * Contract: invoking moveFailedItemToErrorItems (§4.14A) MUST NOT modify any
+ * Contract: invoking moveFailedItemToErrorItems MUST NOT modify any
  * file in the original working tree of a bound git repo. The operator's
  * local-notes.txt (or any other untracked file) must survive byte-identical.
  *
@@ -30,9 +30,6 @@ import { tmpdir } from 'node:os';
 import { moveFailedItemToErrorItems } from '../queue/errorItems.js';
 import { _clearPlatformConfigCache } from '../platform-config/get.js';
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 /** sha256 of a file's bytes on disk. */
 function sha256File(filePath: string): string {
@@ -181,7 +178,7 @@ function createWorktree(
 }
 
 /**
- * Seed the pendingitems/<taskId>.md file (moveFailedItemToErrorItems renames it).
+ * Seed the pending task file that moveFailedItemToErrorItems renames.
  */
 function writePendingItemMd(repoRoot: string, taskId: string): void {
   const pendingDir = path.join(repoRoot, 'AgentWorkSpace', 'pendingitems');
@@ -190,8 +187,8 @@ function writePendingItemMd(repoRoot: string, taskId: string): void {
 }
 
 /**
- * Seed the .active-items/<taskId> marker directory (§4.1 contract).
- * Per spec: marker is a DIRECTORY entry, not a file.
+ * Seed the .active-items/<taskId> marker directory.
+ * The marker is a DIRECTORY entry, not a file.
  */
 function writeActiveItemMarker(repoRoot: string, taskId: string): void {
   // active-items lives under AgentWorkSpace/pendingitems/.active-items per queue/paths.ts
@@ -201,9 +198,7 @@ function writeActiveItemMarker(repoRoot: string, taskId: string): void {
   mkdirSync(path.join(activeItemsDir, taskId), { recursive: true });
 }
 
-// ---------------------------------------------------------------------------
-// §4.16 Data-safety — happy path
-// ---------------------------------------------------------------------------
+// Data-safety happy path.
 
 describe('§4.16 data-safety: retain_failed_task_worktrees=false', () => {
   let tmpRoot: string;
@@ -258,7 +253,7 @@ describe('§4.16 data-safety: retain_failed_task_worktrees=false', () => {
       writePendingItemMd(repoRoot, taskId);
       writeActiveItemMarker(repoRoot, taskId);
 
-      // 5. Call moveFailedItemToErrorItems (the §4.14A path — simulates pipeline failure)
+  // Simulate pipeline failure via moveFailedItemToErrorItems.
       await moveFailedItemToErrorItems({ repoRoot, taskId });
 
       // 6. DATA SAFETY ASSERTIONS
@@ -286,9 +281,7 @@ describe('§4.16 data-safety: retain_failed_task_worktrees=false', () => {
   );
 });
 
-// ---------------------------------------------------------------------------
-// §4.16 Data-safety — negative control: retain=true
-// ---------------------------------------------------------------------------
+// Data-safety negative control: retain=true.
 
 describe('§4.16 data-safety: retain_failed_task_worktrees=true (negative control)', () => {
   let tmpRoot: string;

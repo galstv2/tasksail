@@ -1,7 +1,7 @@
 /**
- * §B5 Post-completion branch verification — unit tests.
+ * Post-completion branch verification unit tests.
  *
- * Five scenarios per spec §3.3 plus retry-suffix risk 5.2:
+ * Five branch-verification scenarios plus retry-suffix coverage:
  *   1. All bindings have commits beyond base → ok:true
  *   2. One binding has no new commits → no-commits-beyond-base
  *   3. Branch ref deleted out-of-band → branch-missing

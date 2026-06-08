@@ -30,8 +30,7 @@ import {
 /**
  * Returns a stable bare-filename key from any relative path.
  *
- * toHandoffKey('professional-task.md')
- *   → 'professional-task.md'
+ * Keeps only the final filename segment.
  */
 export function toHandoffKey(relative: string): string {
   return path.basename(relative);
@@ -261,7 +260,7 @@ export class PolicyValidator {
 
   async getArtifact(key: string): Promise<WorkspaceArtifact> {
     await this.initialize();
-    // Normalize to bare-filename key: 'foo.md' → 'foo.md' (idempotent).
+    // Normalize to an idempotent bare-filename key.
     const bareKey = toHandoffKey(key);
     const cached = this.artifacts.get(bareKey);
     if (cached) {

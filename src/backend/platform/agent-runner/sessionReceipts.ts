@@ -17,9 +17,9 @@ type PromptAuditMetadata = {
  * `launchId` is caller-supplied and collision-resistant within any single host
  * process lifetime.
  *
- * Fleet-mode note (§4.12): multiple concurrent sub-Daltons share the same
+ * Fleet-mode note: multiple concurrent sub-Daltons share the same
  * agentId ('dalton'). Without a per-launch suffix, the second sub-Dalton's
- * writeSessionStartReceipt would overwrite the first's. §5.2's recoverOnStartup
+ * writeSessionStartReceipt would overwrite the first's. `recoverOnStartup`
  * pid scan enumerates ALL `${agentId}-${launchId}.json` files per task and
  * treats the task as live if ANY pid is still alive.
  */

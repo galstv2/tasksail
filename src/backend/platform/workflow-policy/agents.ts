@@ -1,5 +1,11 @@
 import path from 'node:path';
-import { getActiveProvider } from '../cli-provider/index.js';
+import {
+  getActiveProvider,
+  WORKFLOW_ROLE_ID_SET,
+  PLANNER_ROLE_ID,
+  REGISTRY_FIELD_INSTRUCTION_PATH,
+  REGISTRY_FIELD_AGENT_PROFILE_PATH,
+} from '../cli-provider/index.js';
 import { readTextFile, safeJsonParse } from '../core/index.js';
 import {
   createNamedAgentRecord,
@@ -23,12 +29,8 @@ interface RegistryPayload {
   agents?: unknown;
 }
 
-const CANONICAL_WORKFLOW_AGENT_IDS = new Set([
-  'planning-agent',
-  'product-manager',
-  'software-engineer',
-  'qa',
-]);
+// Workflow role IDs are the provider-neutral contract (cli-provider/workflowContract).
+// Use WORKFLOW_ROLE_ID_SET instead of a local copy so a new provider needs no edit here.
 
 export function buildExpectedInstructionHeading(roleName: string, humanName: string): string {
   if (humanName) {
@@ -52,7 +54,7 @@ function expectedInstructionHeadingForAgent(
   roleName: string,
   humanName: string,
 ): string {
-  if (agentId === 'planning-agent') {
+  if (agentId === PLANNER_ROLE_ID) {
     return `# ${roleName} Instructions`;
   }
   return buildExpectedInstructionHeading(roleName, humanName);
@@ -63,7 +65,7 @@ function expectedAgentIdentityForAgent(
   roleName: string,
   humanName: string,
 ): string {
-  if (agentId === 'planning-agent') {
+  if (agentId === PLANNER_ROLE_ID) {
     return `Act as the ${roleName}.`;
   }
   return buildExpectedAgentIdentity(roleName, humanName);
@@ -126,7 +128,7 @@ export async function loadNamedAgentTeam(
       continue;
     }
 
-    if (!CANONICAL_WORKFLOW_AGENT_IDS.has(agentId)) {
+    if (!WORKFLOW_ROLE_ID_SET.has(agentId)) {
       continue;
     }
 
@@ -145,8 +147,8 @@ export async function loadNamedAgentTeam(
 
     const roleName = String(item.role_name ?? '').trim();
     const humanName = String(item.human_name ?? '').trim();
-    const instructionPath = String(item.instruction_path ?? '').trim();
-    const agentProfilePath = String(item.agent_profile_path ?? '').trim();
+    const instructionPath = String(item[REGISTRY_FIELD_INSTRUCTION_PATH] ?? '').trim();
+    const agentProfilePath = String(item[REGISTRY_FIELD_AGENT_PROFILE_PATH] ?? '').trim();
     const workflowOrder = item.workflow_order;
 
     if (!roleName) {

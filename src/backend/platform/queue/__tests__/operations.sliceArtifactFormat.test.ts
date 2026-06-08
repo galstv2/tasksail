@@ -1,17 +1,17 @@
 /**
  * Slice artifact format freezing tests for activateNextPendingItemIfReady.
  *
- * Covers Track A spec requirements:
+ * Covers slice-format freezing requirements:
  *   - Platform config absent (file-not-found) => sidecar.sliceArtifactFormat = 'markdown'
  *   - Platform config declares markdown => sidecar.sliceArtifactFormat = 'markdown'
  *   - Platform config declares xml => sidecar.sliceArtifactFormat = 'xml'
  *   - Invalid slice_artifact_format in platform config => activation fails before Alice launch
  *   - Changing platform config after activation does not change the frozen task format
  *
- * Also covers Track B spec requirements:
+ * Also covers lifecycle template staging requirements:
  *   - Activation passes frozen sliceArtifactFormat into lifecycle template staging
- *   - XML mode stages slice-template.xml; markdown mode stages slice-template.md
- *   - parallel-ok.md template no longer hardcodes ImplementationSteps/<sliceId>.md
+ *   - XML and markdown modes stage their active-format slice templates
+ *   - the parallel-approval template no longer hardcodes markdown implementation paths
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
@@ -174,9 +174,7 @@ describe('slice artifact format freezing at activation', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Track B: activation threads frozen format into lifecycle template staging
-// ---------------------------------------------------------------------------
+  // Activation threads frozen format into lifecycle template staging.
 
 describe('slice template staging during activation (Track B)', () => {
   let repoRoot: string;
@@ -242,13 +240,11 @@ describe('slice template staging during activation (Track B)', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Track B: parallel-ok.md template no longer hardcodes .md extension
-// ---------------------------------------------------------------------------
+  // The parallel-approval template no longer hardcodes a markdown extension.
 
 describe('parallel-ok.md template slice reference comment', () => {
   it('does not hardcode ImplementationSteps/<sliceId>.md in the seeded comment', async () => {
-    // The spec requires the Independent Slices comment to use format-neutral wording.
+    // Independent Slices uses format-neutral wording.
     // This scan mirrors the structuralScans.parallel-ok-template-active-format-comment check.
     const templatePath = path.join(
       process.cwd(),

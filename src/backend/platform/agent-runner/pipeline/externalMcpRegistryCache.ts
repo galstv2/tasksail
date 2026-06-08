@@ -11,7 +11,7 @@ import type { ExternalMcpRegistryHealth } from '../types.js';
 
 const log = createLogger('platform/agent-runner/pipeline/externalMcpRegistryCache');
 
-// Exempt: read-only shared config, not per-task runtime state (§2.6 audit).
+// Read-only shared config, not per-task runtime state.
 // SAFE: header env resolution is process-global; per-task header values are not supported.
 // Adding per-task headers requires re-keying this cache by (repoRoot, headerEnvDigest).
 const externalMcpRegistryCache = new Map<string, ExternalMcpRegistry>();

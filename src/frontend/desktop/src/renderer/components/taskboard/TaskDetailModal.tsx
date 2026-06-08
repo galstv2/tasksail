@@ -1,7 +1,7 @@
 import type { TaskBoardContentColumn, TaskBoardMarkdownArtifact } from '../../../shared/desktopContract';
-import MarkdownView from '../MarkdownView';
-import ModalShell from '../ModalShell';
-import TerminalSelectMenu, { type TerminalSelectMenuOption } from '../TerminalSelectMenu';
+import MarkdownView from '../shared/MarkdownView';
+import ModalShell from '../shared/ModalShell';
+import TerminalSelectMenu, { type TerminalSelectMenuOption } from '../terminal/TerminalSelectMenu';
 import XmlArtifactView from './XmlArtifactView';
 
 export type TaskDetailModalFooterAction = {

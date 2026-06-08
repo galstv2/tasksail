@@ -153,20 +153,6 @@ describe('workflow-policy HTML comment semantics', () => {
     expect(after).toBe(before);
   });
 
-  it('computes substantive content from semantic section bodies', async () => {
-    const repoRoot = createRoot();
-    roots.push(repoRoot);
-    writeFile(repoRoot, 'comment-only.md', '# A\n\n## Content\n<!-- guidance -->\n');
-    writeFile(repoRoot, 'with-content.md', '# A\n\n## Content\n<!-- guidance -->\nReal value\n');
-
-    await expect(loadWorkspaceArtifact(repoRoot, 'comment-only.md')).resolves.toMatchObject({
-      hasSubstantiveContent: false,
-    });
-    await expect(loadWorkspaceArtifact(repoRoot, 'with-content.md')).resolves.toMatchObject({
-      hasSubstantiveContent: true,
-    });
-  });
-
   it.each(['pass', 'advisory', 'blocking'])('reads issues Review Outcome comment plus %s semantically', async (outcome) => {
     const repoRoot = createRoot();
     roots.push(repoRoot);

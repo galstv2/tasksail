@@ -1,5 +1,5 @@
 /**
- * Track C — Same-task terminal ownership tests.
+ * Same-task terminal ownership tests.
  *
  * Asserts that fail/kill worktree finalization now runs under the global queue
  * lock, making complete and fail mutually exclusive on the same task.
@@ -20,10 +20,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
-// ---------------------------------------------------------------------------
-// Module mocks (hoisted by Vitest before any imports)
-// ---------------------------------------------------------------------------
-
+// Mock registrations stay before modules that consume them.
 vi.mock('../archive.js', () => ({
   fileTaskArchive: vi.fn(),
 }));
@@ -99,10 +96,7 @@ vi.mock('../../core/worktreeFinalize.js', () => ({
   gcTaskRuntime: vi.fn().mockResolvedValue(undefined),
 }));
 
-// ---------------------------------------------------------------------------
-// Module imports (after mocks)
-// ---------------------------------------------------------------------------
-
+// Import the system under test after mock registration.
 import { fileTaskArchive } from '../archive.js';
 import { moveFailedItemToErrorItems } from '../errorItems.js';
 import { completePendingItem } from '../completePendingItem.js';
@@ -113,10 +107,6 @@ import { finalizeTaskWorktrees, finalizeTaskWorktreesWithReport } from '../../co
 const mockFileTaskArchive = vi.mocked(fileTaskArchive);
 const mockFinalize = vi.mocked(finalizeTaskWorktrees);
 const mockFinalizeWithReport = vi.mocked(finalizeTaskWorktreesWithReport);
-
-// ---------------------------------------------------------------------------
-// Test helpers
-// ---------------------------------------------------------------------------
 
 async function makeTmpRepo(): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), 'tasksail-term-own-'));
@@ -148,9 +138,7 @@ async function seedActiveTask(repoRoot: string, taskId: string): Promise<void> {
   await writeFile(path.join(handoffsDir, 'issues.md'), '# Issues\n');
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('terminal ownership — Track C', () => {
   let repoRoot: string;

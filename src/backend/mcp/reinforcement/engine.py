@@ -37,9 +37,6 @@ class ReinforcementEngine:
         self._store = store
         self._qmd_writer = qmd_writer
 
-    # ------------------------------------------------------------------
-    # Task completion
-    # ------------------------------------------------------------------
     def record_task_completion(
         self,
         task_id: str,
@@ -105,9 +102,6 @@ class ReinforcementEngine:
 
             return result
 
-    # ------------------------------------------------------------------
-    # Settlement
-    # ------------------------------------------------------------------
     def _maybe_trigger_settlement_held(self) -> SettlementRecord | None:
         """Trigger settlement if threshold reached. Caller holds ledger_lock."""
         unrewarded = self._unrewarded_success_entries_held()
@@ -173,9 +167,6 @@ class ReinforcementEngine:
             if e.settlement_status == "unrewarded" and e.quality_outcome == "success"
         ]
 
-    # ------------------------------------------------------------------
-    # Feedback
-    # ------------------------------------------------------------------
     def record_feedback(
         self,
         task_id: str,
@@ -219,9 +210,6 @@ class ReinforcementEngine:
 
         return result
 
-    # ------------------------------------------------------------------
-    # Read accessors
-    # ------------------------------------------------------------------
     def get_unrewarded_tasks(self) -> list[dict[str, Any]]:
         with self._store.ledger_lock():
             return [e.as_dict() for e in self._unrewarded_success_entries_held()]

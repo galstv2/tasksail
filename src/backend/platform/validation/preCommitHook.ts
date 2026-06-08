@@ -4,6 +4,7 @@ import { promisify } from 'node:util';
 import { splitCommandOutputLines } from '../core/commandOutput.js';
 import { findRepoRoot, isWindowsPlatform, readTextFile } from '../core/index.js';
 import { FILE_SIZE_LIMITS, REFACTOR_THRESHOLD, loadBaseline } from './fileSizes.js';
+import { checkCommentDiscipline } from './commentDiscipline.js';
 
 const execFileAsync = promisify(execFile);
 const DESKTOP_RENDERER_STYLES_PREFIX = 'src/frontend/desktop/src/renderer/styles/';
@@ -104,6 +105,20 @@ export async function preCommitHook(repoRoot?: string): Promise<PreCommitResult>
     } catch (err) {
       failures.push(`desktop CSS color token discipline failed:\n${formatCommandFailure(err)}`);
     }
+  }
+
+  const commentResult = await checkCommentDiscipline({
+    repoRoot: root,
+    mode: 'changed',
+    staged: true,
+  });
+  if (!commentResult.valid) {
+    failures.push(
+      [
+        'comment discipline failed:',
+        ...commentResult.errors.map((error) => `  ${error}`),
+      ].join('\n'),
+    );
   }
 
   return { passed: failures.length === 0, failures };

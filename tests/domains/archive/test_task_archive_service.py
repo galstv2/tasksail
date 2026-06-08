@@ -338,9 +338,7 @@ class TaskArchiveServiceTests(unittest.TestCase):
                 service.load_shared_retrospective_memory()
 
 
-    # ------------------------------------------------------------------
-    # Slice-03 tests: graceful empty scope
-    # ------------------------------------------------------------------
+    # Graceful empty-scope behavior.
 
     def test_iter_task_archive_records_returns_empty_for_missing_scope(
         self,

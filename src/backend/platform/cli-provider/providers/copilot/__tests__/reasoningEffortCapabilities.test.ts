@@ -4,10 +4,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 
-import {
-  reasoningEffortErrorMessage,
-  reasoningEffortRejectedBeforeSpawnMessage,
-} from '../../../reasoningEffort.js';
 
 vi.mock('node:child_process', () => ({
   execFile: vi.fn(),
@@ -99,45 +95,16 @@ afterEach(() => {
 });
 
 describe('Copilot reasoning effort capability discovery', () => {
-  it('formats Copilot reasoning-effort messages through the provider CLI display name', () => {
-    expect(reasoningEffortErrorMessage({
-      cliDisplayName: 'Copilot CLI',
-      agentId: 'dalton',
-      modelId: 'gpt-5.4',
-      effort: 'ultra',
-      reason: 'unsupported-by-cli',
-    })).toBe('Agent dalton cannot launch model gpt-5.4 with reasoning effort ultra: the installed Copilot CLI does not advertise that reasoning effort. Update Agent Configuration to None or a Copilot-advertised effort before relaunching the task.');
-    expect(reasoningEffortRejectedBeforeSpawnMessage({
-      cliDisplayName: 'Copilot CLI',
-      agentId: 'dalton',
-      modelId: 'gpt-5.4',
-      effort: 'ultra',
-    })).toBe('Agent dalton cannot launch model gpt-5.4 with reasoning effort ultra. Update Agent Configuration to None or a Copilot-advertised effort before relaunching the task.');
-  });
-
-  it('extracts provider-advertised choices from wrapped help text', async () => {
+  it.each([
+    [HELP, 'wrapped choices'] as const,
+    [QUOTED_HELP, 'quoted choices from current Copilot help'] as const,
+    [DEEPLY_WRAPPED_HELP, 'deeply wrapped option paragraph'] as const,
+    [BRACE_HELP, 'brace format'] as const,
+    [ONE_OF_HELP, 'one-of format'] as const,
+  ])('extracts provider-advertised effort choices: %s', async (helpText, _label) => {
     const { parseCopilotReasoningEffortChoices } = await importSubject();
 
-    expect(parseCopilotReasoningEffortChoices(HELP)).toEqual(['none', 'low', 'medium', 'high', 'xhigh', 'max']);
-  });
-
-  it('extracts quoted provider-advertised choices from current Copilot help text', async () => {
-    const { parseCopilotReasoningEffortChoices } = await importSubject();
-
-    expect(parseCopilotReasoningEffortChoices(QUOTED_HELP)).toEqual(['none', 'low', 'medium', 'high', 'xhigh', 'max']);
-  });
-
-  it('extracts choices from deeply wrapped option paragraphs until the next option starts', async () => {
-    const { parseCopilotReasoningEffortChoices } = await importSubject();
-
-    expect(parseCopilotReasoningEffortChoices(DEEPLY_WRAPPED_HELP)).toEqual(['none', 'low', 'medium', 'high', 'xhigh', 'max']);
-  });
-
-  it('extracts choices from brace and one-of formats', async () => {
-    const { parseCopilotReasoningEffortChoices } = await importSubject();
-
-    expect(parseCopilotReasoningEffortChoices(BRACE_HELP)).toEqual(['none', 'low', 'medium', 'high', 'xhigh', 'max']);
-    expect(parseCopilotReasoningEffortChoices(ONE_OF_HELP)).toEqual(['none', 'low', 'medium', 'high', 'xhigh', 'max']);
+    expect(parseCopilotReasoningEffortChoices(helpText)).toEqual(['none', 'low', 'medium', 'high', 'xhigh', 'max']);
   });
 
   it('returns a fresh cache without spawning Copilot', async () => {

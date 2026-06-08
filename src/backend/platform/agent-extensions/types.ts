@@ -102,7 +102,7 @@ export type AgentExtensionAssignmentListResponse = {
 
 // Add-request source shape. Identical to the durable manifest source for git/local,
 // but direct-attachment carries the authored skill markdown (not a config_path):
-// the backend writes config/skill-authored/<id>/SKILL.md under the lock and derives
+// the backend writes the authored skill document under the lock and derives
 // the durable config_path itself, so the write stays inside the single-writer transaction.
 export type AgentExtensionAddSource =
   | {
@@ -166,7 +166,6 @@ export type AgentExtensionMutationSeams = {
 
 export type AgentExtensionReconcileOptions = AgentExtensionMutationSeams;
 
-// --- Per-launch staging (this gate) ---
 
 export type AgentExtensionStageStatus = 'creating' | 'created';
 

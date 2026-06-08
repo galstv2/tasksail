@@ -1,9 +1,4 @@
-/*
- * Covers the Context Pack modal body content: sections, editor cards, path rows,
- * destination chips, discovery row, and tier grids. The overlay, header, close,
- * scroll body, and footer chrome are provided by ModalShell (see modalShell.css).
- */
-/* ── §14  Context Pack Modal ─────────────────────────────────────────── */
+/* Context-pack modal body rules; ModalShell owns overlay, chrome, scroll body, and footer. */
 
 .context-pack-modal__section-header,
 .context-pack-modal__card-header {
@@ -118,7 +113,7 @@
   flex-shrink: 0;
 }
 
-/* ── Field-level meta (status under a field) ───────────────────────── */
+/* Field-level meta (status under a field) */
 
 .context-pack-modal__field-meta {
   font-size: 0.7rem;
@@ -127,7 +122,7 @@
   letter-spacing: 0.01em;
 }
 
-/* ── Discovery result (inline under the Discovery root field) ──────── */
+/* Discovery result (inline under the Discovery root field) */
 
 .context-pack-modal__discovery-result {
   display: inline-flex;
@@ -142,7 +137,7 @@
   flex-shrink: 0;
 }
 
-/* ── Inline destination meta (replaces the heavy nested tile) ──────── */
+/* Inline destination meta (replaces the heavy nested tile) */
 
 .context-pack-modal__destination-meta {
   display: flex;
@@ -179,7 +174,7 @@
   font-family: var(--ts-font-sans);
 }
 
-/* ── Read-only destination tile (used in the New Project wizard) ──── */
+/* Read-only destination tile (used in the New Project wizard) */
 
 .context-pack-modal__destination {
   font-family: var(--ts-font-mono);
@@ -202,9 +197,7 @@
   font-family: var(--ts-font-sans);
 }
 
-/* ── Review summary list (Apple Settings row pattern) ─────────────────
-   Label sits quiet on the left, value sits on the right at the same
-   scale; a --stacked variant breaks the row for long values (paths). */
+/* Review summary list: quiet label, same-scale value, stacked variant for long paths. */
 
 .context-pack-modal__summary-list {
   display: flex;
@@ -263,7 +256,7 @@
   font-family: var(--ts-font-sans);
 }
 
-/* ── Setup tiers ────────────────────────────────────────────────────── */
+/* Setup tiers */
 
 .context-pack-modal__tier-primary {
   display: grid;
@@ -282,4 +275,3 @@
   gap: 0.3rem;
   min-width: 0;
 }
-

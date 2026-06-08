@@ -54,16 +54,10 @@ export function validateReasoningEffortForCapabilities(input: {
     return { ok: true };
   }
 
-  // Stale caches are treated as discovery failures here even though the
-  // Agent Configuration renderer keeps the effort dropdown enabled and
-  // shows a soft warning (spec line 322). The asymmetry is intentional:
-  // saves and launches must reject against a known-current capability set,
-  // not yesterday's snapshot. Operator surfaces the stale state via the
-  // renderer warning, and the rejection message ("try again after
-  // capabilities are available") directs them to refresh.
-  // Locked by agentConfigHandlers.test.ts ("rejects non-empty effort when
-  // capability discovery only has stale cache data"). Update that test if
-  // you ever loosen this gate.
+  // Stale caches are hard failures for saves and launches because they need a
+  // current capability set. The renderer may show a soft warning, but this path
+  // rejects with a refresh-oriented message; keep the stale-cache test in sync
+  // if this gate changes.
   if (!EFFORT_PATTERN.test(effort) || input.capabilities.source === 'unavailable' || input.capabilities.stale) {
     const cliDisplayName = input.cliDisplayName ?? input.providerId;
     return {

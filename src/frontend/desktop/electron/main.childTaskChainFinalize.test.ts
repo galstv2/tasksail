@@ -8,14 +8,14 @@ const commitPendingRecordToHistory = vi.fn();
 
 vi.mock('../../../backend/platform/queue/createFollowupTask.js', () => ({ createFollowupTask }));
 vi.mock('../../../backend/platform/queue/createDropboxTask.js', () => ({ createDropboxTask }));
-vi.mock('./main.childTaskChain', () => ({ resolveChildTaskChainCreationContext }));
-vi.mock('./main.staging', () => ({
+vi.mock('./archive/childTaskChain', () => ({ resolveChildTaskChainCreationContext }));
+vi.mock('./planner/staging', () => ({
   readOwnedStagedDraft,
   readPlannerStagingSidecar: vi.fn(),
   readStagedDraft: vi.fn(),
 }));
-vi.mock('./plannerHistory', () => ({ commitPendingRecordToHistory }));
-vi.mock('./main.stream', () => ({
+vi.mock('./planner/history', () => ({ commitPendingRecordToHistory }));
+vi.mock('./runtime/stream', () => ({
   emitStreamEvent: vi.fn(),
   setTerminalTaskScopeForWebContents: vi.fn(),
   withStreamEvent: vi.fn(async (_event, fn) => fn()),
@@ -122,7 +122,7 @@ Carry forward the immediate parent context so the child task can continue safely
   });
 
   it('resolves chain context before createFollowupTask and passes Branch Chain inputs', async () => {
-    const { handleDesktopAction } = await import('./main.desktopActionRouter');
+    const { handleDesktopAction } = await import('./ipc/desktopActionRouter');
     const result = await handleDesktopAction({ action: 'planner.finalizeSpec' }, {
       listContextPacks: vi.fn(),
     } as never);
@@ -143,7 +143,7 @@ Carry forward the immediate parent context so the child task can continue safely
 
   it('rejects resolver failures before createFollowupTask', async () => {
     resolveChildTaskChainCreationContext.mockRejectedValueOnce(new Error('child-task-chain-creation-blocked: not tip'));
-    const { handleDesktopAction } = await import('./main.desktopActionRouter');
+    const { handleDesktopAction } = await import('./ipc/desktopActionRouter');
     const result = await handleDesktopAction({ action: 'planner.finalizeSpec' }, {
       listContextPacks: vi.fn(),
     } as never);
@@ -156,7 +156,7 @@ Carry forward the immediate parent context so the child task can continue safely
     resolveChildTaskChainCreationContext.mockRejectedValueOnce(
       new Error('child-task-chain-divergent-repo-base-unresolved: /repo/tools'),
     );
-    const { handleDesktopAction } = await import('./main.desktopActionRouter');
+    const { handleDesktopAction } = await import('./ipc/desktopActionRouter');
     const result = await handleDesktopAction({ action: 'planner.finalizeSpec' }, {
       listContextPacks: vi.fn(),
     } as never);

@@ -1,4 +1,4 @@
-/* ── §24  Planner Modal ──────────────────────────────────────────────── */
+/* Planner Modal */
 
 .planner-modal__overlay {
   position: fixed;
@@ -57,7 +57,7 @@
   flex-shrink: 0;
 }
 
-/* ── §24.01a  Header back / return-to-blank button ───────────────────── */
+/* Header back / return-to-blank button */
 
 .planner-modal__back {
   display: inline-flex;
@@ -400,7 +400,7 @@
   opacity: 0.85;
 }
 
-/* ── §24.03  Header right group & child-task toggle ──────────────────── */
+/* Header right group & child-task toggle */
 
 .planner-modal__header-right {
   display: flex;
@@ -489,7 +489,7 @@
   cursor: not-allowed;
 }
 
-/* ── §24.05  Attach button & selected file indicator ─────────────────── */
+/* Attach button & selected file indicator */
 
 .planner-modal__attach-btn {
   border: none;
@@ -669,7 +669,7 @@
   opacity: 0.45;
 }
 
-/* ── §24.02a  Session status badge ──────────────────────────────────── */
+/* Session status badge */
 
 .planner-modal__session-status {
   display: inline-flex;
@@ -723,7 +723,7 @@
   background: color-mix(in srgb, var(--ts-danger) 5%, transparent);
 }
 
-/* ── Draft pop-out modal ─────────────────────────────────────────────── */
+/* Draft pop-out modal */
 
 .planner-draft-popout .modal-shell__body {
   padding: 1rem 1.25rem;
@@ -736,7 +736,7 @@
   margin-left: auto;
 }
 
-/* ── §24.02b  Reconnect bar ────────────────────────────────────────── */
+/* Reconnect bar */
 
 .planner-modal__reconnect {
   display: flex;
@@ -770,9 +770,9 @@
   color: var(--ts-text);
 }
 
-/* ── §24.1  Submitted Confirmation ──────────────────────────────────── */
+/* Submitted Confirmation */
 
-/* ── Overlay — subtle frosted backdrop ───────────────────────────── */
+/* Overlay subtle frosted backdrop */
 
 .sail-overlay {
   position: fixed;
@@ -801,7 +801,7 @@
   to   { opacity: 0; }
 }
 
-/* ── Pill — frosted-glass card ────────────────────────────────────── */
+/* Pill frosted-glass card */
 
 .sail-pill {
   display: flex;
@@ -838,7 +838,7 @@
   to   { opacity: 0; transform: scale(0.94); }
 }
 
-/* ── Checkmark SVG ────────────────────────────────────────────────── */
+/* Checkmark SVG */
 
 .sail-check {
   flex-shrink: 0;
@@ -864,7 +864,7 @@
   to { stroke-dashoffset: 0; }
 }
 
-/* ── Label ────────────────────────────────────────────────────────── */
+/* Label */
 
 .sail-label {
   font-family: var(--ts-font-sans);

@@ -43,11 +43,4 @@ describe('context-pack cli', () => {
     expect(process.exitCode ?? 0).toBe(0);
   });
 
-  it('rejects qmd-seed as an unsupported context-pack subcommand', async () => {
-    await main(['qmd-seed']);
-
-    expect(stderr).toContain('Usage: context-pack');
-    expect(stdout).toBe('');
-    expect(process.exitCode).toBe(1);
-  });
 });

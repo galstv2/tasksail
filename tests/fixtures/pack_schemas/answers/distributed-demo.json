@@ -17,7 +17,7 @@
     {
       "repo_id": "platform",
       "repo_name": "Platform",
-      "repo_root": "/Users/victorgalstyan2/Desktop/AgenticHarness/crud-app-repo-dotnet-distributed-demo/platform",
+      "repo_root": "/tmp/tasksail-fixtures/crud-app-repo-dotnet-distributed-demo/platform",
       "owner": "",
       "system_layer": "backend",
       "languages": [],
@@ -40,7 +40,7 @@
     {
       "repo_id": "tools",
       "repo_name": "Tools",
-      "repo_root": "/Users/victorgalstyan2/Desktop/AgenticHarness/crud-app-repo-dotnet-distributed-demo/tools",
+      "repo_root": "/tmp/tasksail-fixtures/crud-app-repo-dotnet-distributed-demo/tools",
       "owner": "",
       "system_layer": "backend",
       "languages": [],

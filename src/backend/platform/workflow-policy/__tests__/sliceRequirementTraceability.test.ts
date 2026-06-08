@@ -7,9 +7,6 @@ import { resolvePaths } from '../../core/index.js';
 import { PolicyValidator } from '../index.js';
 import { evaluateSliceQualityRules } from '../rules/slice.js';
 
-// ---------------------------------------------------------------------------
-// Helpers for XML task setup
-// ---------------------------------------------------------------------------
 
 function writeTaskJson(repoRoot: string, sliceArtifactFormat: 'markdown' | 'xml'): void {
   const taskDir = path.join(repoRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID);
@@ -374,9 +371,6 @@ describe('slice requirement traceability', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// XML format traceability — parity with markdown rule behavior
-// ---------------------------------------------------------------------------
 
 /** Minimal complete XML slice for traceability testing. */
 function xmlSlice(options: {

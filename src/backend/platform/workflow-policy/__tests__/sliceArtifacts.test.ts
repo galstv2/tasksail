@@ -16,11 +16,6 @@ import {
   extractSliceValidationCommands,
 } from '../sliceArtifacts.js';
 
-// ---------------------------------------------------------------------------
-// Test fixtures
-// ---------------------------------------------------------------------------
-
-/** Minimal complete XML slice — all required fields populated. */
 const COMPLETE_XML_SLICE = `<?xml version="1.0" encoding="UTF-8"?>
 <executionSlice id="slice-1" version="1.0">
   <metadata>
@@ -117,7 +112,6 @@ Report: files changed, tests run, validation results
   </guardsAndCoordination>
 </executionSlice>`;
 
-/** Complete markdown slice fixture. */
 const COMPLETE_MARKDOWN_SLICE = `# slice-1
 
 ## Purpose
@@ -168,10 +162,6 @@ pnpm test
 None
 `;
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 let tmpDirs: string[] = [];
 
 function makeTmpDir(): string {
@@ -193,10 +183,6 @@ function writeFile(dir: string, name: string, content: string): string {
   writeFileSync(fullPath, content, 'utf-8');
   return fullPath;
 }
-
-// ---------------------------------------------------------------------------
-// describeSliceArtifactFormat
-// ---------------------------------------------------------------------------
 
 describe('describeSliceArtifactFormat', () => {
   it('returns markdown descriptor for markdown format', () => {
@@ -234,18 +220,14 @@ describe('describeSliceArtifactFormat', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// listSliceArtifactFiles
-// ---------------------------------------------------------------------------
-
 describe('listSliceArtifactFiles', () => {
   it('lists only slice-N.md files in markdown mode, excluding templates', async () => {
     const dir = makeTmpDir();
     writeFile(dir, 'slice-1.md', '');
     writeFile(dir, 'slice-2.md', '');
-    writeFile(dir, 'slice-template.md', '');  // excluded
-    writeFile(dir, 'slice-1.xml', '');         // wrong format
-    writeFile(dir, 'other.md', '');            // not a slice
+    writeFile(dir, 'slice-template.md', '');
+    writeFile(dir, 'slice-1.xml', '');
+    writeFile(dir, 'other.md', '');
 
     const files = await listSliceArtifactFiles(dir, 'markdown');
     const names = files.map((f) => path.basename(f));
@@ -256,9 +238,9 @@ describe('listSliceArtifactFiles', () => {
     const dir = makeTmpDir();
     writeFile(dir, 'slice-1.xml', '');
     writeFile(dir, 'slice-2.xml', '');
-    writeFile(dir, 'slice-template.xml', '');  // excluded
-    writeFile(dir, 'slice-1.md', '');           // wrong format
-    writeFile(dir, 'other.xml', '');            // not a slice
+    writeFile(dir, 'slice-template.xml', '');
+    writeFile(dir, 'slice-1.md', '');
+    writeFile(dir, 'other.xml', '');
 
     const files = await listSliceArtifactFiles(dir, 'xml');
     const names = files.map((f) => path.basename(f));
@@ -282,17 +264,13 @@ describe('listSliceArtifactFiles', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// listWrongFormatSliceFiles
-// ---------------------------------------------------------------------------
-
 describe('listWrongFormatSliceFiles', () => {
   it('in xml mode, finds stray slice-N.md files, excludes templates', async () => {
     const dir = makeTmpDir();
     writeFile(dir, 'slice-1.md', '');
-    writeFile(dir, 'slice-template.md', '');  // excluded
-    writeFile(dir, 'slice-1.xml', '');         // correct format, excluded
-    writeFile(dir, 'slice-2.xml', '');         // correct format, excluded
+    writeFile(dir, 'slice-template.md', '');
+    writeFile(dir, 'slice-1.xml', '');
+    writeFile(dir, 'slice-2.xml', '');
 
     const files = await listWrongFormatSliceFiles(dir, 'xml');
     const names = files.map((f) => path.basename(f));
@@ -302,8 +280,8 @@ describe('listWrongFormatSliceFiles', () => {
   it('in markdown mode, finds stray slice-N.xml files, excludes templates', async () => {
     const dir = makeTmpDir();
     writeFile(dir, 'slice-1.xml', '');
-    writeFile(dir, 'slice-template.xml', '');  // excluded
-    writeFile(dir, 'slice-1.md', '');           // correct format, excluded
+    writeFile(dir, 'slice-template.xml', '');
+    writeFile(dir, 'slice-1.md', '');
 
     const files = await listWrongFormatSliceFiles(dir, 'markdown');
     const names = files.map((f) => path.basename(f));
@@ -340,10 +318,6 @@ describe('listWrongFormatSliceFiles', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// sliceIdFromFilename
-// ---------------------------------------------------------------------------
-
 describe('sliceIdFromFilename', () => {
   it('extracts slice-N from a .md path in markdown mode', () => {
     expect(sliceIdFromFilename('/some/dir/slice-1.md', 'markdown')).toBe('slice-1');
@@ -361,14 +335,9 @@ describe('sliceIdFromFilename', () => {
   });
 
   it('strips the correct extension for the given format', () => {
-    // .xml path given to markdown mode: strips .xml via fallback
     expect(sliceIdFromFilename('slice-1.xml', 'markdown')).toBe('slice-1');
   });
 });
-
-// ---------------------------------------------------------------------------
-// normalizeParallelSliceReference
-// ---------------------------------------------------------------------------
 
 describe('normalizeParallelSliceReference', () => {
   it('markdown mode strips .md suffix', () => {
@@ -385,21 +354,17 @@ describe('normalizeParallelSliceReference', () => {
   });
 
   it('xml mode rejects slice-N.md by returning an empty (dropped) reference', () => {
-    // A wrong-format .md reference must not normalize to the bare id, which would
+    // A wrong-format markdown reference must not normalize to the bare id, which would
     // silently match the existing slice-N.xml. Returning '' lets callers drop it.
     expect(normalizeParallelSliceReference('slice-1.md', 'xml')).toBe('');
   });
 
   it('markdown mode does not strip .xml', () => {
-    // .xml in a markdown context isn't stripped — it's simply not a valid ref
+    // In markdown mode, .xml stays visible so callers can reject the invalid ref.
     const result = normalizeParallelSliceReference('slice-1.xml', 'markdown');
     expect(result).not.toContain('.md');
   });
 });
-
-// ---------------------------------------------------------------------------
-// parseSliceArtifactContent — markdown
-// ---------------------------------------------------------------------------
 
 describe('parseSliceArtifactContent (markdown)', () => {
   it('parses a complete markdown slice and populates requiredFields', () => {
@@ -410,7 +375,6 @@ describe('parseSliceArtifactContent (markdown)', () => {
     });
     expect(content.sliceId).toBe('slice-1');
     expect(content.text).toBe(COMPLETE_MARKDOWN_SLICE);
-    // Has required section content
     expect(content.requiredFields['purpose']).toBeTruthy();
     expect(content.requiredFields['scope']).toBeTruthy();
     expect(content.requiredFields['current-symbols']).toBe('Bar');
@@ -431,10 +395,6 @@ describe('parseSliceArtifactContent (markdown)', () => {
     expect(content.validationCommandsText).toContain('pnpm test');
   });
 });
-
-// ---------------------------------------------------------------------------
-// parseSliceArtifactContent — XML
-// ---------------------------------------------------------------------------
 
 describe('parseSliceArtifactContent (xml)', () => {
   it('parses a complete XML slice', () => {
@@ -466,7 +426,6 @@ describe('parseSliceArtifactContent (xml)', () => {
       format: 'xml',
     });
     expect(content.validationCommandsText).toContain('pnpm test');
-    // should not include acceptance criteria text
     expect(content.validationCommandsText).not.toContain('foo returns');
   });
 
@@ -476,7 +435,6 @@ describe('parseSliceArtifactContent (xml)', () => {
       text: COMPLETE_XML_SLICE,
       format: 'xml',
     });
-    // CDATA wrappers should not appear in requiredFields values
     expect(content.requiredFields['metadata/title']).not.toContain('CDATA');
     expect(content.requiredFields['metadata/title']).not.toContain(']]>');
   });
@@ -507,7 +465,6 @@ describe('parseSliceArtifactContent (xml)', () => {
       text: xmlWithComment,
       format: 'xml',
     });
-    // The comment is stripped in the text but the body still has content
     expect(content.requiredFields['objective/purpose']).toContain('Add foo support');
   });
 
@@ -517,15 +474,10 @@ describe('parseSliceArtifactContent (xml)', () => {
       text: COMPLETE_XML_SLICE,
       format: 'xml',
     });
-    // sourceTrace fields are not in XML_REQUIRED_FIELD_PATHS
     expect(Object.keys(content.requiredFields)).not.toContain('sourceTrace/notes');
     expect(Object.keys(content.requiredFields)).not.toContain('sourceTrace/implementationSpecPath');
   });
 });
-
-// ---------------------------------------------------------------------------
-// missingRequiredSliceFields
-// ---------------------------------------------------------------------------
 
 describe('missingRequiredSliceFields', () => {
   it('returns empty array for a complete XML slice', () => {
@@ -605,12 +557,10 @@ pnpm test
       text: plainTextSlice,
       format: 'xml',
     });
-    // Plain-text prose fields validate as complete — no CDATA required.
+    // Plain text remains valid for prose fields; only validation commands need CDATA.
     expect(missingRequiredSliceFields(content)).toEqual([]);
-    // Escaped entities in prose decode back to literal characters.
     expect(content.requiredFields['executionScope/scope']).toContain('count < 10');
     expect(content.requiredFields['executionScope/scope']).toContain('A & B');
-    // validationCommands keeps CDATA and still extracts.
     expect(extractSliceValidationCommands({ text: plainTextSlice, format: 'xml' }).join('\n')).toContain('pnpm test');
   });
 
@@ -624,14 +574,13 @@ pnpm test
       text: slice,
       format: 'xml',
     });
-    // CDATA-wrapped code in a prose field validates as complete and round-trips literally.
+    // CDATA is also allowed when prose contains code-like characters.
     expect(missingRequiredSliceFields(content)).toEqual([]);
     expect(content.requiredFields['executionScope/scope']).toContain('foo<T>(x: T): T');
     expect(content.requiredFields['executionScope/scope']).toContain('count < 10 && flag');
   });
 
   it('reports missing element when required field is absent', () => {
-    // Remove the title element entirely
     const noTitle = COMPLETE_XML_SLICE.replace(
       /<title required="true">[\s\S]*?<\/title>/,
       '',
@@ -694,7 +643,6 @@ pnpm test
       format: 'xml',
     });
     const missing = missingRequiredSliceFields(content);
-    // sourceTrace fields must not appear in missing list
     expect(missing).not.toContain('sourceTrace/notes');
     expect(missing).not.toContain('sourceTrace/implementationSpecPath');
   });
@@ -724,10 +672,6 @@ pnpm test
   });
 });
 
-// ---------------------------------------------------------------------------
-// missingRequiredAttributeFields
-// ---------------------------------------------------------------------------
-
 describe('missingRequiredAttributeFields', () => {
   it('returns empty when every required leaf element carries required="true"', () => {
     expect(missingRequiredAttributeFields(COMPLETE_XML_SLICE)).toEqual([]);
@@ -749,10 +693,6 @@ describe('missingRequiredAttributeFields', () => {
     expect(missingRequiredAttributeFields(withoutTitle)).not.toContain('metadata/title');
   });
 });
-
-// ---------------------------------------------------------------------------
-// extractSliceValidationCommands
-// ---------------------------------------------------------------------------
 
 describe('extractSliceValidationCommands', () => {
   it('extracts commands from markdown validation-commands section', () => {
@@ -810,14 +750,9 @@ describe('extractSliceValidationCommands', () => {
       text: COMPLETE_XML_SLICE,
       format: 'xml',
     });
-    // Should only contain commands, not acceptance criteria text
     expect(commands).not.toContain('foo returns the correct result');
   });
 });
-
-// ---------------------------------------------------------------------------
-// repairXmlSliceStructure
-// ---------------------------------------------------------------------------
 
 describe('repairXmlSliceStructure', () => {
   it('returns repaired:false and original text when no issues found', () => {
@@ -851,7 +786,6 @@ describe('repairXmlSliceStructure', () => {
   });
 
   it('rejects text with markdown headings (## pattern) mixed with executionSlice', () => {
-    // Contains executionSlice tag but also markdown heading structure
     const mixedContent = '<executionSlice id="slice-1">\n## Purpose\n\nSome content\n</executionSlice>';
     const result = repairXmlSliceStructure({
       filePath: '/steps/slice-1.xml',
@@ -914,7 +848,6 @@ describe('repairXmlSliceStructure', () => {
   });
 
   it('rejects ambiguous duplicate required fields', () => {
-    // Insert a duplicate <title> element
     const duplicateTitle = COMPLETE_XML_SLICE.replace(
       '</metadata>',
       '<title required="true"><![CDATA[duplicate]]></title>\n  </metadata>',
@@ -938,7 +871,4 @@ describe('repairXmlSliceStructure', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Regex helper used in repair tests
-// ---------------------------------------------------------------------------
 const XML_DECLARATION_RE_LITERAL = /^<\?xml[^?]*\?>\s*/;

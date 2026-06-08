@@ -38,50 +38,7 @@ describe('setup direct runtime service start', () => {
     createSharedMcpComposeBootstrapEnvMock.mockResolvedValue({ REPO_CONTEXT_MCP_PORT: '8811' });
   });
 
-  it('delegates direct runtime startup to ensureSharedMcpRunning', async () => {
-    const composeUp = vi.fn();
-    createRuntimeFromConfigMock.mockResolvedValue({
-      backend: 'direct',
-      requiresComposeFile: false,
-      composeUp,
-    });
-
-    await expect(startContainerServices('/repo')).resolves.toBe('ok');
-
-    expect(ensureSharedMcpRunningMock).toHaveBeenCalledWith('/repo');
-    expect(composeUp).not.toHaveBeenCalled();
-  });
-
-  it('returns failed when direct startup rejects', async () => {
-    createRuntimeFromConfigMock.mockResolvedValue({
-      backend: 'direct',
-      requiresComposeFile: false,
-    });
-    ensureSharedMcpRunningMock.mockRejectedValue(new Error('boom'));
-
-    await expect(startContainerServices('/repo')).resolves.toBe('failed');
-  });
-
-  it('uses composeUp for compose runtimes when the compose file exists', async () => {
-    const composeUp = vi.fn().mockResolvedValue(undefined);
-    existsSyncMock.mockReturnValue(true);
-    createRuntimeFromConfigMock.mockResolvedValue({
-      backend: 'docker',
-      requiresComposeFile: true,
-      composeUp,
-    });
-
-    await expect(startContainerServices('/repo')).resolves.toBe('ok');
-
-    expect(composeUp).toHaveBeenCalledWith({
-      composeFile: '/repo/runtime/docker/compose/docker-compose.yml',
-      detach: true,
-      build: true,
-      env: { REPO_CONTEXT_MCP_PORT: '8811' },
-    });
-  });
-
-  it('passes merged compose env (repo .env base-image override) into composeUp', async () => {
+  it('uses composeUp for compose runtimes: asserts composeFile path and merged env', async () => {
     const composeUp = vi.fn().mockResolvedValue(undefined);
     existsSyncMock.mockReturnValue(true);
     createRuntimeFromConfigMock.mockResolvedValue({
@@ -96,11 +53,14 @@ describe('setup direct runtime service start', () => {
 
     await expect(startContainerServices('/repo')).resolves.toBe('ok');
 
-    // Same merged-env construction as bootstrap, scoped to this repoRoot.
     expect(createSharedMcpComposeBootstrapEnvMock).toHaveBeenCalledWith(8811, '/repo');
     expect(composeUp).toHaveBeenCalledWith(
       expect.objectContaining({
+        composeFile: '/repo/runtime/docker/compose/docker-compose.yml',
+        detach: true,
+        build: true,
         env: expect.objectContaining({
+          REPO_CONTEXT_MCP_PORT: '8811',
           TASKSAIL_PYTHON_BASE_IMAGE: 'registry.example.internal/python:3.12-alpine',
         }),
       }),

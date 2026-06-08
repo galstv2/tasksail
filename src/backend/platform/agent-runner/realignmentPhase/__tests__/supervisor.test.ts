@@ -17,18 +17,15 @@ describe('startRealignmentAnalysisJob', () => {
   const contextPackDir = path.join(repoRoot, 'contextpacks', 'pack-a');
   const realignmentId = 'RA-1';
   const originalLogDir = process.env.LOG_DIR;
-  let stderrSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     vi.clearAllMocks();
     rmSync(repoRoot, { recursive: true, force: true });
     mkdirSync(contextPackDir, { recursive: true });
     process.env.LOG_DIR = path.join(repoRoot, 'logs');
-    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
   });
 
   afterEach(() => {
-    stderrSpy.mockRestore();
     if (originalLogDir === undefined) {
       delete process.env.LOG_DIR;
     } else {
@@ -83,7 +80,10 @@ describe('startRealignmentAnalysisJob', () => {
     });
   });
 
-  it('returns already-running for duplicate starts and cleans up after settlement', async () => {
+  it.each([
+    ['duplicate ID', realignmentId, 'realignment:RA-1', realignmentId, 'realignment_job_already_running'] as const,
+    ['different ID', 'RA-2', 'realignment:RA-2', 'RA-2', 'realignment_job_active'] as const,
+  ])('returns already-running for %s while a job is active', async (_label, secondId, secondJobId, secondRaId, reason) => {
     let resolveAnalysis!: (value: unknown) => void;
     mocks.runRealignmentAnalysis.mockReturnValueOnce(new Promise((resolve) => {
       resolveAnalysis = resolve;
@@ -98,12 +98,12 @@ describe('startRealignmentAnalysisJob', () => {
     await expect(startRealignmentAnalysisJob({
       repoRoot,
       contextPackDir,
-      realignmentId,
+      realignmentId: secondId,
     })).resolves.toEqual({
-      jobId: 'realignment:RA-1',
-      realignmentId,
+      jobId: secondJobId,
+      realignmentId: secondRaId,
       status: 'already-running',
-      reason: 'realignment_job_already_running',
+      reason,
     });
 
     resolveAnalysis({ passed: false, realignmentId, status: 'skipped', reason: 'done' });
@@ -111,53 +111,23 @@ describe('startRealignmentAnalysisJob', () => {
       expect(readReceipt()).toEqual(expect.objectContaining({ status: 'skipped' }));
     });
 
-    mocks.runRealignmentAnalysis.mockResolvedValueOnce({
-      passed: false,
-      realignmentId,
-      status: 'error',
-      reason: 'second',
-    });
-    await expect(startRealignmentAnalysisJob({
-      repoRoot,
-      contextPackDir,
-      realignmentId,
-    })).resolves.toMatchObject({ status: 'started' });
-
-    await vi.waitFor(() => {
-      expect(readReceipt()).toEqual(expect.objectContaining({
+    // After settlement, the same ID can be relaunched (duplicate-ID case only)
+    if (secondId === realignmentId) {
+      mocks.runRealignmentAnalysis.mockResolvedValueOnce({
+        passed: false,
+        realignmentId,
         status: 'error',
         reason: 'second',
-      }));
-    });
-  });
-
-  it('allows only one active realignment job at a time', async () => {
-    let resolveAnalysis!: (value: unknown) => void;
-    mocks.runRealignmentAnalysis.mockReturnValueOnce(new Promise((resolve) => {
-      resolveAnalysis = resolve;
-    }));
-
-    await expect(startRealignmentAnalysisJob({
-      repoRoot,
-      contextPackDir,
-      realignmentId,
-    })).resolves.toMatchObject({ status: 'started' });
-
-    await expect(startRealignmentAnalysisJob({
-      repoRoot,
-      contextPackDir,
-      realignmentId: 'RA-2',
-    })).resolves.toEqual({
-      jobId: 'realignment:RA-2',
-      realignmentId: 'RA-2',
-      status: 'already-running',
-      reason: 'realignment_job_active',
-    });
-
-    resolveAnalysis({ passed: true, realignmentId, status: 'archived' });
-    await vi.waitFor(() => {
-      expect(readReceipt()).toEqual(expect.objectContaining({ status: 'archived' }));
-    });
+      });
+      await expect(startRealignmentAnalysisJob({
+        repoRoot,
+        contextPackDir,
+        realignmentId,
+      })).resolves.toMatchObject({ status: 'started' });
+      await vi.waitFor(() => {
+        expect(readReceipt()).toEqual(expect.objectContaining({ status: 'error', reason: 'second' }));
+      });
+    }
   });
 
   it('returns failed and does not start analysis when the initial receipt cannot be written', async () => {
@@ -189,71 +159,6 @@ describe('startRealignmentAnalysisJob', () => {
         status: 'error',
         reason: 'Ron crashed',
       }));
-    });
-  });
-
-  it('logs unsuccessful analysis results with the receipt reason', async () => {
-    mocks.runRealignmentAnalysis.mockResolvedValueOnce({
-      passed: false,
-      realignmentId,
-      status: 'error',
-      reason: 'realignment_analysis_missing_required_section_failure_analysis',
-    });
-
-    await expect(startRealignmentAnalysisJob({
-      repoRoot,
-      contextPackDir,
-      realignmentId,
-    })).resolves.toMatchObject({ status: 'started' });
-
-    await vi.waitFor(() => {
-      expect(readReceipt()).toEqual(expect.objectContaining({
-        status: 'error',
-        reason: 'realignment_analysis_missing_required_section_failure_analysis',
-      }));
-      const line = stderrSpy.mock.calls
-        .map(([chunk]) => String(chunk))
-        .find((chunk) => chunk.includes('realignment_job.analysis_failed'));
-      expect(line).toBeTruthy();
-      const parsed = JSON.parse(line ?? '{}') as Record<string, unknown>;
-      expect(parsed).toMatchObject({
-        level: 'error',
-        module: 'platform/agent-runner/realignmentPhase/supervisor',
-        msg: 'realignment_job.analysis_failed',
-        extra: {
-          jobId: 'realignment:RA-1',
-          realignmentId,
-          status: 'error',
-          reason: 'realignment_analysis_missing_required_section_failure_analysis',
-          contextPackDir,
-        },
-      });
-    });
-  });
-
-  it('forwards external MCP registry to the background analysis runner', async () => {
-    const externalMcpRegistry = {
-      schema_version: 1,
-      external_servers: [],
-    };
-    mocks.runRealignmentAnalysis.mockResolvedValueOnce({
-      passed: true,
-      realignmentId,
-      status: 'archived',
-    });
-
-    await expect(startRealignmentAnalysisJob({
-      repoRoot,
-      contextPackDir,
-      realignmentId,
-      externalMcpRegistry,
-    })).resolves.toMatchObject({ status: 'started' });
-
-    await vi.waitFor(() => {
-      expect(mocks.runRealignmentAnalysis).toHaveBeenCalledWith(expect.objectContaining({
-        externalMcpRegistry,
-      }));
-      expect(readReceipt()).toEqual(expect.objectContaining({ status: 'archived' }));
     });
   });
 

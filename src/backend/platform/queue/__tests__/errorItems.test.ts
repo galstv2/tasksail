@@ -1,5 +1,5 @@
 /**
- * §4.14A Error Items tests — blast-radius isolation, retry-suffix collision,
+ * Error Items tests — blast-radius isolation, retry-suffix collision,
  * and retry-generations-exhausted enforcement.
  *
  * All git I/O, finalizeTaskWorktrees, and platform-config are mocked so these
@@ -22,10 +22,8 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { execFileSync } from 'node:child_process';
 
-// ---------------------------------------------------------------------------
 // Mock modules before importing the module under test.
 // vi.mock calls are automatically hoisted to the top of the file.
-// ---------------------------------------------------------------------------
 
 vi.mock('../../core/worktreeFinalize.js', () => {
   const finalizeTaskWorktrees = vi.fn().mockResolvedValue(undefined);
@@ -107,9 +105,6 @@ async function stopPipelinesStartedByTest(): Promise<void> {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function makeTaskJson(
   taskId: string,
@@ -265,9 +260,6 @@ function seedTemplates(repoRoot: string): void {
   writeFileSync(path.join(templatesDir, 'slice-template.md'), '# slice\n', 'utf-8');
 }
 
-// ---------------------------------------------------------------------------
-// Default platform config
-// ---------------------------------------------------------------------------
 
 const DEFAULT_PLATFORM_CONFIG = {
   schema_version: 1,
@@ -281,9 +273,6 @@ const DEFAULT_PLATFORM_CONFIG = {
   repo_context_mcp_external_mount_roots: [],
 };
 
-// ---------------------------------------------------------------------------
-// Suite 0: B2 task snapshot commit failure handling
-// ---------------------------------------------------------------------------
 
 describe('B2 commitTaskSnapshot empty-tree and commit-failure handling', () => {
   let repoRoot: string;
@@ -373,9 +362,6 @@ describe('B2 commitTaskSnapshot empty-tree and commit-failure handling', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Suite 1: blast-radius three-task isolation (A/B/C)
-// ---------------------------------------------------------------------------
 
 describe('§4.14A blast-radius: three-task isolation (A/B/C)', () => {
   let repoRoot: string;
@@ -682,7 +668,7 @@ describe('§4.14A blast-radius: three-task isolation (A/B/C)', () => {
     const taskHandoffsDir = queuePaths.taskHandoffs(taskId);
 
     makeActiveMarker(queuePaths, taskId);
-    // .task.json carries binding B — must NOT win over intake.md.
+    // .task.json carries binding B and must not win over the intake handoff.
     makeTaskJson(taskId, repoRoot, [], 'active', {
       contextPackDir: '/contextpacks/task-json-source',
       contextPackId: 'task-json-source',
@@ -694,14 +680,14 @@ describe('§4.14A blast-radius: three-task isolation (A/B/C)', () => {
     });
     makeTaskRuntime(repoRoot, taskId);
     mkdirSync(taskHandoffsDir, { recursive: true });
-    // professional-task.md (the seed for recoveredBody) intentionally lacks a
-    // binding so recovery has to fall through to intake.md.
+    // The professional task handoff intentionally lacks a binding so recovery
+    // has to fall through to the intake handoff.
     writeFileSync(
       path.join(taskHandoffsDir, 'professional-task.md'),
       '# Professional Task\n\n## Task Lineage\n\n- Task Kind: standard\n',
       'utf-8',
     );
-    // intake.md carries binding A — recovery must surface this one.
+    // The intake handoff carries binding A; recovery must surface this one.
     const intakeBinding = formatContextPackBindingSection({
       contextPackDir: '/contextpacks/intake-source',
       contextPackId: 'intake-source',
@@ -731,9 +717,6 @@ describe('§4.14A blast-radius: three-task isolation (A/B/C)', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Suite 2: cross-origin single-task fail
-// ---------------------------------------------------------------------------
 
 describe('§4.14A cross-origin single-task fail: A binds X+Y, B binds X+Z', () => {
   let repoRoot: string;
@@ -797,9 +780,6 @@ describe('§4.14A cross-origin single-task fail: A binds X+Y, B binds X+Z', () =
   });
 });
 
-// ---------------------------------------------------------------------------
-// Suite 3: peer worktree isolation
-// ---------------------------------------------------------------------------
 
 describe('§4.14A peer worktree isolation: A and B share origin X', () => {
   let repoRoot: string;
@@ -858,9 +838,6 @@ describe('§4.14A peer worktree isolation: A and B share origin X', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Suite 4: activation after failure
-// ---------------------------------------------------------------------------
 
 describe('§4.14A activation after failure (cap=2, B active, A fails, D pending)', () => {
   let repoRoot: string;
@@ -934,9 +911,6 @@ describe('§4.14A activation after failure (cap=2, B active, A fails, D pending)
   });
 });
 
-// ---------------------------------------------------------------------------
-// Suite 5: retry-generations-exhausted
-// ---------------------------------------------------------------------------
 
 describe('§4.14A retry-generations-exhausted', () => {
   let repoRoot: string;
@@ -1147,9 +1121,7 @@ describe('§4.14A retry-generations-exhausted', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Suite 6: F7 pipeline.lock removal before finalizeTaskWorktrees
-// ---------------------------------------------------------------------------
+// Suite: pipeline.lock removal before finalizeTaskWorktrees.
 
 describe('§4.14A F7: pipeline.lock removed unconditionally before finalizeTaskWorktrees', () => {
   let repoRoot: string;
@@ -1198,8 +1170,6 @@ describe('§4.14A F7: pipeline.lock removed unconditionally before finalizeTaskW
   });
 });
 
-// ---------------------------------------------------------------------------
-// Suite 7: requeue-time disposal of retained worktrees
 //
 // Failure-time retention (retain_failed_task_worktrees=true) preserves the
 // failed worktree for forensic inspection. The operator's choice to retry —
@@ -1208,7 +1178,6 @@ describe('§4.14A F7: pipeline.lock removed unconditionally before finalizeTaskW
 // is the signal that the forensic affordance is no longer needed for this
 // task. Both call sites must invoke discardRetainedTaskWorktrees AFTER the
 // rename succeeds, so a failed rename does not destroy the retained state.
-// ---------------------------------------------------------------------------
 
 describe('requeue-time disposal of retained worktrees', () => {
   let repoRoot: string;

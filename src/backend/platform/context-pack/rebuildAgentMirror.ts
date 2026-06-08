@@ -6,8 +6,7 @@
  *
  * Why this exists
  * ───────────────
- * Per the documented storage layout (see CLAUDE.md "Context pack and QMD
- * storage layout"): the canonical QMD lives under `contextpacks/<pack>/`,
+ * The canonical QMD lives under `contextpacks/<pack>/`,
  * and a narrow subset (task archives + global retrospective history) is
  * mirrored into `AgentWorkSpace/qmd/context-packs/<pack>/` so that agents
  * — confined to AgentWorkSpace/ — can read it. The only normal-flow writer
@@ -99,7 +98,7 @@ export async function rebuildAgentMirror(
   let filesCopied = 0;
   let filesSkipped = 0;
   let subtreesMissing = 0;
-  // SEC-TS-07: one budget shared across all mirrored subtrees so the entry cap
+  // One budget shared across all mirrored subtrees so the entry cap
   // bounds the whole rebuild, not each subtree independently.
   const mirrorBudget = { entries: 0 };
 
@@ -153,7 +152,7 @@ async function resolveQmdScopeRoot(
   return path.join('qmd', 'context-packs', packName);
 }
 
-// SEC-TS-07: bound the recursive walk so an agent-authored, deeply nested or
+      // Bound the recursive walk so an agent-authored, deeply nested or
 // huge subtree under the canonical QMD tree cannot overflow the stack / exhaust
 // memory and crash the Node process during context-pack activation. Mutable so
 // tests can exercise the caps with small values.

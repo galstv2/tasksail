@@ -6,7 +6,12 @@ import type {
   RegistryJson,
   RegistryAgentEntry,
 } from './types.js';
-import { getActiveProvider, normalizeReasoningEffort } from '../cli-provider/index.js';
+import {
+  getActiveProvider,
+  normalizeReasoningEffort,
+  REGISTRY_FIELD_INSTRUCTION_PATH,
+  REGISTRY_FIELD_AGENT_PROFILE_PATH,
+} from '../cli-provider/index.js';
 import type { CliProvider } from '../cli-provider/index.js';
 
 /**
@@ -67,8 +72,8 @@ function resolveProviderRegistryMetadata(
     }
   }
 
-  const instructionPath = registryStringField(entry, 'instruction_path');
-  const agentProfilePath = registryStringField(entry, 'agent_profile_path');
+  const instructionPath = registryStringField(entry, REGISTRY_FIELD_INSTRUCTION_PATH);
+  const agentProfilePath = registryStringField(entry, REGISTRY_FIELD_AGENT_PROFILE_PATH);
   return {
     ...(instructionPath ? { instructionPath } : {}),
     ...(agentProfilePath ? { agentProfilePath } : {}),

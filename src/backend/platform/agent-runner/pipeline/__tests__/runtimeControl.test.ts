@@ -159,13 +159,13 @@ describe('runtimeControl — getAllActiveKillSwitches', () => {
     rmSync(repoRoot, { recursive: true, force: true });
   });
 
-  it('returns empty map when no tasks directory exists', async () => {
-    rmSync(path.join(repoRoot, '.platform-state'), { recursive: true, force: true });
-    const result = await getAllActiveKillSwitches(repoRoot);
-    expect(result.size).toBe(0);
-  });
-
-  it('returns empty map when tasks directory exists but no kill switches', async () => {
+  it.each([
+    ['no tasks directory exists', true],
+    ['tasks directory exists but no kill switches', false],
+  ] as const)('returns empty map when %s', async (_label, removeDir) => {
+    if (removeDir) {
+      rmSync(path.join(repoRoot, '.platform-state'), { recursive: true, force: true });
+    }
     const result = await getAllActiveKillSwitches(repoRoot);
     expect(result.size).toBe(0);
   });

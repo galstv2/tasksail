@@ -1,5 +1,5 @@
 /**
- * §2.2 per-task session receipts tests.
+ * Per-task session receipts tests.
  *
  * Verifies:
  *  1. Two independent taskIds produce two independent receipt paths (no cross-contamination).
@@ -7,7 +7,7 @@
  *     launchIds produce two separate receipt files (no overwrite). Killing one sub-Dalton's
  *     pid does not cause the task to appear fully reaped — the peer's pid is still live.
  *
- * §5.2 reader-side contract (NOT implemented here): recoverOnStartup will enumerate ALL
+ * Reader-side contract (NOT implemented here): recoverOnStartup will enumerate ALL
  * `${agentId}-${launchId}.json` files per task under `<taskRuntime>/role-sessions/` and
  * aggregate liveness: task is live if ANY pid is alive; task is recoverable only when ALL
  * pids are dead. This writer side guarantees each sub-Dalton gets its own file.
@@ -24,7 +24,6 @@ import {
   writeSessionTerminalReceipt,
 } from '../sessionReceipts.js';
 
-// ---- helpers ----------------------------------------------------------------
 
 function makeTmpDir(): string {
   return mkdtempSync(path.join(tmpdir(), 'session-receipts-test-'));
@@ -40,7 +39,7 @@ async function readReceipt(filePath: string): Promise<Record<string, unknown>> {
 }
 
 /**
- * Simulate the §5.2 recoverOnStartup liveness check:
+ * Simulate the recoverOnStartup liveness check:
  * read all pid values from the provided receipt paths, return true if ANY pid is alive.
  * A pid is "alive" if process.kill(pid, 0) does not throw.
  */
@@ -410,13 +409,13 @@ describe('writeSessionMonitorHeartbeat', () => {
 
 describe('fleet-mode collision safety (§4.12 sub-Dalton scenario)', () => {
   /**
-   * Simulates §4.12 launching two concurrent sub-Daltons under the same taskId
+ * Simulates launching two concurrent sub-Daltons under the same taskId
    * with the same agentId ('dalton') but distinct launchIds.
    *
    * Asserts:
    *  - Both receipt files exist (no overwrite)
    *  - Killing one sub-Dalton's pid does not mark the task as fully reaped —
-   *    the peer sub-Dalton's pid is still alive (§5.2 ANY-alive contract).
+ *    the peer sub-Dalton's pid is still alive.
    */
   it('two sub-Daltons with distinct launchIds produce separate receipt files', async () => {
     const baseDir = makeTmpDir();
@@ -425,7 +424,7 @@ describe('fleet-mode collision safety (§4.12 sub-Dalton scenario)', () => {
     const taskRuntime = path.join(baseDir, '.platform-state', 'runtime', 'tasks', 'fleet-task');
 
     // Simulate two concurrent sub-Dalton invocations.
-    // Each computes its own launchId before entering runRoleAgent (per §2.2 spec).
+    // Each computes its own launchId before entering runRoleAgent.
     // Use the test process's own pid as the "live" pid for one of the two receipts.
     const livePid = process.pid;
     const deadPid = 1; // pid 1 is init/launchd; process.kill(1, 0) will throw EPERM or ESRCH depending on platform
@@ -464,13 +463,13 @@ describe('fleet-mode collision safety (§4.12 sub-Dalton scenario)', () => {
     expect(path.basename(pathA)).toBe(`dalton-${launchIdA}.json`);
     expect(path.basename(pathB)).toBe(`dalton-${launchIdB}.json`);
 
-    // Read pids from both receipts (simulating §5.2 recoverOnStartup enumeration).
+    // Read pids from both receipts, simulating recoverOnStartup enumeration.
     const receiptA = await readReceipt(pathA);
     const receiptB = await readReceipt(pathB);
     const pidA = (receiptA['launch'] as Record<string, unknown>)['pid'] as number;
     const pidB = (receiptB['launch'] as Record<string, unknown>)['pid'] as number;
 
-    // §5.2 contract: task is live if ANY pid is alive.
+    // Contract: task is live if ANY pid is alive.
     // pidA = our own process pid (always alive); pidB = dead pid (1 = init).
     // Even if pidB is dead, pidA is alive — task must NOT be reaped.
     expect(pidA).toBe(livePid);
@@ -558,7 +557,7 @@ describe('fleet-mode collision safety (§4.12 sub-Dalton scenario)', () => {
       }),
     ]);
 
-    // §5.2 ANY-alive contract: task is live because sub-Dalton at livePid is alive.
+    // ANY-alive contract: task is live because sub-Dalton at livePid is alive.
     const taskIsLive = isAnyPidAlive([livePid, 99999999]);
     expect(taskIsLive).toBe(true);
   });

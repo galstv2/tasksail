@@ -1,7 +1,15 @@
-import { readFile, copyFile, writeFile } from 'node:fs/promises';
+import { readFile, copyFile, writeFile, chmod } from 'node:fs/promises';
 import { existsSync, constants } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import path from 'node:path';
+import { isWindowsPlatform } from './platform.js';
 import type { EnvMap } from './types.js';
+
+/**
+ * Publicly-known placeholder shipped in .env.example. Treated as "no real
+ * secret configured" — secureEnvToken rotates it; validation warns on it.
+ */
+export const PLACEHOLDER_MCP_TOKEN = 'replace-with-local-secret';
 
 /**
  * Parse .env file content into a key-value map.
@@ -133,6 +141,46 @@ export async function upsertEnvVar(
   }
 
   await writeFile(filePath, result.join('\n'));
+}
+
+/**
+ * Harden the repo .env after it exists: generate a fresh random
+ * REPO_CONTEXT_MCP_AUTH_TOKEN whenever the current value is missing, empty, or
+ * the publicly-known placeholder, and restrict the file to owner-only (0600) on
+ * POSIX. A token the operator already customized is left untouched; chmod is
+ * skipped on Windows (POSIX mode bits do not apply). Idempotent — safe to call
+ * on every setup run.
+ */
+export async function secureEnvToken(
+  repoRoot: string,
+): Promise<{ rotated: boolean; restricted: boolean }> {
+  const envFile = path.join(repoRoot, '.env');
+  if (!existsSync(envFile)) {
+    return { rotated: false, restricted: false };
+  }
+
+  let rotated = false;
+  const current = await readEnvAssignment(envFile, 'REPO_CONTEXT_MCP_AUTH_TOKEN');
+  const hasRealToken =
+    typeof current === 'string' &&
+    current.length > 0 &&
+    current !== PLACEHOLDER_MCP_TOKEN;
+  if (!hasRealToken) {
+    await upsertEnvVar(
+      envFile,
+      'REPO_CONTEXT_MCP_AUTH_TOKEN',
+      randomBytes(32).toString('hex'),
+    );
+    rotated = true;
+  }
+
+  let restricted = false;
+  if (!isWindowsPlatform()) {
+    await chmod(envFile, 0o600);
+    restricted = true;
+  }
+
+  return { rotated, restricted };
 }
 
 function stripWrappingQuotes(value: string): string {

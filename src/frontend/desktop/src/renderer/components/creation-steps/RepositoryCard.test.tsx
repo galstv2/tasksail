@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createRepositoryEntry } from '../../hooks/useContextPackDraft';
+import { createRepositoryEntry } from '../../hooks/context-pack/useContextPackDraft';
 import RepositoryCard from './RepositoryCard';
 
 afterEach(() => {
@@ -22,7 +22,6 @@ const defaultProps = {
   mode: 'distributed' as const,
   busy: false,
   onRepositoryFieldChange: vi.fn(),
-  onSetPrimaryRepository: vi.fn(),
   onRemoveRepository: vi.fn(),
 };
 
@@ -49,11 +48,19 @@ describe('RepositoryCard', () => {
     expect(screen.queryByRole('button', { name: 'Remove' })).not.toBeInTheDocument();
   });
 
-  it('primary toggle calls onSetPrimaryRepository', () => {
-    const onSetPrimaryRepository = vi.fn();
-    render(<RepositoryCard {...defaultProps} onSetPrimaryRepository={onSetPrimaryRepository} />);
-    fireEvent.click(screen.getByRole('button', { name: /Support/i }));
-    expect(onSetPrimaryRepository).toHaveBeenCalledWith('r1');
+  it('does not show a Primary/Support focus toggle', () => {
+    render(<RepositoryCard {...defaultProps} />);
+    expect(
+      screen.queryByRole('button', { name: /Primary|Support/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('renders an editable category selector wired to onRepositoryFieldChange', () => {
+    const onRepositoryFieldChange = vi.fn();
+    render(<RepositoryCard {...defaultProps} onRepositoryFieldChange={onRepositoryFieldChange} />);
+    const categorySelect = screen.getByDisplayValue('Unknown');
+    fireEvent.change(categorySelect, { target: { value: 'service' } });
+    expect(onRepositoryFieldChange).toHaveBeenCalledWith('r1', 'repoCategory', 'service');
   });
 
   it('field change calls onRepositoryFieldChange', () => {

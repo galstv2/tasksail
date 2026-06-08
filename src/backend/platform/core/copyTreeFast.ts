@@ -40,8 +40,8 @@ export interface CopyTreeFastDeps {
 const execFileAsync = promisify(execFileCb);
 const MAX_REFLINK_TREE_CONCURRENCY = 32;
 
-// SEC-TS-08: bound the recursive ReFS-reflink walk so untrusted deeply nested or
-// huge subtrees cannot overflow the stack / exhaust memory. Mutable so tests can
+// Bound the recursive ReFS-reflink walk so untrusted deeply nested or huge
+// subtrees cannot overflow the stack / exhaust memory. Mutable so tests can
 // exercise the caps with small values.
 export const REFLINK_WALK_LIMITS = { maxDepth: 200, maxEntries: 50_000 };
 

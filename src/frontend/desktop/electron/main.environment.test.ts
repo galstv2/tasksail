@@ -89,7 +89,7 @@ describe('electron main bootstrap — environment and observability', () => {
           return ['20260307T-active.md'];
         }
 
-        // §5.5: Per-task active marker (taskId as filename) in .active-items/.
+        // Per-task active marker (taskId as filename) in .active-items/.
         if (path.endsWith('/AgentWorkSpace/pendingitems/.active-items')) {
           return ['CAP-CUSTOM-TERMINAL-06'];
         }

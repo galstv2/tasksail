@@ -7,12 +7,13 @@ const readWorkspaceSyncStateSnapshot = vi.fn();
 
 vi.mock('../../../../backend/platform/queue/createFollowupTask.js', () => ({ createFollowupTask }));
 vi.mock('../../../../backend/platform/queue/createDropboxTask.js', () => ({ createDropboxTask }));
-vi.mock('../main.childTaskChain', () => ({ resolveChildTaskChainCreationContext }));
-vi.mock('../main.contextPackCatalog', () => ({
+vi.mock('../archive/childTaskChain', () => ({ resolveChildTaskChainCreationContext }));
+vi.mock('../contextPack/catalog', () => ({
   listAvailableContextPacks: vi.fn(),
   readWorkspaceSyncStateSnapshot,
 }));
-vi.mock('../main.stream', () => ({ emitStreamEvent: vi.fn() }));
+vi.mock('../runtime/stream', () => ({ emitStreamEvent: vi.fn() }));
+vi.mock('../tasks/board', () => ({ broadcastTaskBoardUpdate: vi.fn(async () => undefined) }));
 
 describe('main.taskQueue standard repositoryTypes upload', () => {
   beforeEach(() => {
@@ -30,7 +31,7 @@ describe('main.taskQueue standard repositoryTypes upload', () => {
   });
 
   it('forwards sidecar repositoryTypes through child-task Bypass Lily upload', async () => {
-    const { submitUploadedSpecHelper } = await import('../main.taskQueue');
+    const { submitUploadedSpecHelper } = await import('../tasks/queue');
     await submitUploadedSpecHelper(`## Request Summary
 
 Implement multi-primary support.
@@ -96,7 +97,7 @@ Carry.
   });
 
   it('forwards sidecar repositoryTypes through standard Bypass Lily upload', async () => {
-    const { submitUploadedSpecHelper } = await import('../main.taskQueue');
+    const { submitUploadedSpecHelper } = await import('../tasks/queue');
     await submitUploadedSpecHelper(`## Request Summary
 
 Implement multi-primary support.

@@ -1,31 +1,12 @@
-# Documentation index
+# TaskSail Documentation
 
-This directory is organized by topic so setup, architecture, workflow, and QMD guidance stay easier to navigate and maintain.
+Choose one path:
 
-## Getting started
+- [Getting Started](getting-started/00-what-is-tasksail.md) gets a new operator from clone to first task in plain language.
+- [Technical Reference](technical/architecture/overview.md) explains the current code-backed architecture, operations, MCP/QMD behavior, and contribution contracts.
 
-- [getting-started/onboarding.md](getting-started/onboarding.md)
+The Getting Started path is self-contained. Use it first if you are installing or running TaskSail for the first time.
 
-## Reference
+The Technical Reference is concise and source-linked. Each technical page ends with the repository files that own the facts on that page.
 
-- [reference/environment-variables.md](reference/environment-variables.md) — every supported configuration environment variable
-- [cross-os-setup.md](cross-os-setup.md) — per-OS setup, container topology, and enterprise mirrors
-
-## Architecture
-
-- [architecture/platform-spec.md](architecture/platform-spec.md)
-- [architecture/context-pack-model.md](architecture/context-pack-model.md)
-
-## Workflow
-
-- [workflow/operating-model.md](workflow/operating-model.md)
-
-## QMD
-
-- [qmd/seeding-strategy.md](qmd/seeding-strategy.md)
-- [qmd/metadata-schema.md](qmd/metadata-schema.md)
-- [qmd/memory-model.md](qmd/memory-model.md)
-- [qmd/task-filing-system.md](qmd/task-filing-system.md)
-- [qmd/repository-filing-system.md](qmd/repository-filing-system.md)
-
-Installation-specific guidance that used to live in a standalone setup note is now folded into the root [README.md](../README.md).
+TaskSail is licensed under the MIT License. See [../LICENSE](../LICENSE).

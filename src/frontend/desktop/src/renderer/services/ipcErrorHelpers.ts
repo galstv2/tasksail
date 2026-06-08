@@ -4,10 +4,6 @@
  * useFollowUpFlow, and useObservedState.
  */
 
-// ---------------------------------------------------------------------------
-// Error formatting
-// ---------------------------------------------------------------------------
-
 /**
  * Format a structured IPC error result into a single display string.
  * Replaces the identical `formatPlannerFlowError` / `formatFollowUpFlowError`.
@@ -29,10 +25,6 @@ export function normalizeIpcThrownError(
 ): string {
   return error instanceof Error ? error.message : fallbackMessage;
 }
-
-// ---------------------------------------------------------------------------
-// Timeout wrapper
-// ---------------------------------------------------------------------------
 
 export class IpcTimeoutError extends Error {
   constructor(label: string, timeoutMs: number) {

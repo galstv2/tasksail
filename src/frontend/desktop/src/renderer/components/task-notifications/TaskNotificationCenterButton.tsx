@@ -1,6 +1,6 @@
 import { forwardRef } from 'react';
 
-import { BellIcon } from '../creation-steps/icons';
+import { BellIcon } from '../icons';
 
 export type TaskNotificationCenterButtonProps = {
   unseenCount: number;

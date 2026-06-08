@@ -6,7 +6,7 @@ import {
   buildPlannerCliInvocation,
   getPlanningAgentRequiredModel,
   spawnPlannerCliProcess,
-} from '../../../plannerCliProcess';
+} from '../../../planner/cliProcess';
 import { REPO_ROOT } from '../../../paths';
 import { copilotProvider } from '../../../../../../backend/platform/cli-provider/providers/copilot/copilotProvider.js';
 
@@ -120,7 +120,7 @@ describe('buildPlannerCliInvocation', () => {
     const invocation = buildPlannerCliInvocation({
       prompt: 'Plan it clinically.',
       promptMode: 'interactive',
-      lilyPersonalityId: 'clinical',
+      plannerPersonalityId: 'clinical',
     });
 
     expect(plannerPromptArg(invocation.args)).toContain('Use the Clinical Planning Specialist style.');
@@ -134,7 +134,7 @@ describe('buildPlannerCliInvocation', () => {
       prompt: 'Continue with the raw operator turn.',
       promptMode: 'interactive',
       resumeSessionId: 'session-42',
-      lilyPersonalityId: 'clinical',
+      plannerPersonalityId: 'clinical',
     });
 
     expect(invocation.agentId).toBe('planning-agent');
@@ -179,7 +179,7 @@ describe('buildPlannerCliInvocation', () => {
     expect(invocation.env).not.toHaveProperty('COPILOT_SKILLS_DIRS');
   });
 
-  // Phase 2 confirmation: skill dirs → COPILOT_SKILLS_DIRS env; plugin dirs → --plugin-dir args.
+  // Skill dirs feed COPILOT_SKILLS_DIRS; plugin dirs feed --plugin-dir args.
 
   it('phase2: renders each plugin dir as a repeated --plugin-dir arg pair', () => {
     const invocation = buildPlannerCliInvocation({
@@ -215,20 +215,13 @@ describe('buildPlannerCliInvocation', () => {
     expect(invocation.args).not.toContain('--plugin-dir');
   });
 
-  it('phase2: empty launchExtensions produces no --plugin-dir args and no COPILOT_SKILLS_DIRS', () => {
+  it.each([
+    { label: 'empty', launchExtensions: { pluginDirs: [] as string[], skillDirs: [] as string[] } },
+    { label: 'undefined', launchExtensions: undefined },
+  ])('phase2: $label launchExtensions produces no --plugin-dir args and no COPILOT_SKILLS_DIRS', ({ launchExtensions }) => {
     const invocation = buildPlannerCliInvocation({
-      prompt: 'Plan with empty extensions.',
-      launchExtensions: { pluginDirs: [], skillDirs: [] },
-    });
-
-    expect(invocation.args).not.toContain('--plugin-dir');
-    expect(invocation.env).not.toHaveProperty('COPILOT_SKILLS_DIRS');
-  });
-
-  it('phase2: undefined launchExtensions produces no --plugin-dir args and no COPILOT_SKILLS_DIRS', () => {
-    const invocation = buildPlannerCliInvocation({
-      prompt: 'Plan with undefined extensions.',
-      launchExtensions: undefined,
+      prompt: 'Plan with no extensions.',
+      launchExtensions,
     });
 
     expect(invocation.args).not.toContain('--plugin-dir');

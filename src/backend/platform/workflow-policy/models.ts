@@ -111,14 +111,8 @@ export function findSectionSpec(
 export const ISSUES_MD_RELATIVE_PATH = 'issues.md';
 export const FINAL_SUMMARY_RELATIVE_PATH = 'final-summary.md';
 
-// ---------------------------------------------------------------------------
-// Difficulty levels
-// ---------------------------------------------------------------------------
 export const ALLOWED_DIFFICULTY_LEVELS = new Set(['Easy', 'Medium', 'Hard']);
 
-// ---------------------------------------------------------------------------
-// Retrospective
-// ---------------------------------------------------------------------------
 export const RETROSPECTIVE_REQUIRED_CONTENT_SECTIONS = [
   'Retrospective Summary',
   'What Went Well',
@@ -128,9 +122,6 @@ export const RETROSPECTIVE_ACTION_ITEMS_SECTION = 'Action Items';
 export const RETROSPECTIVE_CONTRIBUTION_MAX_BULLETS = 5;
 export const RETROSPECTIVE_ACTION_ITEMS_MAX_BULLETS = 5;
 
-// ---------------------------------------------------------------------------
-// Slice quality
-// ---------------------------------------------------------------------------
 export const SLICE_REQUIRED_SECTION_SPECS: readonly SemanticSectionSpec[] = [
   {
     key: 'purpose',
@@ -187,9 +178,6 @@ export const SLICE_FILE_SECTIONS = SLICE_REQUIRED_SECTION_SPECS
   .filter((section) => section.key === 'files')
   .map((section) => section.preferredHeading);
 
-// ---------------------------------------------------------------------------
-// Spec quality
-// ---------------------------------------------------------------------------
 export const SPEC_REQUIRED_SECTION_SPECS: readonly SemanticSectionSpec[] = [
   {
     key: 'problem-statement',
@@ -318,9 +306,6 @@ export const SPEC_RECOMMENDED_SECTIONS = SPEC_RECOMMENDED_SECTION_SPECS.map(
   (section) => section.preferredHeading,
 );
 
-// ---------------------------------------------------------------------------
-// Task quality
-// ---------------------------------------------------------------------------
 export const TASK_REQUIRED_SECTIONS = [
   'Problem Statement',
   'Business Goal',
@@ -350,9 +335,6 @@ export const LINEAGE_CONSISTENCY_FIELDS = [
   'Parent QMD Scope',
 ] as const;
 
-// ---------------------------------------------------------------------------
-// Intake quality
-// ---------------------------------------------------------------------------
 export const INTAKE_REQUIRED_SECTIONS = [
   'Request Summary',
   'Desired Outcome',
@@ -379,9 +361,6 @@ export const INTAKE_CHILD_TASK_REQUIRED_SECTIONS = [
 
 export const INTAKE_REQUEST_SUMMARY_MIN_LENGTH = 20;
 
-// ---------------------------------------------------------------------------
-// QA issues
-// ---------------------------------------------------------------------------
 export const ALLOWED_ISSUE_SEVERITIES = new Set(['blocking', 'advisory']);
 export const ALLOWED_FINDING_TYPES = new Set([
   'code-review',

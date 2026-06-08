@@ -60,6 +60,11 @@ node_modules/
 dist/
 dist-electron/
 build/
+!src/frontend/desktop/build/
+src/frontend/desktop/build/*
+!src/frontend/desktop/build/icon.png
+!src/frontend/desktop/build/icon@2x.png
+!src/frontend/desktop/build/icon.svg
 .next/
 .vite/
 release/
@@ -103,4 +108,4 @@ AgentWorkSpace/tasks/*
 # Port-allocator shared table + lock (re-created on first allocate; §6.2)
 .platform-state/runtime/port-allocations.json
 .platform-state/runtime/port-allocations.json.lock
-.claude/
+.claude/CLAUDE.md

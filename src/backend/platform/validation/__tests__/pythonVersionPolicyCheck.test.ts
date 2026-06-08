@@ -50,7 +50,7 @@ describe('pythonVersionPolicyCheck', () => {
     });
 
     it('flags a preflight minimum that is not (3, 12)', async () => {
-      write('src/backend/mcp/pack_preflight.py', 'PYTHON_MIN_VERSION: tuple[int, int] = (3, 13)\n');
+      write('src/backend/mcp/pack/preflight.py', 'PYTHON_MIN_VERSION: tuple[int, int] = (3, 13)\n');
       const result = await runCheck(dir);
       expect(result.messages.join('\n')).toMatch(/pack_preflight\.py/);
     });
@@ -62,7 +62,7 @@ describe('pythonVersionPolicyCheck', () => {
     });
 
     it('passes a clean 3.12 preflight constant', async () => {
-      write('src/backend/mcp/pack_preflight.py', 'PYTHON_MIN_VERSION: tuple[int, int] = (3, 12)\n');
+      write('src/backend/mcp/pack/preflight.py', 'PYTHON_MIN_VERSION: tuple[int, int] = (3, 12)\n');
       const result = await runCheck(dir);
       expect(result.messages.some((m) => m.includes('pack_preflight'))).toBe(false);
     });

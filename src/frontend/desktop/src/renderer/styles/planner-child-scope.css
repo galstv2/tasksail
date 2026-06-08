@@ -1,4 +1,4 @@
-/* ── Parent context card — one grouped surface, Apple-style ───────────── */
+/* Parent context card: one grouped surface. */
 
 .planner-modal__parent-card {
   border-bottom: 1px solid var(--ts-border);
@@ -11,7 +11,7 @@
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* ── Collapsed restore strip — reclaim vertical space for the chat ────── */
+/* Collapsed restore strip reclaims vertical space for the chat. */
 
 .planner-modal__parent-card-restore {
   display: flex;
@@ -75,7 +75,7 @@
   to   { opacity: 1; }
 }
 
-/* ── Collapse chevron — tucked into the parent-card action row ───────── */
+/* Collapse chevron sits inside the parent-card action row. */
 
 .planner-modal__parent-card-collapse {
   display: inline-flex;

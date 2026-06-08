@@ -9,10 +9,7 @@ import { Readable } from 'node:stream';
 import { resolveQueuePaths } from '../../queue/paths.js';
 import { writeActivationProgress } from '../../queue/activationProgress.js';
 
-// ---------------------------------------------------------------------------
-// Mocks (must be hoisted before imports)
-// ---------------------------------------------------------------------------
-
+// Vitest hoists these mock registrations before the modules under test load.
 const spawnPipelineForTaskMock = vi.fn();
 const moveFailedItemToErrorItemsMock = vi.fn();
 const finalizeTaskWorktreesMock = vi.fn();
@@ -49,9 +46,6 @@ vi.mock('../../queue/resumeCloseout.js', async (importOriginal) => {
   };
 });
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function makeChildStub(
   options: {
@@ -115,9 +109,7 @@ async function setupTmpRepo(
   return tmpDir;
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('pipelineSupervisor', () => {
   let repoRoot: string;

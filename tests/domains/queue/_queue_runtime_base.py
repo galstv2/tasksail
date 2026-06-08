@@ -20,7 +20,6 @@ from lib.workspace_paths import render_handoff_artifact_label  # noqa: E402
 TEST_TASK_ID = "task-test-001"
 
 
-# --------------------------------------------------------------------------
 # WHY THIS SKIP GATE:
 #
 # Every test in this class spawns real subprocesses (createDropboxTask.ts,
@@ -32,7 +31,6 @@ TEST_TASK_ID = "task-test-001"
 # Gating behind RUN_SLOW_TESTS keeps the fast feedback loop (<5s) for unit
 # and HTTP transport tests while still allowing full integration coverage
 # via: RUN_SLOW_TESTS=1 python -m pytest tests/ -q
-# --------------------------------------------------------------------------
 class QueueRuntimeIntegrationTestBase(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:

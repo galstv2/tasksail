@@ -1,0 +1,57 @@
+# Per-module test-count floor — the high-signal baseline after the Phase 7 reductions (7.1 Python, 7.2 platform TS, 7.3 frontend).
+# Format: MIN_COUNT MODULE_PATH
+# Each module must retain at least MIN_COUNT test declarations (Vitest `it(`/`test(`, pytest `def test_`).
+# A count BELOW the floor FAILS `check-test-floor` — lowering a floor is a deliberate edit here,
+# exactly as growing a baselined file in file-size-baseline.txt is. This is the regression guard
+# that keeps the reduced, high-signal surface from silently eroding. `it.each(` rows are not counted
+# (declared cases only). Module paths are non-overlapping and collectively cover each lane's surface.
+# Policy: regrowing a lane back above its Phase-6 size (~3000 tests/lane) should be a deliberate
+# decision (a reflexive-test-bloat guard), recorded in review — not an accidental accretion.
+
+# === Platform TypeScript (Vitest) — 19 modules, total 2740 ===
+10 src/backend/platform/__tests__
+106 src/backend/platform/agent-extensions/__tests__
+631 src/backend/platform/agent-runner/__tests__
+29 src/backend/platform/agent-runner/pipeline/__tests__
+19 src/backend/platform/agent-runner/realignmentPhase/__tests__
+35 src/backend/platform/cli-provider/__tests__
+25 src/backend/platform/cli-provider/providers/copilot/__tests__
+107 src/backend/platform/container/__tests__
+125 src/backend/platform/context-pack/__tests__
+298 src/backend/platform/core/__tests__
+65 src/backend/platform/external-mcp-registry/__tests__
+55 src/backend/platform/mcp-registry/__tests__
+8 src/backend/platform/planner-history/__tests__
+78 src/backend/platform/platform-config/__tests__
+721 src/backend/platform/queue/__tests__
+61 src/backend/platform/setup/__tests__
+14 src/backend/platform/task-notifications/__tests__
+118 src/backend/platform/validation/__tests__
+218 src/backend/platform/workflow-policy/__tests__
+
+# === Frontend Electron/React (Vitest/jsdom) — 3 areas, total 2998 ===
+1063 src/frontend/desktop/electron
+1582 src/frontend/desktop/src/renderer
+353 src/frontend/desktop/src/shared
+
+# === Python (pytest) — domains + parity, total 878 ===
+150 tests/domains/archive
+99 tests/domains/context_estate
+32 tests/domains/context_pack
+18 tests/domains/docs_contracts
+20 tests/domains/external_mcp
+22 tests/domains/logging
+4 tests/domains/markdown
+7 tests/domains/pack_io
+20 tests/domains/pack_preflight
+24 tests/domains/pack_schemas
+19 tests/domains/pack_writer
+82 tests/domains/qmd
+49 tests/domains/queue
+91 tests/domains/reinforcement
+11 tests/domains/repo_category_probe
+87 tests/domains/repo_context
+55 tests/domains/test_infra
+76 tests/domains/workflow
+10 tests/domains/workspace_context_sync
+2 tests/parity

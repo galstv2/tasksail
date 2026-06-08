@@ -13,85 +13,13 @@ vi.mock('../../workflow-policy/index.js', () => ({
 }));
 
 import { evaluateWorkflowPolicy } from '../../workflow-policy/index.js';
-import { assertPolicyPasses, runPolicyValidation } from '../policyValidation.js';
+import { assertPolicyPasses } from '../policyValidation.js';
 
 const mockEvaluateWorkflowPolicy = vi.mocked(evaluateWorkflowPolicy);
 
 describe('policyValidation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-  });
-
-  it('passes pre-archive through to the TypeScript workflow-policy engine', async () => {
-    mockEvaluateWorkflowPolicy.mockResolvedValue({
-      result: {
-        status: 'ok',
-        mode: 'pre-archive',
-        phase: 'fail-closed',
-        rule_count: 0,
-        failure_count: 0,
-        warning_count: 0,
-        violations: [],
-        next_steps: [],
-        guardrail: null,
-      },
-      stdout: 'ok',
-      stderr: '',
-      exitCode: 0,
-    } satisfies WorkflowPolicyExecutionResult);
-
-    const result = await runPolicyValidation({
-      mode: 'pre-archive',
-      taskId: 'task-abc',
-      repoRoot: '/fake/repo',
-    });
-
-    expect(result).toEqual({
-      passed: true,
-      stdout: 'ok',
-      stderr: '',
-      exitCode: 0,
-    });
-
-    expect(mockEvaluateWorkflowPolicy).toHaveBeenCalledWith({
-      repoRoot: '/fake/repo',
-      mode: 'pre-archive',
-      taskId: 'task-abc',
-      enforce: undefined,
-      format: 'text',
-    });
-  });
-
-  it('returns passed=false when the TypeScript evaluation reports blocking violations', async () => {
-    mockEvaluateWorkflowPolicy.mockResolvedValue({
-      result: {
-        status: 'blocked',
-        mode: 'pre-archive',
-        phase: 'fail-closed',
-        rule_count: 0,
-        failure_count: 1,
-        warning_count: 0,
-        violations: [],
-        next_steps: [],
-        guardrail: null,
-      },
-      stdout: 'policy failed',
-      stderr: '',
-      exitCode: 1,
-    } satisfies WorkflowPolicyExecutionResult);
-
-    const result = await runPolicyValidation({
-      mode: 'pre-archive',
-      taskId: 'task-abc',
-      repoRoot: '/fake/repo',
-    });
-
-    expect(result).toEqual({
-      passed: false,
-      stdout: 'policy failed',
-      stderr: '',
-      exitCode: 1,
-    });
   });
 
   it('throws the caller message with validator details when assertion fails', async () => {

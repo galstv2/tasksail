@@ -7,17 +7,17 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.backend.mcp.context_estate_discovery import discover_estate
-from src.backend.mcp.context_estate_draft_index import write_draft_artifact
-from src.backend.mcp.context_estate_manifest import (
+from src.backend.mcp.context_estate.bootstrap import bootstrap_context_pack
+from src.backend.mcp.context_estate.bootstrap_builders import (
+    _build_distributed_review_payload,
+)
+from src.backend.mcp.context_estate.bootstrap_normalization import normalize_bootstrap_answers
+from src.backend.mcp.context_estate.discovery import discover_estate
+from src.backend.mcp.context_estate.draft_index import write_draft_artifact
+from src.backend.mcp.context_estate.manifest import (
     approve_manifest_from_files,
     build_approved_manifest,
     write_approved_manifest,
-)
-from src.backend.mcp.context_pack_bootstrap import (
-    _build_distributed_review_payload,
-    bootstrap_context_pack,
-    normalize_bootstrap_answers,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -223,9 +223,11 @@ class ContextEstateManifestTests(unittest.TestCase):
                 focus_area_map["services-billing"]["repository_type"],
                 "primary",
             )
+            # Focus is controlled by primary_focus_area_ids alone: services-identity
+            # is a 'service' kind but is NOT a primary focus area, so it is support.
             self.assertEqual(
                 focus_area_map["services-identity"]["repository_type"],
-                "primary",
+                "support",
             )
 
     def test_monolith_platform_manifest_includes_infrastructure_repositories(self) -> None:
@@ -415,6 +417,7 @@ class ContextEstateManifestTests(unittest.TestCase):
                         "repo_id": "services-orders-api",
                         "system_layer": "backend",
                         "repository_type": "support",
+                        "repository_type_authored": True,
                     },
                     {
                         "repo_id": "services-orders-web",
@@ -499,7 +502,9 @@ class ContextEstateManifestTests(unittest.TestCase):
                 },
             )
 
-            self.assertIn(
+            # Creation discovery no longer emits per-repo repository_type; focus is
+            # owned by build_approved_manifest via primary_working_repo_ids.
+            self.assertNotIn(
                 "repository_type",
                 review_payload["repositories"][0],
             )

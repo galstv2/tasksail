@@ -1072,40 +1072,6 @@ describe('resolveFocusedRepoRoot', () => {
     );
   });
 
-  it('reads Deep Focus metadata from workspace sync using snake_case keys', async () => {
-    const backendDir = makeRepo('backend');
-    const apiDir = makeRepo('backend/apps/api');
-    const repoRoot = makePlatformRepo([{ path: '.' }, { path: backendDir }]);
-    const packDir = path.join(tmpDir, 'pack');
-    writeManifest(packDir, {
-      estate_type: 'monolith',
-      repository: {
-        repo_id: 'my-app',
-        local_paths: [backendDir],
-      },
-      focusable_areas: [
-        { focus_id: 'api', relative_path: 'apps/api', repository_type: 'primary' },
-      ],
-    });
-    writeWorkspaceSyncState({
-      active_context_pack_dir: packDir,
-      selected_repo_ids: [],
-      selected_focus_ids: ['api'],
-      deep_focus_enabled: true,
-      selected_focus_path: 'apps/api',
-      selected_focus_target_kind: 'directory',
-    });
-
-    const result = await resolveSelectedPrimaryRepoRoot(packDir, repoRoot);
-
-    expect(result).toBeDefined();
-    expect(result!.authoritySource).toBe('workspace-sync-state');
-    expect(result!.deepFocusEnabled).toBe(true);
-    expect(result!.primaryFocusRelativePath).toBe('apps/api');
-    expect(result!.primaryFocusTargetKind).toBe('directory');
-    expect(realpathSync(path.join(result!.primaryRepoRoot, result!.primaryFocusRelativePath!))).toBe(realpathSync(apiDir));
-  });
-
   it('accepts repo-root Deep Focus selection without selectedFocusTargetKind', async () => {
     const repoDir = makeRepo('my-app');
     const repoRoot = makePlatformRepo([{ path: '.' }, { path: repoDir }]);

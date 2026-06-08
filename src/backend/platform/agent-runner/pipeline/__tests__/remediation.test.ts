@@ -1,8 +1,8 @@
 /**
  * Per-task path isolation test for remediationRunQaLoop.
  *
- * Asserts that when taskId: 't1' is provided, the loop reads/writes
- * AgentWorkSpace/tasks/t1/handoffs/issues.md.
+ * Asserts that when taskId: 't1' is provided, the loop reads/writes the
+ * per-task issues handoff.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, readFileSync, existsSync, writeFileSync, rmSync } from 'node:fs';
@@ -38,7 +38,7 @@ describe('remediationRunQaLoop — per-task path isolation', () => {
       'utf-8',
     );
 
-    // A blocking issues.md at the per-task path — triggers remediation
+    // A blocking issues handoff at the per-task path triggers remediation.
     writeFileSync(
       path.join(repoRoot, 'AgentWorkSpace', 'tasks', TASK_ID, 'handoffs', 'issues.md'),
       '# QA Issues\n\n## Severity\n\nblocking\n\n## Findings\n\n- Must fix X\n',

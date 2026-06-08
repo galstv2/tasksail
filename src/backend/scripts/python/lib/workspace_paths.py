@@ -2,7 +2,7 @@
 
 All helpers read ``TASKSAIL_TASK_ID`` from the environment.
 
-- Unset or empty → singleton legacy paths (pre-§1.8 back-compat).
+- Unset or empty → singleton legacy paths.
 - Set to a non-empty string → per-task ``tasks/<taskId>/...`` paths.
 """
 from __future__ import annotations

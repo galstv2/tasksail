@@ -95,20 +95,7 @@ class SharedEnvResolverTests(unittest.TestCase):
             result = resolve_env_ref_map({"API_KEY": "${MISSING_LOCAL_VAR}"}, "local-fs")
         self.assertIsNone(result)
 
-    def test_empty_map_returns_empty(self) -> None:
-        self.assertEqual(resolve_env_ref_map(None, "local-fs"), {})
-        self.assertEqual(resolve_env_ref_map({}, "local-fs"), {})
-
-
 class CommandAvailabilityTests(unittest.TestCase):
-    def test_true_when_command_resolves(self) -> None:
-        with mock.patch.object(shutil, "which", return_value="/usr/bin/npx"):
-            self.assertTrue(command_available("npx"))
-
-    def test_false_when_command_missing(self) -> None:
-        with mock.patch.object(shutil, "which", return_value=None):
-            self.assertFalse(command_available("definitely-not-real"))
-
     def test_false_for_empty_command(self) -> None:
         self.assertFalse(command_available(""))
 

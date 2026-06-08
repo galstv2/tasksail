@@ -1,1 +1,1 @@
-export { default, type MarkdownViewProps as TaskMarkdownViewProps } from '../MarkdownView';
+export { default, type MarkdownViewProps as TaskMarkdownViewProps } from '../shared/MarkdownView';

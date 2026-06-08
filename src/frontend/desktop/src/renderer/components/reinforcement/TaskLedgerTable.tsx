@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 
 import type { ReinforcementTaskEntry } from '../../../shared/desktopContract';
 import { formatNumber } from '../../utils/formatNumber';
-import { SearchIcon } from '../creation-steps/icons';
+import { SearchIcon } from '../icons';
 
 type TaskLedgerTableProps = {
   hasActiveContextPack: boolean;

@@ -2,7 +2,7 @@ import type {
   BuildWizardStep,
   PartDraft,
   RepositoryEntryDraft,
-} from '../../contextPackCreationTypes';
+} from '../../contextPack/contextPackCreationTypes';
 import {
   LANGUAGE_CATALOG,
   type LanguageCatalogEntry,

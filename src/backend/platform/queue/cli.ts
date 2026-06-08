@@ -249,7 +249,7 @@ export async function main(argv: string[]): Promise<void> {
     }
 
     case 'complete': {
-      // §4.3: --task-id is the preferred interface. When omitted and exactly one
+  // --task-id is the preferred interface. When omitted and exactly one
       // active task exists, default to that id. When omitted and N>1 active tasks
       // exist, fail fast — never silently pick "first active".
       let completeTaskId = flags['task-id'];
@@ -311,12 +311,12 @@ export async function main(argv: string[]): Promise<void> {
     case 'activate-next-pending-item': {
       const qp2 = resolveQueuePaths(repoRoot);
 
-      // §4.2: --task-id flag is the new required interface. When absent AND no
+  // --task-id is the required interface. When absent AND no
       // tasks are currently active, allow the legacy singleton fallback for
       // backwards-compat with existing tests/operators on pre-parallel flows.
       const taskId = flags['task-id'];
 
-      // §3.2: resolve context pack via the policy layer. Explicit taskId wins;
+  // Resolve context pack via the policy layer. Explicit taskId wins;
       // falls back to singleton env path when taskId is absent. Best-effort.
       let activateContextPackDir: string | undefined;
       try {

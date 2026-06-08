@@ -7,10 +7,7 @@ from typing import Any, Literal, cast, get_args
 
 from src.backend.mcp.pack_schemas.errors import PackSchemaError
 
-# Closed-set status enumerations (G2 §Required changes — `Literal` for closed enums).
-# Source of truth for emitted values: src/backend/scripts/python/plan-qmd-seeding.py
-# (lines 267–289 set `"ready" | "blocked" | "needs-review"`; line 348 sets overall
-# to `"ready" | "needs-review"`).
+# Keep these closed-set statuses aligned with the seed-plan generator.
 SeedPlanRepositoryStatus = Literal["ready", "blocked", "needs-review"]
 SeedPlanOverallStatus = Literal["ready", "needs-review"]
 

@@ -1,0 +1,689 @@
+import { execFile } from 'node:child_process';
+import { constants as fsConstants } from 'node:fs';
+import {
+  access as fsAccess,
+  mkdir as fsMkdir,
+  readdir as fsReaddir,
+  readFile as fsReadFile,
+  stat as fsStat,
+} from 'node:fs/promises';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { promisify } from 'node:util';
+
+import type {
+  ContextPackCreateExecutionResult,
+  ContextPackCreateRequest,
+  ContextPackCreateResponse,
+  ContextPackEstateType,
+  ContextPackPreflightError,
+  DesktopInvokeResult,
+} from '../../../src/shared/desktopContract';
+import {
+  CONTEXT_PACK_BOOTSTRAP_SCRIPT_PATH,
+  QMD_SEED_PLAN_SCRIPT_PATH,
+  WRITE_STUB_SCOPE_TREE_SCRIPT_PATH,
+  REPO_CONTEXT_APP_PATH,
+  toRepoRelativePath,
+  stringArray,
+} from '../shared';
+import { stringOrNull } from '../../utils';
+import {
+  RUN_PACK_PREFLIGHT_SCRIPT_PATH,
+  runPythonScriptCommand,
+  runContextPackReseedCommand,
+  isContextPackEstateType,
+  type PythonScriptRunner,
+  type ContextPackReseedRunner,
+} from './shared';
+import { createLogger } from '../../log/logger';
+import { writeGitignoreIfMissing, resolveGitignoreTemplateKeys } from './gitignoreTemplates';
+import { REPO_ROOT } from '../../paths';
+
+const execFileAsync = promisify(execFile);
+const log = createLogger('electron/contextPackActions/create');
+
+function isMonolithEstateMode(mode: ContextPackEstateType): boolean {
+  return mode === 'monolith' || mode === 'monolith-platform';
+}
+
+function isPathInside(child: string, parent: string): boolean {
+  const rel = relative(parent, child);
+  // On Windows, path.relative returns an absolute path when child and parent
+  // are on different drives. Reject any such cross-drive result.
+  if (isAbsolute(rel)) {
+    return false;
+  }
+  return rel === '' || (!rel.startsWith('..') && !rel.startsWith('/') && rel !== '.');
+}
+
+function assertTaskSailOwnedContextPackDir(contextPackDir: string): void {
+  const resolvedContextPackDir = resolve(contextPackDir);
+  const ownedContextPacksRoot = resolve(REPO_ROOT, 'contextpacks');
+  if (
+    resolvedContextPackDir === ownedContextPacksRoot
+    || !isPathInside(resolvedContextPackDir, ownedContextPacksRoot)
+  ) {
+    throw new Error(
+      `Context-pack creation is limited to TaskSail-managed contextpacks: ${ownedContextPacksRoot}`,
+    );
+  }
+}
+
+type RepoEntry = ContextPackCreateRequest['payload']['bootstrapAnswers']['repositories'][number];
+
+/**
+ * Resolve the monolith repository languages by finding the repository whose
+ * resolved repoRoot matches the resolved discoveryRoot. Returns undefined when
+ * no match exists (caller must fail the create action).
+ */
+export function resolveMonolithLanguages(
+  repos: RepoEntry[],
+  discoveryRoot: string,
+): string[] | undefined {
+  const resolvedDiscovery = resolve(discoveryRoot);
+  const match = repos.find((r) => r.repoRoot && resolve(r.repoRoot) === resolvedDiscovery);
+  if (!match) return undefined;
+  return match.languages ?? [];
+}
+
+async function writeGitignoreForRepo(repoDir: string, languages: string[]): Promise<void> {
+  const templateKeys = resolveGitignoreTemplateKeys(languages);
+  try {
+    const outcome = await writeGitignoreIfMissing(repoDir, languages);
+    if (outcome === 'created') {
+      log.info('context-pack.create.gitignore.created', {
+        repoDir,
+        templateKeys,
+        languageCount: languages.length,
+      });
+    } else {
+      log.info('context-pack.create.gitignore.exists', { repoDir });
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.warn('context-pack.create.gitignore.failed', { repoDir, error: msg });
+    throw err;
+  }
+}
+
+async function initGitReposForNewProject(
+  payload: ContextPackCreateRequest['payload'],
+): Promise<void> {
+  const repos = payload.bootstrapAnswers.repositories;
+  const monolithRoot = resolve(payload.discoveryRoot);
+  if (isMonolithEstateMode(payload.mode)) {
+    // Resolve monolith languages BEFORE any git init. Fail fast if no match.
+    const monolithLanguages = resolveMonolithLanguages(repos, payload.discoveryRoot);
+    if (monolithLanguages === undefined) {
+      throw new Error(
+        `context-pack.create: no repository with repoRoot matching discoveryRoot "${payload.discoveryRoot}" — cannot determine monolith languages`,
+      );
+    }
+
+    await execFileAsync('git', ['init'], { cwd: monolithRoot });
+    await writeGitignoreForRepo(monolithRoot, monolithLanguages);
+
+    const sideRepos = repos.filter((repo) => {
+      if (!repo.repoRoot) return false;
+      const repoDir = resolve(repo.repoRoot);
+      if (repoDir === monolithRoot) return false;
+      if (isPathInside(repoDir, monolithRoot)) {
+        log.warn('context-pack.create.git-init.skipped', { repoDir, monolithRoot });
+        return false;
+      }
+      return true;
+    });
+    await Promise.all(
+      sideRepos.map(async (repo) => {
+        const repoDir = resolve(repo.repoRoot);
+        await fsMkdir(repoDir, { recursive: true });
+        await execFileAsync('git', ['init'], { cwd: repoDir });
+        await writeGitignoreForRepo(repoDir, repo.languages ?? []);
+      }),
+    );
+  } else {
+    await Promise.all(
+      repos
+        .filter((repo) => repo.repoRoot)
+        .map(async (repo) => {
+          const repoDir = resolve(repo.repoRoot);
+          await fsMkdir(repoDir, { recursive: true });
+          await execFileAsync('git', ['init'], { cwd: repoDir });
+          await writeGitignoreForRepo(repoDir, repo.languages ?? []);
+        }),
+    );
+  }
+}
+
+type MissingGitRepositoryWarning = {
+  repoName: string;
+  path: string;
+  relativePath: string;
+  message: string;
+};
+
+type GitGuardOutcome =
+  | { ok: true; payload: ContextPackCreateRequest['payload']; warnings: MissingGitRepositoryWarning[] }
+  | { ok: false; error: ContextPackPreflightError };
+
+/** Same marker semantics as Python discovery: a `.git` directory or file is valid. */
+async function hasGitMarker(repoRoot: string): Promise<boolean> {
+  try {
+    const stats = await fsStat(join(repoRoot, '.git'));
+    return stats.isDirectory() || stats.isFile();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * True if `repoRoot` or any ancestor has a top-level `.git` marker. An
+ * existing-source monolith selection may be a subtree of a larger repo (a
+ * monorepo subdirectory) whose `.git` lives in an ancestor, so the selected
+ * root is Git-backed even without its own `.git`.
+ */
+async function isWithinGitWorktree(repoRoot: string): Promise<boolean> {
+  let current = resolve(repoRoot);
+  for (;;) {
+    if (await hasGitMarker(current)) return true;
+    const parent = dirname(current);
+    if (parent === current) return false;
+    current = parent;
+  }
+}
+
+function buildMissingGitWarning(
+  repo: ContextPackCreateRequest['payload']['bootstrapAnswers']['repositories'][number],
+  discoveryRoot: string,
+): MissingGitRepositoryWarning {
+  const repoRoot = repo.repoRoot ? resolve(repo.repoRoot) : '';
+  const repoName = repo.repoName || repo.repoId || 'repository';
+  const rel = repoRoot ? relative(discoveryRoot, repoRoot) : '';
+  return {
+    repoName,
+    path: repoRoot,
+    relativePath: rel === '' ? '.' : rel.split(sep).join('/'),
+    message:
+      `repo ${repoName} does not have .git folder, if you would like it part `
+      + 'of this context pack please initialize git in this repo.',
+  };
+}
+
+function applyGitRepoFiltering(
+  payload: ContextPackCreateRequest['payload'],
+  keptRepos: ContextPackCreateRequest['payload']['bootstrapAnswers']['repositories'],
+  removedRepoIds: Set<string>,
+): ContextPackCreateRequest['payload'] {
+  const pruneIds = (ids: string[] | undefined): string[] | undefined =>
+    ids ? ids.filter((id) => !removedRepoIds.has(id)) : ids;
+  const repositories = keptRepos.map((repo) => {
+    const next = { ...repo };
+    if (next.adjacentRepoIds) next.adjacentRepoIds = pruneIds(next.adjacentRepoIds);
+    if (next.dependsOnRepoIds) next.dependsOnRepoIds = pruneIds(next.dependsOnRepoIds);
+    if (next.usedByRepoIds) next.usedByRepoIds = pruneIds(next.usedByRepoIds);
+    return next;
+  });
+  return {
+    ...payload,
+    bootstrapAnswers: {
+      ...payload.bootstrapAnswers,
+      primaryWorkingRepoIds: pruneIds(payload.bootstrapAnswers.primaryWorkingRepoIds),
+      repositories,
+    },
+  };
+}
+
+/**
+ * Existing-source create-time guard. Runs after preflight succeeds and before
+ * any disk write/bootstrap. New-project creation (initGitRepos true) bypasses
+ * this entirely. Distributed modes filter non-Git repos and prune their IDs;
+ * monolith modes require repository index 0 to be Git-backed and never drop or
+ * promote it; monolith-platform additionally filters invalid side repos.
+ */
+async function filterExistingSourceRepositoriesWithoutGit(
+  payload: ContextPackCreateRequest['payload'],
+): Promise<GitGuardOutcome> {
+  const repos = payload.bootstrapAnswers.repositories;
+  const discoveryRoot = payload.discoveryRoot;
+  const markers = await Promise.all(
+    repos.map((repo) => (repo.repoRoot ? hasGitMarker(resolve(repo.repoRoot)) : Promise.resolve(false))),
+  );
+
+  if (isMonolithEstateMode(payload.mode)) {
+    // The selected monolith root may be a subtree of a larger repo; accept an
+    // ancestor .git marker, not just one in the root folder itself.
+    const rootValid = repos[0]?.repoRoot
+      ? await isWithinGitWorktree(repos[0].repoRoot)
+      : false;
+    if (!rootValid) {
+      const offending = repos[0];
+      return {
+        ok: false,
+        error: {
+          code: 'repo-missing-top-level-git',
+          field: 'bootstrapAnswers.repositories[0].repoRoot',
+          message:
+            'The selected monolith root does not have a top-level .git folder. '
+            + 'Initialize Git in the repo before creating this context pack.',
+          details: {
+            skippedRepositories: offending ? [buildMissingGitWarning(offending, discoveryRoot)] : [],
+          },
+        },
+      };
+    }
+    if (payload.mode === 'monolith') {
+      return { ok: true, payload, warnings: [] };
+    }
+    // monolith-platform: filter invalid side repositories (index >= 1) only.
+    const keptRepos: typeof repos = [];
+    const skipped: MissingGitRepositoryWarning[] = [];
+    const removedRepoIds = new Set<string>();
+    repos.forEach((repo, index) => {
+      if (index === 0 || markers[index]) {
+        keptRepos.push(repo);
+        return;
+      }
+      skipped.push(buildMissingGitWarning(repo, discoveryRoot));
+      if (repo.repoId) removedRepoIds.add(repo.repoId);
+    });
+    if (skipped.length === 0) return { ok: true, payload, warnings: [] };
+    return { ok: true, payload: applyGitRepoFiltering(payload, keptRepos, removedRepoIds), warnings: skipped };
+  }
+
+  // distributed / distributed-platform: filter every non-Git repository.
+  const keptRepos: typeof repos = [];
+  const skipped: MissingGitRepositoryWarning[] = [];
+  const removedRepoIds = new Set<string>();
+  repos.forEach((repo, index) => {
+    if (markers[index]) {
+      keptRepos.push(repo);
+      return;
+    }
+    skipped.push(buildMissingGitWarning(repo, discoveryRoot));
+    if (repo.repoId) removedRepoIds.add(repo.repoId);
+  });
+  if (keptRepos.length === 0) {
+    return {
+      ok: false,
+      error: {
+        code: 'repo-missing-top-level-git',
+        field: 'bootstrapAnswers.repositories',
+        message:
+          'No repositories with a top-level .git folder were found. '
+          + 'Initialize Git in at least one repo before creating this context pack.',
+        details: { skippedRepositories: skipped },
+      },
+    };
+  }
+  if (skipped.length === 0) return { ok: true, payload, warnings: [] };
+  return { ok: true, payload: applyGitRepoFiltering(payload, keptRepos, removedRepoIds), warnings: skipped };
+}
+
+function buildContextPackBootstrapAnswersPayload(payload: ContextPackCreateRequest['payload']): Record<string, unknown> {
+  return {
+    context_pack_id: payload.bootstrapAnswers.contextPackId,
+    estate_name: payload.bootstrapAnswers.estateName,
+    default_scope_mode: payload.bootstrapAnswers.defaultScopeMode,
+    primary_working_repo_ids: payload.bootstrapAnswers.primaryWorkingRepoIds,
+    primary_focus_area_ids: payload.bootstrapAnswers.primaryFocusAreaIds,
+    repositories: payload.bootstrapAnswers.repositories.map((r) => ({
+      repo_root: r.repoRoot, repo_name: r.repoName, repo_id: r.repoId, owner: r.owner,
+      system_layer: r.systemLayer, languages: r.languages, artifact_roots: r.artifactRoots,
+      document_paths: r.documentPaths, bounded_context: r.boundedContext,
+      service_name: r.serviceName, repo_role: r.repoRole,
+      repo_category: r.repoCategory, repo_category_authored: r.repoCategoryAuthored,
+      workspace_activation_group: r.workspaceActivationGroup,
+      default_focusable: r.defaultFocusable, activation_priority: r.activationPriority,
+      adjacent_repo_ids: r.adjacentRepoIds, depends_on_repo_ids: r.dependsOnRepoIds,
+      used_by_repo_ids: r.usedByRepoIds,
+    })),
+    focusable_areas: payload.bootstrapAnswers.focusableAreas?.map((f) => ({
+      focus_id: f.focusId, focus_name: f.focusName, relative_path: f.relativePath,
+      path: f.path, focus_type: f.focusType,
+      focus_category: f.focusCategory, focus_category_authored: f.focusCategoryAuthored,
+      group: f.group,
+      default_focusable: f.defaultFocusable, activation_priority: f.activationPriority,
+      adjacent_focus_area_ids: f.adjacentFocusAreaIds,
+    })),
+  };
+}
+
+export function buildContextPackBootstrapArgs(payload: ContextPackCreateRequest['payload']): string[] {
+  return [
+    CONTEXT_PACK_BOOTSTRAP_SCRIPT_PATH,
+    '--context-pack-dir', payload.contextPackDir,
+    '--answers-json', '-',
+    '--discovery-root', payload.discoveryRoot,
+    '--mode', payload.mode,
+    '--format', 'json',
+  ];
+}
+
+export function buildQmdSeedPlanArgs(contextPackDir: string): string[] {
+  return [
+    QMD_SEED_PLAN_SCRIPT_PATH,
+    '--context-pack-dir', contextPackDir,
+    '--manifest', 'qmd/repo-sources.json',
+    '--plan-file', 'qmd/bootstrap/seed-plan.json',
+    '--write-plan',
+    '--format', 'json',
+  ];
+}
+
+export function buildContextPackSeedArgs(contextPackDir: string): string[] {
+  return [
+    REPO_CONTEXT_APP_PATH,
+    'seed',
+    '--context-pack-dir', contextPackDir,
+    '--manifest', 'qmd/repo-sources.json',
+    '--plan-file', 'qmd/bootstrap/seed-plan.json',
+    '--plan-mode', 'prefer-plan',
+    '--format', 'json',
+  ];
+}
+
+export function buildWriteStubScopeTreeArgs(
+  contextPackDir: string,
+  planOverallStatus: string | null,
+  planRepoStatuses: string[] | null,
+): string[] {
+  const args = [WRITE_STUB_SCOPE_TREE_SCRIPT_PATH, '--context-pack-dir', contextPackDir];
+  if (planOverallStatus !== null) {
+    args.push('--plan-overall-status', planOverallStatus);
+  }
+  if (planRepoStatuses !== null && planRepoStatuses.length > 0) {
+    args.push('--plan-repo-statuses-json', JSON.stringify(planRepoStatuses));
+  }
+  return args;
+}
+
+function normalizeContextPackCreateExecutionResult(
+  bp: Record<string, unknown>,
+  payload: ContextPackCreateRequest['payload'],
+  seedStatus: string,
+): ContextPackCreateExecutionResult {
+  const defaultAnswersPath = join(resolve(payload.contextPackDir), 'qmd/bootstrap/bootstrap-answers.json');
+  return {
+    contextPackId: stringOrNull(bp.context_pack_id) ?? payload.bootstrapAnswers.contextPackId,
+    displayName: stringOrNull(bp.display_name) ?? payload.bootstrapAnswers.estateName,
+    contextPackDir: resolve(payload.contextPackDir),
+    discoveryRoot: stringOrNull(bp.discovery_root) ?? resolve(payload.discoveryRoot),
+    discoveryMode: isContextPackEstateType(bp.discovery_mode) ? bp.discovery_mode : payload.mode,
+    estateType: isContextPackEstateType(bp.estate_type) ? bp.estate_type : payload.mode,
+    defaultScopeMode: 'focused',
+    bootstrapAnswersPath: stringOrNull(bp.bootstrap_answers_path) ?? defaultAnswersPath,
+    discoveryDraftPath: stringOrNull(bp.draft_path) ?? join(resolve(payload.contextPackDir), 'qmd/bootstrap/discovery-structure.json'),
+    manifestPath: stringOrNull(bp.manifest_path) ?? join(resolve(payload.contextPackDir), 'qmd/repo-sources.json'),
+    planPath: join(resolve(payload.contextPackDir), 'qmd/bootstrap/seed-plan.json'),
+    repositoryCount: typeof bp.repository_count === 'number' ? bp.repository_count : payload.bootstrapAnswers.repositories.length,
+    focusTargetCount: typeof bp.focus_target_count === 'number' ? bp.focus_target_count : payload.bootstrapAnswers.repositories.length,
+    primaryWorkingRepoIds: stringArray(bp.primary_working_repo_ids),
+    primaryFocusAreaIds: stringArray(bp.primary_focus_area_ids),
+    seedStatus,
+    warnings: stringArray(bp.warnings),
+  };
+}
+
+type PreflightOutcome =
+  | { ok: true }
+  | { ok: false; preflightErrors: ContextPackPreflightError[] };
+
+interface PathDiagnostics {
+  path: string;
+  exists: boolean;
+  isDirectory: boolean;
+  writable: boolean;
+  reason?: string;
+}
+
+function contextPackCreateLogContext(payload: ContextPackCreateRequest['payload']): Record<string, unknown> {
+  return {
+    contextPackDir: payload.contextPackDir,
+    contextPackParentDir: dirname(payload.contextPackDir),
+    discoveryRoot: payload.discoveryRoot,
+    mode: payload.mode,
+    writePlan: payload.writePlan,
+    seedOnCreate: payload.seedOnCreate,
+    initGitRepos: payload.initGitRepos,
+    contextPackId: payload.bootstrapAnswers.contextPackId,
+    estateName: payload.bootstrapAnswers.estateName,
+    repositoryCount: payload.bootstrapAnswers.repositories.length,
+    focusableAreaCount: payload.bootstrapAnswers.focusableAreas?.length ?? 0,
+    primaryWorkingRepoCount: payload.bootstrapAnswers.primaryWorkingRepoIds?.length ?? 0,
+    primaryFocusAreaCount: payload.bootstrapAnswers.primaryFocusAreaIds?.length ?? 0,
+  };
+}
+
+async function inspectPath(pathToInspect: string): Promise<PathDiagnostics> {
+  try {
+    const stats = await fsStat(pathToInspect);
+    let writable = false;
+    let reason: string | undefined;
+    try {
+      await fsAccess(pathToInspect, fsConstants.W_OK);
+      writable = true;
+    } catch (error: unknown) {
+      reason = error instanceof Error ? error.message : String(error);
+    }
+    return {
+      path: pathToInspect,
+      exists: true,
+      isDirectory: stats.isDirectory(),
+      writable,
+      ...(reason ? { reason } : {}),
+    };
+  } catch (error: unknown) {
+    return {
+      path: pathToInspect,
+      exists: false,
+      isDirectory: false,
+      writable: false,
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function runContextPackPreflight(
+  payload: ContextPackCreateRequest['payload'],
+  runner: PythonScriptRunner,
+): Promise<PreflightOutcome> {
+  const { stdout } = await runner(
+    [RUN_PACK_PREFLIGHT_SCRIPT_PATH, '--payload-json', '-'],
+    { stdin: JSON.stringify(payload) },
+  );
+  const parsed = JSON.parse(stdout) as { ok?: boolean; errors?: ContextPackPreflightError[] };
+  if (parsed.ok === true) return { ok: true };
+  return { ok: false, preflightErrors: parsed.errors ?? [] };
+}
+
+/**
+ * Resolve a collision-free context-pack directory. The renderer proposes a clean
+ * slug-based name; if a sibling directory with that basename already exists, append
+ * a numeric counter (-2, -3, …) until free. Returns the desired path unchanged when
+ * the parent directory does not yet exist (preflight rejects a missing parent
+ * separately). Best-effort: final directory creation in the Python bootstrap uses
+ * mkdir(exist_ok=True), so a concurrent create from a second window could still
+ * race — acceptable for a single-operator desktop app.
+ */
+export async function resolveUniqueContextPackDir(desiredDir: string): Promise<string> {
+  const parent = dirname(desiredDir);
+  const base = basename(desiredDir);
+  let existing: Set<string>;
+  try {
+    existing = new Set(await fsReaddir(parent));
+  } catch {
+    return desiredDir;
+  }
+  if (!existing.has(base)) return desiredDir;
+  // Among base-2 … base-(size+2) — size+1 distinct candidates — at least one is free.
+  for (let n = 2; n <= existing.size + 2; n += 1) {
+    if (!existing.has(`${base}-${n}`)) return join(parent, `${base}-${n}`);
+  }
+  return join(parent, `${base}-${existing.size + 2}`);
+}
+
+export async function executeContextPackCreateAction(
+  payload: ContextPackCreateRequest['payload'],
+  bootstrapRunner: PythonScriptRunner = runPythonScriptCommand,
+  planRunner: PythonScriptRunner = runPythonScriptCommand,
+  seedRunner: ContextPackReseedRunner = runContextPackReseedCommand,
+  preflightRunner: PythonScriptRunner = runPythonScriptCommand,
+): Promise<DesktopInvokeResult> {
+  try {
+    const requestedContextPackDir = resolve(payload.contextPackDir);
+    assertTaskSailOwnedContextPackDir(requestedContextPackDir);
+    const contextPackDir = await resolveUniqueContextPackDir(requestedContextPackDir);
+    assertTaskSailOwnedContextPackDir(contextPackDir);
+    const np = {
+      ...payload,
+      contextPackDir,
+      discoveryRoot: resolve(payload.discoveryRoot),
+      // Keep contextPackId aligned with the final directory basename. qmd_scope_root
+      // keys on contextPackId while the AgentWorkSpace mirror keys on the directory
+      // basename, so a collision counter must apply to both or the two diverge.
+      bootstrapAnswers: { ...payload.bootstrapAnswers, contextPackId: basename(contextPackDir) },
+    };
+
+    const preflight = await runContextPackPreflight(np, preflightRunner);
+    if (!preflight.ok) {
+      log.warn('context-pack.create.preflight.failed', {
+        ...contextPackCreateLogContext(np),
+        preflightScriptPath: RUN_PACK_PREFLIGHT_SCRIPT_PATH,
+        errorCount: preflight.preflightErrors.length,
+        errors: preflight.preflightErrors,
+        contextPackDirDiagnostics: await inspectPath(np.contextPackDir),
+        contextPackParentDiagnostics: await inspectPath(dirname(np.contextPackDir)),
+        discoveryRootDiagnostics: await inspectPath(np.discoveryRoot),
+      });
+      return {
+        ok: false,
+        action: 'contextPack.create',
+        errorCode: 'preflight-failed',
+        error: preflight.preflightErrors[0]?.message ?? 'Context-pack creation rejected by preflight validation.',
+        details: preflight.preflightErrors.map((e) => e.message),
+        preflightErrors: preflight.preflightErrors,
+      };
+    }
+
+    let effectivePayload = np;
+    let gitGuardWarnings: MissingGitRepositoryWarning[] = [];
+    if (np.initGitRepos !== true) {
+      const gitGuard = await filterExistingSourceRepositoriesWithoutGit(np);
+      if (!gitGuard.ok) {
+        log.warn('context-pack.create.git-guard.rejected', {
+          ...contextPackCreateLogContext(np),
+          error: gitGuard.error,
+        });
+        return {
+          ok: false,
+          action: 'contextPack.create',
+          errorCode: 'preflight-failed',
+          error: gitGuard.error.message,
+          details: [gitGuard.error.message],
+          preflightErrors: [gitGuard.error],
+        };
+      }
+      effectivePayload = gitGuard.payload;
+      gitGuardWarnings = gitGuard.warnings;
+    }
+
+    await fsMkdir(np.discoveryRoot, { recursive: true });
+
+    // Monolith-mode creation records operator working folders as focus areas
+    // (not repositories), so initGitReposForNewProject never materializes them.
+    // Create the declared focus-area subdirectories here — alongside the discovery
+    // root and before bootstrap/seed — so the operator's working folders exist on
+    // disk. Scoped to new-project creation (initGitRepos) so existing-source packs
+    // are never mutated, and to paths strictly inside the discovery root.
+    if (np.initGitRepos === true) {
+      const discoveryRootResolved = resolve(np.discoveryRoot);
+      const focusAreaDirs = [
+        ...new Set(
+          (np.bootstrapAnswers.focusableAreas ?? [])
+            .map((fa) => fa.path)
+            .filter((p): p is string => typeof p === 'string' && p.length > 0)
+            .map((p) => resolve(p))
+            .filter((p) => p !== discoveryRootResolved && isPathInside(p, discoveryRootResolved)),
+        ),
+      ];
+      await Promise.all(focusAreaDirs.map((p) => fsMkdir(p, { recursive: true })));
+    }
+
+    const answersJson = JSON.stringify(buildContextPackBootstrapAnswersPayload(effectivePayload));
+    const bootstrapResult = await bootstrapRunner(buildContextPackBootstrapArgs(np), { stdin: answersJson });
+    let bp: Record<string, unknown>;
+    try {
+      bp = JSON.parse(bootstrapResult.stdout) as Record<string, unknown>;
+    } catch (bootstrapParseError: unknown) {
+      log.warn('context-pack.create.bootstrap-output.parse.failed', {
+        commandPath: CONTEXT_PACK_BOOTSTRAP_SCRIPT_PATH,
+        reason: bootstrapParseError instanceof Error ? bootstrapParseError.message : String(bootstrapParseError),
+      });
+      throw bootstrapParseError;
+    }
+    if (np.initGitRepos) await initGitReposForNewProject(np);
+    if (np.writePlan !== false) await planRunner(buildQmdSeedPlanArgs(np.contextPackDir));
+
+    let planOverallStatus: string | null = null;
+    let planRepoStatuses: string[] | null = null;
+    try {
+      const planPath = join(np.contextPackDir, 'qmd/bootstrap/seed-plan.json');
+      const planRaw = JSON.parse(await fsReadFile(planPath, 'utf-8')) as Record<string, unknown>;
+      planOverallStatus = stringOrNull(planRaw.overall_status);
+      const repos = Array.isArray(planRaw.repositories) ? planRaw.repositories : [];
+      planRepoStatuses = repos
+        .map((r: unknown) => (typeof r === 'object' && r !== null ? stringOrNull((r as Record<string, unknown>).status) : null))
+        .filter((s): s is string => s !== null);
+    } catch (planParseError: unknown) {
+      log.warn('context-pack.create.seed-plan.parse.failed', {
+        reason: planParseError instanceof Error ? planParseError.message : String(planParseError),
+      });
+    }
+
+    const shouldSeedOnCreate = np.seedOnCreate !== false;
+    let seedStatus = 'not-run';
+    if (shouldSeedOnCreate) {
+      const seedResult = await seedRunner(buildContextPackSeedArgs(np.contextPackDir));
+      const parsedSeed = JSON.parse(seedResult.stdout) as Record<string, unknown>;
+      seedStatus = stringOrNull(parsedSeed.overall_status) ?? 'unknown';
+    } else if (np.initGitRepos) {
+      try {
+        await planRunner(buildWriteStubScopeTreeArgs(np.contextPackDir, planOverallStatus, planRepoStatuses));
+      } catch (stubErr: unknown) {
+        log.warn('context-pack.create.stub-scope-tree.write.failed', {
+          contextPackDir: np.contextPackDir,
+          reason: stubErr instanceof Error ? stubErr.message : String(stubErr),
+        });
+      }
+    }
+    const baseResult = normalizeContextPackCreateExecutionResult(bp, effectivePayload, seedStatus);
+    const result = gitGuardWarnings.length > 0
+      ? { ...baseResult, warnings: [...baseResult.warnings, ...gitGuardWarnings.map((warning) => warning.message)] }
+      : baseResult;
+    const response: ContextPackCreateResponse = {
+      action: 'contextPack.create',
+      mode: 'created',
+      message: 'Context-pack creation completed through the shared bootstrap, planning, and initial seeding seams.',
+      commandPath: toRepoRelativePath(CONTEXT_PACK_BOOTSTRAP_SCRIPT_PATH),
+      result,
+    };
+    return { ok: true, response };
+  } catch (error: unknown) {
+    log.error(
+      'context-pack.create.failed',
+      error,
+      contextPackCreateLogContext({
+        ...payload,
+        contextPackDir: resolve(payload.contextPackDir),
+        discoveryRoot: resolve(payload.discoveryRoot),
+      }),
+    );
+    const stderr = typeof error === 'object' && error !== null && 'stderr' in error
+      ? String((error as { stderr?: unknown }).stderr ?? '') : '';
+    return {
+      ok: false,
+      action: 'contextPack.create',
+      error: stderr || (error instanceof Error ? error.message : 'Context-pack creation failed unexpectedly.'),
+    };
+  }
+}

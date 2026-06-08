@@ -2,7 +2,7 @@
 
 /**
  * Structural CI workflow-matrix validator used by the OS-agnosticism gate runner
- * (section-7) and runnable standalone.
+ * and runnable standalone.
  *
  * Verifies the supported-OS contract is actually proven by CI: Node AND Python
  * lanes on the Ubuntu/macOS/Windows matrix, Python 3.12 selection, a Windows

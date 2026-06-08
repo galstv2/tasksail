@@ -77,7 +77,7 @@ describe('resolveQueuePaths — method accessor distinctness', () => {
   });
 });
 
-// F37 — activeItemLink function behavior
+// activeItemLink function behavior.
 describe('resolveQueuePaths — activeItemLink F37 sentinel filter', () => {
   let tmpRoot: string;
 

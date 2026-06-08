@@ -1,8 +1,4 @@
-/*
- * Shared terminal-style single-select dropdown (TerminalSelectMenu).
- * Base palette/interaction is owned here; callers (TerminalFeed task scope,
- * Task Board Artifact Explorer) add only small layout/accent wrappers.
- */
+/* Shared terminal single-select palette and interaction; callers add layout/accent wrappers. */
 
 .terminal-select-menu {
   position: relative;

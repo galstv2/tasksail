@@ -64,17 +64,10 @@ describe('getEnabledComposeServices', () => {
     expect(result[0].id).toBe('enabled-svc');
   });
 
-  it('returns empty array when no services are enabled', () => {
-    const registry: McpRegistry = {
-      schema_version: 1,
-      services: [makeService({ id: 'disabled', enabled: false })],
-    };
-
-    expect(getEnabledComposeServices(registry)).toEqual([]);
-  });
-
-  it('returns empty array for empty services list', () => {
-    const registry: McpRegistry = { schema_version: 1, services: [] };
+  it.each([
+    [{ schema_version: 1, services: [makeService({ id: 'disabled', enabled: false })] } as McpRegistry, 'all disabled'],
+    [{ schema_version: 1, services: [] } as McpRegistry, 'empty list'],
+  ])('returns empty array: %s', (registry, _label) => {
     expect(getEnabledComposeServices(registry)).toEqual([]);
   });
 

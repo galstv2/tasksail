@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.backend.mcp.workspace_context_sync_deep_focus import (
+from src.backend.mcp.workspace_context_sync.deep_focus import (
     dedupe_roots,
     derive_deep_focus_roots,
     normalize_deep_focus_selection,

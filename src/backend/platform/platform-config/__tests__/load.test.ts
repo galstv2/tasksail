@@ -118,7 +118,6 @@ describe('loadPlatformConfig', () => {
     }
   });
 
-  // ---- §4.4 new fields ----
 
   it('loads full default config with all six new fields', async () => {
     const configPath = writeConfig(JSON.stringify(FULL_DEFAULT));
@@ -209,10 +208,14 @@ describe('loadPlatformConfig', () => {
     }
   });
 
-  it('rejects max_retry_generations_per_slug=0', async () => {
+  it.each([
+    [0],
+    [-1],
+    ['five' as unknown as number],
+  ] as const)('rejects max_retry_generations_per_slug=%s (invalid)', async (value) => {
     const configPath = writeConfig(JSON.stringify({
       ...FULL_DEFAULT,
-      max_retry_generations_per_slug: 0,
+      max_retry_generations_per_slug: value,
     }));
     const result = await loadPlatformConfig(configPath);
     expect(result.valid).toBe(false);
@@ -261,30 +264,6 @@ describe('loadPlatformConfig', () => {
       if (!result.valid) {
         expect(result.errors.some((e) => e.field === field)).toBe(true);
       }
-    }
-  });
-
-  it('rejects max_retry_generations_per_slug="five" (string)', async () => {
-    const configPath = writeConfig(JSON.stringify({
-      ...FULL_DEFAULT,
-      max_retry_generations_per_slug: 'five',
-    }));
-    const result = await loadPlatformConfig(configPath);
-    expect(result.valid).toBe(false);
-    if (!result.valid) {
-      expect(result.errors.some((e) => e.field === 'max_retry_generations_per_slug')).toBe(true);
-    }
-  });
-
-  it('rejects max_retry_generations_per_slug=-1', async () => {
-    const configPath = writeConfig(JSON.stringify({
-      ...FULL_DEFAULT,
-      max_retry_generations_per_slug: -1,
-    }));
-    const result = await loadPlatformConfig(configPath);
-    expect(result.valid).toBe(false);
-    if (!result.valid) {
-      expect(result.errors.some((e) => e.field === 'max_retry_generations_per_slug')).toBe(true);
     }
   });
 
@@ -366,7 +345,6 @@ describe('loadPlatformConfig', () => {
     }
   });
 
-  // ---- slice_artifact_format ----
 
   it('defaults slice_artifact_format to markdown when absent', async () => {
     const configPath = writeConfig(JSON.stringify({
@@ -430,34 +408,14 @@ describe('loadPlatformConfig', () => {
     }
   });
 
-  it('rejects invalid migration-window compatibility mcp_port_range (min > max)', async () => {
+  it.each([
+    [{ min: 8820, max: 8811 }, 'min > max'],
+    [{ min: 8811, max: 70000 }, 'max > 65535'],
+    [{ min: 0, max: 8820 }, 'min < 1'],
+  ] as const)('rejects invalid migration-window mcp_port_range (%s)', async (range, _label) => {
     const configPath = writeConfig(JSON.stringify({
       ...FULL_DEFAULT,
-      mcp_port_range: { min: 8820, max: 8811 },
-    }));
-    const result = await loadPlatformConfig(configPath);
-    expect(result.valid).toBe(false);
-    if (!result.valid) {
-      expect(result.errors.some((e) => e.field === 'mcp_port_range')).toBe(true);
-    }
-  });
-
-  it('rejects invalid migration-window compatibility mcp_port_range (max > 65535)', async () => {
-    const configPath = writeConfig(JSON.stringify({
-      ...FULL_DEFAULT,
-      mcp_port_range: { min: 8811, max: 70000 },
-    }));
-    const result = await loadPlatformConfig(configPath);
-    expect(result.valid).toBe(false);
-    if (!result.valid) {
-      expect(result.errors.some((e) => e.field === 'mcp_port_range')).toBe(true);
-    }
-  });
-
-  it('rejects invalid migration-window compatibility mcp_port_range (min < 1)', async () => {
-    const configPath = writeConfig(JSON.stringify({
-      ...FULL_DEFAULT,
-      mcp_port_range: { min: 0, max: 8820 },
+      mcp_port_range: range,
     }));
     const result = await loadPlatformConfig(configPath);
     expect(result.valid).toBe(false);

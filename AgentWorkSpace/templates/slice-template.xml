@@ -12,7 +12,7 @@
   <sourceTrace>
     <implementationSpecPath>AgentWorkSpace/tasks/&lt;taskId&gt;/handoffs/implementation-spec.md</implementationSpecPath>
     <notes>
-      <!-- Optional for Alice: add a short pointer to relevant implementation-spec.md sections or requirement IDs when it helps Dalton. Leave as "None" when this would duplicate other slice fields. This block is traceability context only; it does not expand this slice's execution scope. -->
+      <!-- Optional: add a short pointer to relevant implementation-spec.md sections or requirement IDs when it helps the executing agent. Leave as "None" when this would duplicate other slice fields. This block is traceability context only; it does not expand this slice's execution scope. -->
       None
     </notes>
   </sourceTrace>
@@ -31,7 +31,7 @@
   </dependenciesAndOrder>
   <executionScope>
     <scope required="true">
-      <!-- required changes, data flow, failure behavior, integration boundaries, and relevant requirement IDs; include enough detail that Dalton can execute without guessing -->
+      <!-- required changes, data flow, failure behavior, integration boundaries, and relevant requirement IDs; include enough detail that the executing agent can execute without guessing -->
     </scope>
     <currentSymbols required="true">
       <!-- source-derived inventory of every existing route group, endpoint, class, handler, file, or other symbol whose inclusion or exclusion affects this slice; for refactors/extractions, list all relevant current symbols found in source, not only the ones being changed; write "Source inspection found no existing source symbols" only when source inspection proves there are none; use "None" only when no source symbol inventory applies -->
@@ -89,7 +89,7 @@
       <!-- coordination notes with other slices, shared files, ordering constraints, or "None" when this slice is independent -->
     </coordination>
     <closeoutRequirements required="true">
-      <!-- files changed, tests run, validation not run, remaining risks, and deferred external actions that Dalton must report -->
+      <!-- files changed, tests run, validation not run, remaining risks, and deferred external actions that the executing agent must report -->
     </closeoutRequirements>
   </guardsAndCoordination>
 </executionSlice>

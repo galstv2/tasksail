@@ -98,21 +98,66 @@ describe('preCommitHook CSS color token discipline', () => {
     expect(result.failures[0]).toContain('literal color found');
   });
 
+  it('reports staged comment discipline failures without reading unstaged content', async () => {
+    const stagedFile = 'src/backend/platform/queue/example.ts';
+    await writeRepoFile(stagedFile, [
+      '// ----------',
+      'export const value = 1;',
+    ].join('\n'));
+    mockStagedFiles(
+      [stagedFile],
+      undefined,
+      [
+        'diff --git a/src/backend/platform/queue/example.ts b/src/backend/platform/queue/example.ts',
+        'index 1111111..2222222 100644',
+        '--- a/src/backend/platform/queue/example.ts',
+        '+++ b/src/backend/platform/queue/example.ts',
+        '@@ -0,0 +1,2 @@',
+        '+// Phase 2: staged label.',
+        '+export const value = 2;',
+      ].join('\n'),
+      new Map([[stagedFile, '// Phase 2: staged label.\nexport const value = 2;\n']]),
+    );
+
+    const result = await preCommitHook(repoRoot);
+
+    expect(result.passed).toBe(false);
+    expect(result.failures.join('\n')).toContain('comment discipline failed');
+    expect(result.failures.join('\n')).toContain('comment.process-reference-label');
+    expect(result.failures.join('\n')).toContain('Phase 2: staged label.');
+  });
+
   async function writeRepoFile(relativePath: string, content: string): Promise<void> {
     const fullPath = path.join(repoRoot, relativePath);
     await fs.promises.mkdir(path.dirname(fullPath), { recursive: true });
     await fs.promises.writeFile(fullPath, content);
   }
 
-  function mockStagedFiles(stagedFiles: string[], cssGateError?: Error): void {
+  function mockStagedFiles(
+    stagedFiles: string[],
+    cssGateError?: Error,
+    cachedDiff = '',
+    stagedBlobs: Map<string, string> = new Map(),
+  ): void {
     execFileMock.mockImplementation((
       command: string,
       args: string[],
       _options: unknown,
       callback: ExecFileCallback,
     ) => {
-      if (command === 'git' && args[0] === 'diff') {
+      if (command === 'git' && args[0] === 'diff' && args.includes('--name-only')) {
         callback(null, `${stagedFiles.join('\n')}\n`, '');
+        return;
+      }
+
+      if (command === 'git' && args[0] === 'diff' && args.includes('--unified=0')) {
+        callback(null, cachedDiff, '');
+        return;
+      }
+
+      if (command === 'git' && args[0] === 'show') {
+        const stagedPath = args[1]?.replace(/^:/, '');
+        callback(null, stagedBlobs.get(stagedPath ?? '') ?? '', '');
         return;
       }
 

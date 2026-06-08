@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DragEvent } from 'react';
 
 import type { ArchivedTaskEntry, TaskBoardContentColumn, TaskBoardDeleteColumn, TaskBoardPendingItem, TaskBoardReadChildChainBranchInventoryResponse } from '../../../shared/desktopContract';
-import type { TaskBoardContentResult, TaskBoardState } from '../../hooks/useTaskBoard';
+import type { TaskBoardContentResult, TaskBoardState } from '../../hooks/taskboard/useTaskBoard';
 import { formatLocalTimeShort, formatRelativeDay } from '../../utils/localTimestamp';
 import TaskBoardColumn from './TaskBoardColumn';
 import TaskBoardCard from './TaskBoardCard';
@@ -238,7 +238,7 @@ function TaskBoard({
       }
     }
 
-    // Completed column — match by taskId (fileName is synthetic `${taskId}.md`)
+    // Completed column: match by taskId because fileName is synthetic.
     if (!found) {
       const completedMatch = task.taskId
         ? currentBoard.completedItems.find((item) => item.taskId === task.taskId)
@@ -277,12 +277,12 @@ function TaskBoard({
   const handleCardClick = useCallback(
     (fileName: string, title: string | null, column: TaskBoardContentColumn, completedEntry?: ArchivedTaskEntry, rowTaskId?: string | null) => {
       if (!readTaskContent) return;
-      // Omit artifactRelativePath so the initial completed read defaults to archive.md.
+      // Omit artifactRelativePath so the initial completed read defaults to the canonical archive.
       // Retain childChain and branchHandoffs metadata so the completed detail modal can
       // offer View Chain or View Branches without re-deriving from file names or markdown.
       // Capture the row's taskId for every column so board reconciliation can rebind by
       // stable task identity when fileName and taskId differ (the markdown fallback-scanner
-      // rename path), instead of only by the synthetic completed `${taskId}.md` filename.
+      // rename path), instead of only by the synthetic completed filename.
       setSelectedTask({
         fileName,
         title,

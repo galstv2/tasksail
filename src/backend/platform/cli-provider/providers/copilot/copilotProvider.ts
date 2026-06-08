@@ -19,6 +19,7 @@ import { parseChatagentProfile } from './profileParser.js';
 import { buildCopilotPlannerLaunchSpec, COPILOT_PLANNER_AGENT_ID, CopilotPlannerParser } from './plannerAdapter.js';
 import { getCopilotReasoningEffortCapabilities } from './reasoningEffortCapabilities.js';
 import { readCopilotPluginManifestSummary } from './launchExtensions.js';
+import { REQUIRED_REGISTRY_FIELDS } from '../../workflowContract.js';
 
 /**
  * Project a resolved MCP server into a Copilot CLI mcp-config.json entry.
@@ -133,12 +134,9 @@ export const copilotProvider: CliProvider = {
   },
 
   requiredFiles(): string[] {
-    // The Copilot CLI's `--agent` mode reads role instructions from
-    // `.github/copilot/instructions/*.instructions.md` and per-agent profiles
-    // from `.github/agents/`, both of which are already enforced via
-    // requiredDirs() and AGENT_CONFIG_PATHS. There is no top-level file the
-    // Copilot CLI auto-loads at runtime, so the provider has no required
-    // file-presence contract beyond the directory tree.
+    // Copilot loads role instructions from the provider-owned instructions tree
+    // and per-agent profiles from `.github/agents`. Those directories are
+    // already enforced, and there is no top-level runtime file contract here.
     return [];
   },
 
@@ -173,7 +171,7 @@ export const copilotProvider: CliProvider = {
   },
 
   requiredRegistryFields(): readonly string[] {
-    return ['instruction_path', 'agent_profile_path'];
+    return REQUIRED_REGISTRY_FIELDS;
   },
 
   inspectPluginMetadata(runtimePath: string) {
@@ -183,7 +181,7 @@ export const copilotProvider: CliProvider = {
   mcpConfigArgs,
 
   renderMcpConfig(launchDir: string, servers: ResolvedMcpServer[]): string {
-    // SEC-TS-02: mcp-config.json embeds resolved Bearer tokens / env secrets.
+    // mcp-config.json embeds resolved Bearer tokens / env secrets.
     // Restrict the launch dir (0o700) and file (0o600) so a second local OS
     // user cannot read them. Owner-only bits are not reduced by typical umasks.
     mkdirSync(launchDir, { recursive: true, mode: 0o700 });

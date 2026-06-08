@@ -237,18 +237,15 @@ export type QueueStatusResponse = {
 };
 
 /**
- * §5.5 OperatorStatus shape change (F28 — §0.3 amendment).
- * Exception to "No frontend/IPC contract changes": this type changes from a string enum
- * to { activeTasks: Array<{ taskId, phase, startedAt }> } carrying a back-compat
- * activeTaskId scalar. All renderer consumers are updated in the same PR (§5.5).
- * activeTaskId and activeTaskTitle scalar back-compat fields are preserved in
- * ObservabilitySnapshotResponse.
+ * OperatorStatus is an active-task object, with a back-compat activeTaskId
+ * scalar for older renderer consumers. ObservabilitySnapshotResponse also
+ * preserves activeTaskId and activeTaskTitle scalar aliases.
  */
 export type OperatorStatus = {
   /** Array of currently active tasks. Empty when no tasks are active. */
   activeTasks: Array<{ taskId: string; phase: string; startedAt: string }>;
   /**
-   * F39 back-compat scalar: derived as activeTasks[0]?.taskId ?? null.
+   * Back-compat scalar: derived as activeTasks[0]?.taskId ?? null.
    * Preserved so useAppShell.ts:176 and taskObservationModel.ts can read it
    * without switching to activeTasks[0].
    */
@@ -499,9 +496,7 @@ export type ReinforcementUpdateRealignmentDocResponse = {
   data?: Record<string, unknown>;
 };
 
-// ---------------------------------------------------------------------------
 // Reinforcement read-side actions
-// ---------------------------------------------------------------------------
 
 export type ReinforcementTaskEntry = {
   taskId: string;
@@ -693,9 +688,7 @@ export type ReinforcementDismissRealignmentResponse = {
   realignmentId: string;
 };
 
-// ---------------------------------------------------------------------------
 // External MCP server management
-// ---------------------------------------------------------------------------
 
 type ExternalMcpServerEntryBase = {
   id: string;
@@ -826,11 +819,7 @@ export type ExternalMcpValidateLocalCommandResponse = {
   resolvedPath?: string;
 };
 
-// ---------------------------------------------------------------------------
-// Agent configuration (types in desktopContractAgentConfig.ts)
-// ---------------------------------------------------------------------------
-
-// Private import for use in DesktopActionRequest and DesktopActionResponse unions below.
+// Agent configuration union members use private imports from desktopContractAgentConfig.ts.
 import type {
   AgentConfigLoadAgentsRequest,
   AgentConfigLoadAgentsResponse,
@@ -902,11 +891,7 @@ export type {
   AgentConfigSaveExternalMcpAssignmentsResponse,
 } from './desktopContractAgentConfig';
 
-// ---------------------------------------------------------------------------
-// System Settings (types in desktopContractSystemSettings.ts)
-// ---------------------------------------------------------------------------
-
-// Private import for use in DesktopActionRequest and DesktopActionResponse unions below.
+// System settings union members use private imports from desktopContractSystemSettings.ts.
 import type {
   SystemSettingsReadRequest,
   SystemSettingsReadResponse,
@@ -952,9 +937,7 @@ export type { InstructionFileEntry, InstructionDirectory } from './desktopContra
 import type { AgentInstructionsListFilesRequest, AgentInstructionsListFilesResponse, AgentInstructionsReadFileRequest, AgentInstructionsReadFileResponse, AgentInstructionsWriteFileRequest, AgentInstructionsWriteFileResponse } from './desktopContractAgentInstructions';
 export type { AgentInstructionsListFilesRequest, AgentInstructionsListFilesResponse, AgentInstructionsReadFileRequest, AgentInstructionsReadFileResponse, AgentInstructionsWriteFileRequest, AgentInstructionsWriteFileResponse };
 
-// ---------------------------------------------------------------------------
 // Task Board actions
-// ---------------------------------------------------------------------------
 
 export type TaskBoardItem = {
   fileName: string;
@@ -1416,9 +1399,7 @@ export type DesktopActionResponse =
   | TerminalSetTaskScopeResponse
   | CancelTaskResponse;
 
-// ---------------------------------------------------------------------------
 // Services (backend MCP container service management)
-// ---------------------------------------------------------------------------
 export type BackendServiceStatus =
   | 'idle'
   | 'starting'
@@ -1456,9 +1437,7 @@ export type ServicesReadStatusResponse = {
   message: string;
 };
 
-// ---------------------------------------------------------------------------
-// Cancel task (§5.3)
-// ---------------------------------------------------------------------------
+// Cancel task
 
 export type CancelTaskRequest = {
   action: 'cancel-task';

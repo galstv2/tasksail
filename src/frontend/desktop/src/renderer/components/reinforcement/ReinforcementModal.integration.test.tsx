@@ -199,7 +199,7 @@ describe('realignment analysis actions', () => {
         taskTitle: null,
         severity: 'success',
         message: 'Realignment analysis archived.',
-        actorName: 'Ron - Realignment',
+        actorName: 'QA - Realignment',
         realignmentId: 'RA-1',
       } satisfies StreamEvent);
     });
@@ -439,7 +439,7 @@ describe('pack switch isolation', () => {
         taskTitle: null,
         severity: 'success',
         message: 'Realignment analysis archived.',
-        actorName: 'Ron - Realignment',
+        actorName: 'QA - Realignment',
         realignmentId: 'RA-OTHER',
       } satisfies StreamEvent);
     });
@@ -462,7 +462,7 @@ describe('pack switch isolation', () => {
         taskTitle: null,
         severity: 'success',
         message: 'Realignment analysis archived.',
-        actorName: 'Ron - Realignment',
+        actorName: 'QA - Realignment',
         realignmentId: 'RA-1',
       } satisfies StreamEvent);
     });

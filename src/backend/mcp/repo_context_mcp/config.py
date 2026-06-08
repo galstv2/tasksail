@@ -4,7 +4,7 @@ import os
 from dataclasses import dataclass
 from typing import FrozenSet, Literal
 
-from src.backend.mcp.pack_constants import ALLOWED_LAYERS
+from src.backend.mcp.pack.constants import ALLOWED_LAYERS
 
 DEFAULT_EXCLUDED_DIRS: FrozenSet[str] = frozenset(
     {

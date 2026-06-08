@@ -12,7 +12,8 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src.backend.mcp.context_pack_bootstrap import bootstrap_context_pack
+from src.backend.mcp.context_estate.bootstrap import bootstrap_context_pack
+from src.backend.mcp.context_estate.constants import ALLOWED_DISCOVERY_MODES
 from src.backend.scripts.python.lib.logging_config import configure_logging
 
 _MAX_INLINE_BYTES = 32 * 1024
@@ -26,7 +27,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         )
     )
     parser.add_argument("--context-pack-dir", required=True)
-    # answers source: one of --answers-file or --answers-json (mutually exclusive)
     answers_group = parser.add_mutually_exclusive_group(required=True)
     answers_group.add_argument(
         "--answers-file",
@@ -42,7 +42,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--discovery-root", required=True)
     parser.add_argument(
         "--mode",
-        choices=("auto", "distributed", "monolith"),
+        choices=ALLOWED_DISCOVERY_MODES,
         default="auto",
     )
     parser.add_argument(
@@ -57,7 +57,6 @@ def load_answers(args: argparse.Namespace) -> dict:  # type: ignore[type-arg]
     if args.answers_file:
         answers_path = Path(args.answers_file)
         return json.loads(answers_path.read_text(encoding="utf-8"))  # type: ignore[return-value]
-    # --answers-json path
     raw = args.answers_json
     if raw == "-":
         raw = sys.stdin.read()

@@ -5,6 +5,10 @@ from pathlib import Path
 
 import pytest
 
+from .registry_skip import skip_if_agent_registry_missing
+
+skip_if_agent_registry_missing()
+
 from src.backend.mcp.reinforcement.engine import ReinforcementEngine
 from src.backend.mcp.reinforcement.persistence import ReinforcementStore
 from src.backend.mcp.reinforcement.qmd_writer import QmdRewardWriter
@@ -60,27 +64,6 @@ class TestArchiveIntegration:
         assert len(ledger) == 2
         task_ids = {e.task_id for e in ledger}
         assert task_ids == {"T-1", "T-2"}
-
-    def test_result_dict_includes_reinforcement_fields(
-        self, store: ReinforcementStore,
-    ) -> None:
-        """Mirrors the output dict structure from file-task-archive.py.
-        The archive script checks the returned status before marking
-        reinforcement as recorded."""
-        engine = ReinforcementEngine(store)
-        r_result = engine.record_task_completion(
-            task_id="T-1", difficulty="medium",
-            quality_outcome="success",
-        )
-        reinforcement_status = "recorded" if r_result["status"] == "recorded" else "skipped"
-        reinforcement_error = "" if r_result["status"] == "recorded" else str(r_result)
-        result = {
-            "status": "filed",
-            "reinforcement_status": reinforcement_status,
-            "reinforcement_error": reinforcement_error,
-        }
-        assert result["reinforcement_status"] == "recorded"
-        assert result["reinforcement_error"] == ""
 
 
 class TestLegacyMigration:

@@ -65,7 +65,7 @@ describe('deleteErrorItem retained-state disposal', () => {
 
     await deleteErrorItem({ repoRoot, queueName: `${taskId}.md` });
 
-    // .md file gone
+    // Task file gone.
     expect(existsSync(path.join(errorItemsDir, `${taskId}.md`))).toBe(false);
 
     // Discard helper called exactly once with the failed task's ID

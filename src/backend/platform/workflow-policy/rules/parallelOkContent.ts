@@ -18,7 +18,7 @@ import { toHandoffKey } from '../validator.js';
 import type { PolicyValidator } from '../validator.js';
 
 const ARTIFACT = toHandoffKey('parallel-ok.md');
-// Accept bare slice-N, slice-N.md, or slice-N.xml references
+// Accept bare slice ids and format-qualified slice references.
 const SLICE_ID_PATTERN = /\b(?:slice[-_a-zA-Z0-9]*|[a-zA-Z0-9][\w.-]*\.(?:md|xml))\b/g;
 
 function shouldFire(validator: PolicyValidator): boolean {
@@ -124,7 +124,7 @@ async function checkSlicesExist(
 function independentSliceItems(lines: readonly string[], format: 'markdown' | 'xml' = 'markdown'): string[] {
   // When raw bullets exist, use them (format-aware) even if all are rejected —
   // falling back to the free-text regex would re-extract a wrong-format ref as a
-  // bare id (the regex strips .md/.xml greedily), silently re-accepting it.
+  // bare id by stripping the extension, silently re-accepting it.
   const rawBullets = extractBulletItems(lines);
   if (rawBullets.length > 0) {
     return [...new Set(

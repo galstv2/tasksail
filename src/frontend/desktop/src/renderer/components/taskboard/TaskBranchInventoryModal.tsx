@@ -1,5 +1,5 @@
 import type { ArchivedTaskEntry } from '../../../shared/desktopContract';
-import ModalShell, { ModalShellEscHint } from '../ModalShell';
+import ModalShell, { ModalShellEscHint } from '../shared/ModalShell';
 
 type ArchivedBranchHandoff = NonNullable<ArchivedTaskEntry['branchHandoffs']>[number];
 

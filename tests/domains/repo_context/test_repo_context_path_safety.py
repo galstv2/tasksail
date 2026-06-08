@@ -1,4 +1,4 @@
-"""SEC-PY-01: path containment for QMD record storage builders.
+"""Path containment for QMD record storage builders.
 
 record_storage_path / state_file_path interpolate the untrusted manifest
 repo_id (and source_path) into a filesystem path. A crafted value must not be

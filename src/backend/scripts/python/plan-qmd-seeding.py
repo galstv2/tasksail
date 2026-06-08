@@ -17,12 +17,12 @@ _REPO_ROOT = Path(__file__).resolve().parents[4]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from src.backend.mcp.git_roots import coerce_git_root_field  # noqa: E402
-from src.backend.mcp.pack_constants import (  # noqa: E402
+from src.backend.mcp.pack.constants import (  # noqa: E402
     MANIFEST_VERSION as DEFAULT_MANIFEST_VERSION,
 )
 from src.backend.mcp.pack_schemas.manifest_v2 import LocalPath  # noqa: E402
-from src.backend.mcp.path_resolution import pick_local_path  # noqa: E402
+from src.backend.mcp.probes.git_roots import coerce_git_root_field  # noqa: E402
+from src.backend.mcp.probes.path_resolution import pick_local_path  # noqa: E402
 from src.backend.mcp.repo_context_mcp.utils import (  # noqa: E402
     ensure_list_of_strings,
     ensure_non_empty_string,
@@ -456,8 +456,8 @@ def main() -> int:
         return 1
 
     if args.write_plan:
+        from src.backend.mcp.pack.writer import PackWriter
         from src.backend.mcp.pack_schemas import validate_plan
-        from src.backend.mcp.pack_writer import PackWriter
         plan_model = validate_plan(plan, path=str(plan_file))
         PackWriter(context_pack_dir, plan_file=plan_file).write_plan(plan_model)
 

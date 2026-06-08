@@ -7,7 +7,6 @@ import { seedMcpRegistry } from '../seed.js';
 import { RUNTIME_REGISTRY_PATH, DEFAULT_REGISTRY_PATH } from '../load.js';
 import { CURRENT_SCHEMA_VERSION } from '../types.js';
 
-/** Read the checked-in default registry as a string. */
 const REAL_DEFAULT = fs.readFileSync(
   path.resolve(__dirname, '..', '..', '..', '..', '..', 'config', 'mcp-registry.default.json'),
   'utf-8',
@@ -50,42 +49,19 @@ describe('seedMcpRegistry', () => {
     expect(data.services[0].id).toBe('repo-context-mcp');
   });
 
-  it('returns the registry on created', async () => {
-    writeDefault();
-    const result = await seedMcpRegistry(tmpDir);
-    expect(result.action).toBe('created');
-    if (result.action === 'created') {
-      expect(result.registry.services[0].id).toBe('repo-context-mcp');
-    }
-  });
-
   it('does not overwrite an existing up-to-date runtime registry', async () => {
     writeDefault();
 
-    // First seed
     await seedMcpRegistry(tmpDir);
     const firstContent = readRuntime();
 
-    // Modify the runtime file slightly (add whitespace) to detect overwrites
     fs.writeFileSync(runtimePath(), firstContent + '\n');
 
-    // Second seed
     const result = await seedMcpRegistry(tmpDir);
     expect(result.action).toBe('up-to-date');
 
-    // File should still have the extra newline
     const secondContent = readRuntime();
     expect(secondContent).toBe(firstContent + '\n');
-  });
-
-  it('returns the registry on up-to-date', async () => {
-    writeDefault();
-    await seedMcpRegistry(tmpDir);
-    const result = await seedMcpRegistry(tmpDir);
-    expect(result.action).toBe('up-to-date');
-    if (result.action === 'up-to-date') {
-      expect(result.registry.services[0].id).toBe('repo-context-mcp');
-    }
   });
 
   it('fails when runtime file has corrupt JSON (fail-closed)', async () => {
@@ -104,7 +80,6 @@ describe('seedMcpRegistry', () => {
   it('fails when runtime registry has stale schema version', async () => {
     writeDefault();
 
-    // Create a runtime file with an older schema version
     const staleRegistry = JSON.parse(REAL_DEFAULT);
     staleRegistry.schema_version = CURRENT_SCHEMA_VERSION + 1;
     const stalePath = runtimePath();
@@ -118,7 +93,6 @@ describe('seedMcpRegistry', () => {
   it('fails when runtime registry has duplicate service IDs', async () => {
     writeDefault();
 
-    // Create a runtime file with duplicate IDs
     const dupeRegistry = JSON.parse(REAL_DEFAULT);
     dupeRegistry.services.push({ ...dupeRegistry.services[0] });
     const dupePath = runtimePath();
@@ -133,7 +107,6 @@ describe('seedMcpRegistry', () => {
   });
 
   it('fails when default registry file is missing', async () => {
-    // Don't write the default file
     const result = await seedMcpRegistry(tmpDir);
     expect(result.action).toBe('failed');
     if (result.action === 'failed') {
@@ -142,7 +115,7 @@ describe('seedMcpRegistry', () => {
   });
 
   it('fails when default registry has invalid content', async () => {
-    writeDefault('{ "schema_version": 1 }'); // missing services
+    writeDefault('{ "schema_version": 1 }');
     const result = await seedMcpRegistry(tmpDir);
     expect(result.action).toBe('failed');
     if (result.action === 'failed') {

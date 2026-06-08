@@ -93,7 +93,7 @@ function platformStateDir(repoRoot: string): string {
 }
 
 // Resolve an add-request source into a durable manifest source. For direct attachment
-// this writes config/skill-authored/<id>/SKILL.md atomically; the caller invokes this
+// this writes the authored skill document atomically; the caller invokes this
 // while holding withAgentExtensionsLock and after id+duplicate validation, so the
 // authored write stays inside the single-writer transaction (never orphaned by a
 // duplicate-id rejection). config_path is derived from the already-validated id slug,
@@ -269,7 +269,7 @@ export async function addAgentExtension(
       throw new Error(`Extension ID "${tentativeId}" already exists in the catalog.`);
     }
 
-    // Resolve the durable manifest source (writing the authored SKILL.md for
+    // Resolve the durable manifest source (writing the authored skill document for
     // direct attachment) and materialize the runtime copy. Both run under the lock,
     // after id+duplicate validation, so a rejected add never writes authored content.
     let manifestSource: AgentExtensionSource;

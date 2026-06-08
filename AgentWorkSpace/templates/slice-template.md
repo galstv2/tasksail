@@ -1,5 +1,5 @@
 # Slice Template
-<!-- Scale detail to task complexity: keep small surgical slices concise and exact; expand complex/risky slices with enough current-state facts, sequencing, guards, and validation detail that Dalton can execute without guessing. Do not add filler. -->
+<!-- Scale detail to task complexity: keep small surgical slices concise and exact; expand complex/risky slices with enough current-state facts, sequencing, guards, and validation detail that the executing agent can execute without guessing. Do not add filler. -->
 
 ## Objective
 
@@ -7,7 +7,7 @@
 <!-- concrete outcome for this slice and why it exists in the overall plan; reference relevant CR-*, COMP-*, or VAL-* IDs only when they directly affect this slice. For small tasks, one or two concise sentences are enough; expand context only when complex or risky. -->
 
 ### Inputs to Read
-<!-- list exact files, tests, helpers, existing patterns, or generated handoff sections Dalton should read before editing; write "None" only if this slice genuinely needs no pre-read beyond the files it edits -->
+<!-- list exact files, tests, helpers, existing patterns, or generated handoff sections the executing agent should read before editing; write "None" only if this slice genuinely needs no pre-read beyond the files it edits -->
 
 ## Dependencies and Order
 
@@ -58,7 +58,7 @@ Add a broader command only when this slice changes shared contracts.
 -->
 
 ### Stale Assumption Handling
-<!-- if a named file/symbol/test moved, Dalton should find the nearest current equivalent and preserve the required behavior; if an acceptance criterion conflicts with allowed changes, stop expanding scope and leave a clear blocker in closeout -->
+<!-- if a named file/symbol/test moved, the executing agent should find the nearest current equivalent and preserve the required behavior; if an acceptance criterion conflicts with allowed changes, stop expanding scope and leave a clear blocker in closeout -->
 
 ## Guards and Coordination
 
@@ -66,4 +66,4 @@ Add a broader command only when this slice changes shared contracts.
 <!-- preserved invariants, compatibility requirements, concurrency/order/locking constraints, coordination notes with other slices, and directly relevant requirement IDs; write "None" only when there are genuinely no special guards beyond required scope and validation -->
 
 ### Closeout Requirements
-<!-- list what Dalton must report: files changed, tests run, validation not run, remaining risks, and any deferred external action; keep this concise -->
+<!-- list what the executing agent must report: files changed, tests run, validation not run, remaining risks, and any deferred external action; keep this concise -->

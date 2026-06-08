@@ -39,7 +39,7 @@
 <!-- (1-4 sentences) — concise outcome summary grounded in the completed implementation and validation. Filling only metadata sections (Task Metadata, Task Lineage, Difficulty Assessment) does not count as a complete final-summary; at least one content section (Test Result Summary, Completed Work, Key Design Decisions, etc.) must be populated. -->
 
 ## Requirement Verification
-<!-- Platform-populated before Ron launches. If generated requirement IDs exist, do not delete them; replace pending with verified/advisory and add evidence. If any generated requirement is unmet, leave closeout content alone and write blocking issues.md instead. -->
+<!-- Platform-populated before QA launches. If generated requirement IDs exist, do not delete them; replace pending with verified/advisory and add evidence. If any generated requirement is unmet, leave closeout content alone and write blocking issues.md instead. -->
 
 ## Test Status
 <!-- (1 word) — required — exactly one of: passed | failed | partially-passed | not-run. Authoritative; the archive uses this verbatim. Free-form prose belongs in Test Result Summary. -->
@@ -48,7 +48,7 @@
 <!-- (1 word) — required — exactly one of: passed | issues-found. "passed" means QA approved and no advisory or blocking finding remains. "issues-found" means at least one advisory or blocking finding is recorded in issues.md. Authoritative; the archive uses this verbatim. -->
 
 ## Task branches
-<!-- Platform provides TASKSAIL_TASK_BRANCHES or TASKSAIL_TASK_BRANCHES_FILE. Ron copies that value here for pass/advisory closeout; do not discover branch names with git. -->
+<!-- Platform provides TASKSAIL_TASK_BRANCHES or TASKSAIL_TASK_BRANCHES_FILE. QA copies that value here for pass/advisory closeout; do not discover branch names with git. -->
 
 ## Rollout or Operational Notes
 <!-- (1-5 bullets) — deployment steps or operational changes; "None" if not applicable -->

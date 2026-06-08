@@ -1,4 +1,4 @@
-// Phase 2 confirmation fixture builder (test-only).
+// Confirmation fixture builder (test-only).
 //
 // Builds deterministic skill/plugin source material under an OS temp directory so
 // the catalog → assignment → staging → launch path can be confirmed end-to-end
@@ -14,9 +14,9 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
-// Mirrors the spec dataContract SkillPluginConfirmationFixture. Literal id/displayName/
-// description values match the spec; the plugin's catalog display_name is derived from
-// the manifest `name` slug (a separate value), which tests assert directly.
+// Mirrors the fixture contract. Literal id/displayName/description values are
+// stable; the plugin's catalog display_name is derived from the manifest `name`
+// slug, which tests assert directly.
 export type SkillPluginConfirmationFixture = {
   skill: {
     id: 'phase2-ferret-skill';

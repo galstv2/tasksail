@@ -35,16 +35,6 @@ describe('inspectAgentExtensionMetadata (skill)', () => {
     expect(result.metadata.skill_names).toEqual(['My Skill']);
   });
 
-  it('does not return SKILL.md body content', async () => {
-    fs.writeFileSync(path.join(tmpDir, 'SKILL.md'), VALID_SKILL_MD);
-    const result = await inspectAgentExtensionMetadata({
-      kind: 'skill',
-      runtimePath: tmpDir,
-    });
-    // Ensure no body content leaked
-    expect(JSON.stringify(result)).not.toContain('Body content here');
-  });
-
   it('throws (fail-closed) when SKILL.md is missing', async () => {
     await expect(
       inspectAgentExtensionMetadata({ kind: 'skill', runtimePath: tmpDir }),

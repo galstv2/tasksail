@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 
 import type { ReinforcementTaskEntry } from '../../../shared/desktopContract';
-import type { FeedbackDraft, FeedbackType, SubmitState } from '../../hooks/useFeedbackSubmission';
+import type { FeedbackDraft, FeedbackType, SubmitState } from '../../hooks/reinforcement/useFeedbackSubmission';
 import TaskDetailModal from '../taskboard/TaskDetailModal';
 import TaskPicker from './TaskPicker';
 

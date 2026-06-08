@@ -37,7 +37,9 @@ export async function writeTaskPackSnapshot(options: WriteTaskPackSnapshotOption
   const rawPrimaryRepoId = deepFocusEnabled
     ? options.selection.deepFocusPrimaryRepoId ?? firstTargetIdentity(options.selection.selectedFocusTargets, 'repoId') ?? options.selection.selectedRepoIds[0]
     : options.binding.primaryRepoId;
-  const selectedFocusIds = collectSelectedFocusIds(options.binding, options.selection);
+  const selectedFocusIds = collectSelectedFocusIds(options.binding, options.selection, {
+    includeDeepFocusPrimary: isMonolith && deepFocusEnabled,
+  });
   const rawPrimaryFocusId = deepFocusEnabled
     ? options.selection.deepFocusPrimaryFocusId ?? firstTargetIdentity(options.selection.selectedFocusTargets, 'focusId') ?? options.selection.selectedFocusIds[0]
     : options.binding.primaryFocusId ?? options.selection.primaryFocusId ?? selectedFocusIds[0];
@@ -113,10 +115,13 @@ export async function writeTaskPackSnapshot(options: WriteTaskPackSnapshotOption
         legacyPrimaryFocusRelativePath: primary.primaryFocusRelativePath ?? undefined,
       })
     : undefined;
+  const deepFocusPrimaryTargets = isMonolith && deepFocusEnabled
+    ? attachDefaultRepoLocalPath(deepFocus?.primaryFocusTargets, primary.repoRoot)
+    : deepFocus?.primaryFocusTargets;
   const derivedRoots = deriveWritableRootsFromFocusedSelection({
     primaryFocusRelativePath: deepFocus?.primaryFocusRelativePath ?? primary.primaryFocusRelativePath ?? undefined,
     primaryFocusTargetKind: deepFocus?.primaryFocusTargetKind,
-    primaryFocusTargets: deepFocus?.primaryFocusTargets ?? standardMonolithPrimaryTargets,
+    primaryFocusTargets: deepFocusPrimaryTargets ?? standardMonolithPrimaryTargets,
     testTarget: deepFocus?.testTarget,
     supportTargets: deepFocus?.supportTargets,
   });
@@ -136,6 +141,11 @@ export async function writeTaskPackSnapshot(options: WriteTaskPackSnapshotOption
         supportTargets: standardMonolithSupportTargets,
       }).readonlyContextRoots
     : [];
+  const writableRoots = isMonolith && !deepFocusEnabled
+    ? derivedRoots.writableRoots.map((root) => (
+        root.repoLocalPath ? root : { ...root, repoLocalPath: primary.repoRoot }
+      ))
+    : derivedRoots.writableRoots;
 
   const snapshot: TaskPackSnapshot = {
     schemaVersion: 2,
@@ -159,10 +169,10 @@ export async function writeTaskPackSnapshot(options: WriteTaskPackSnapshotOption
     deepFocus: {
       enabled: deepFocusEnabled,
       primaryFocusTargetKind: deepFocus?.primaryFocusTargetKind ?? options.selection.selectedFocusTargetKind ?? null,
-      primaryFocusTargets: deepFocus?.primaryFocusTargets ?? standardMonolithPrimaryTargets ?? options.selection.selectedFocusTargets ?? [],
+      primaryFocusTargets: deepFocusPrimaryTargets ?? standardMonolithPrimaryTargets ?? options.selection.selectedFocusTargets ?? [],
       selectedTestTarget: deepFocus?.selectedTestTarget ?? options.selection.selectedTestTarget ?? null,
       supportTargets: deepFocus?.supportTargets ?? [],
-      writableRoots: [...derivedRoots.writableRoots, ...distributedPrimaryWritableRoots],
+      writableRoots: [...writableRoots, ...distributedPrimaryWritableRoots],
       readonlyContextRoots: [
         ...derivedRoots.readonlyContextRoots,
         ...monolithSupportRoots,
@@ -299,8 +309,22 @@ function collectFocusAreas(manifest: Manifest, primaryFocusId: string) {
 function collectSelectedFocusIds(
   binding: TaskContextPackBinding,
   selection: TaskContextPackSelection,
+  options: { includeDeepFocusPrimary?: boolean } = {},
 ): string[] {
-  const merged = [...selection.selectedFocusIds, ...binding.selectedFocusIds];
+  const merged = [
+    ...selection.selectedFocusIds,
+    ...binding.selectedFocusIds,
+  ];
+  if (options.includeDeepFocusPrimary) {
+    merged.push(
+      selection.deepFocusPrimaryFocusId ?? '',
+      binding.deepFocusPrimaryFocusId ?? '',
+      selection.primaryFocusId ?? '',
+      binding.primaryFocusId ?? '',
+      ...collectPrimaryTargetFocusIds(selection.selectedFocusTargets),
+      ...collectPrimaryTargetFocusIds(binding.selectedFocusTargets),
+    );
+  }
   const seen = new Set<string>();
   const result: string[] = [];
   for (const id of merged) {
@@ -310,6 +334,19 @@ function collectSelectedFocusIds(
     result.push(trimmed);
   }
   return result;
+}
+
+function collectPrimaryTargetFocusIds(targets: { focusId?: string }[] | undefined): string[] {
+  return (targets ?? []).map((target) => target.focusId ?? '');
+}
+
+function attachDefaultRepoLocalPath<T extends { repoLocalPath?: string }>(
+  targets: T[] | undefined,
+  repoRoot: string,
+): T[] | undefined {
+  return targets?.map((target) => (
+    target.repoLocalPath ? target : { ...target, repoLocalPath: repoRoot }
+  ));
 }
 
 function collectDeclaredRepoRoots(manifest: Manifest, contextPackDir: string): string[] {

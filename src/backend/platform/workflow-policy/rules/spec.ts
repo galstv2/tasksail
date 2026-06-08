@@ -1,5 +1,5 @@
 /**
- * Spec quality validation rules for implementation-spec.md.
+ * Spec quality validation rules for implementation artifacts.
  *
  * Ported from Python: src/backend/scripts/python/lib/policy/rules_spec.py
  */

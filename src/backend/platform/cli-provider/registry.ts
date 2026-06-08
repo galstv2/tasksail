@@ -5,11 +5,28 @@ import type { CliProvider } from './types.js';
 import { copilotProvider } from './providers/copilot/index.js';
 
 const RUNTIME_PLATFORM_CONFIG_PATH = '.platform-state/platform.json';
-export const DEFAULT_CLI_PROVIDER_ID = copilotProvider.id;
 
-const providers: Record<string, CliProvider> = {
-  [copilotProvider.id]: copilotProvider,
-};
+const providers: Record<string, CliProvider> = {};
+
+/**
+ * Register a CLI provider. Built-in providers self-register at module load (below);
+ * adding a new provider is a single registerProvider(...) call here — this file is
+ * the boundary-test-whitelisted composition point. Throws on a missing or duplicate id.
+ */
+export function registerProvider(provider: CliProvider): void {
+  const id = provider.id?.trim();
+  if (!id) {
+    throw new Error('Cannot register a CLI provider without a non-empty id.');
+  }
+  if (providers[id]) {
+    throw new Error(`CLI provider "${id}" is already registered.`);
+  }
+  providers[id] = provider;
+}
+
+registerProvider(copilotProvider);
+
+export const DEFAULT_CLI_PROVIDER_ID = copilotProvider.id;
 
 const cache = new Map<string, CliProvider>();
 

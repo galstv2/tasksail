@@ -44,7 +44,7 @@ describe('repairQueue', () => {
   });
 
   it('detects stale marker in .active-items/ referencing missing pending file', async () => {
-    // §4.1B: repair now uses .active-items/<taskId> markers
+// Repair uses .active-items/<taskId> markers.
     const activeItemsDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems', '.active-items');
     mkdirSync(activeItemsDir, { recursive: true });
     writeFileSync(path.join(activeItemsDir, 'nonexistent'), '');
@@ -152,7 +152,7 @@ describe('repairQueue', () => {
   });
 
   it('detects marker in .active-items/ with valid pending file but blank workspace (crash-recovery)', async () => {
-    // §4.1B check-4: marker + .task.json sidecar but per-task handoffs dir is blank → crash-recovery
+// Check: marker plus .task.json sidecar but blank per-task handoffs dir triggers crash recovery.
     const TEST_TASK_ID = 'task-123';
     const pendingDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems');
     const activeItemsDir = path.join(pendingDir, '.active-items');
@@ -177,7 +177,7 @@ describe('repairQueue', () => {
   });
 
   it('auto-fixes marker in .active-items/ with blank workspace by removing marker', async () => {
-    // §4.1B check-4: marker + .task.json sidecar but per-task handoffs dir is blank → remove marker
+// Check: marker plus .task.json sidecar but blank per-task handoffs dir removes marker.
     const TEST_TASK_ID = 'task-456';
     const pendingDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems');
     const activeItemsDir = path.join(pendingDir, '.active-items');
@@ -203,7 +203,7 @@ describe('repairQueue', () => {
     const handoffsDir = path.join(tmpRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
     const pendingDir = path.join(tmpRoot, 'AgentWorkSpace', 'pendingitems');
     const activeItemsDir = path.join(pendingDir, '.active-items');
-    // §4.1B: use .active-items/<taskId> marker
+// Use .active-items/<taskId> marker.
     mkdirSync(handoffsDir, { recursive: true });
     mkdirSync(activeItemsDir, { recursive: true });
     writeFileSync(path.join(handoffsDir, '.publish-in-progress'), '/tmp/staging');
@@ -248,7 +248,7 @@ describe('repairQueue', () => {
     const TEST_TASK_ID = 'task-test-001';
     const handoffsDir = path.join(tmpRoot, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs');
     mkdirSync(handoffsDir, { recursive: true });
-    // Write a professional-task.md with actual content (not reset state)
+    // Write a professional task handoff with actual content, not reset state.
     // No active marker and no .task.json sidecar → orphan-task-handoffs-dir
     writeFileSync(
       path.join(handoffsDir, 'professional-task.md'),
@@ -262,7 +262,7 @@ describe('repairQueue', () => {
   });
 });
 
-// ── §4.1B — .active-items/ directory-based repair ────────────────────────────
+// .active-items/ directory-based repair.
 
 describe('repairQueue §4.1B — .active-items/ marker-based checks', () => {
   let tmpRoot: string;
@@ -318,7 +318,7 @@ describe('repairQueue §4.1B — .active-items/ marker-based checks', () => {
   });
 
   it('active-task steady state (marker + .task.json + non-blank handoffs + no pending file) is NOT flagged as stranded', async () => {
-    // Regression: under the per-task parallel model (§4.1B), the pending file
+  // Regression: under the per-task parallel model, the pending file
     // is deleted immediately after activation (operations.ts:704) and the
     // marker persists for the active lifetime. This is the LEGITIMATE steady
     // state of every active task. Check 1 must use .task.json — not pending
@@ -329,7 +329,7 @@ describe('repairQueue §4.1B — .active-items/ marker-based checks', () => {
     mkdirSync(taskHandoffsDir, { recursive: true });
     writeFileSync(path.join(activeItemsDir, 'task-active-steady'), 'task-active-steady.md');
     writeFileSync(path.join(taskSidecarDir, '.task.json'), '{"taskId":"task-active-steady","state":"active"}');
-    // Seed professional-task.md with substantive content so check-4 does NOT flag as blank
+    // Seed the professional task handoff with content so check-4 does not flag it as blank.
     writeFileSync(
       path.join(taskHandoffsDir, 'professional-task.md'),
       '# Professional Task\n\n## Task Metadata\n\n- Task ID: task-active-steady\n\nActual task content here.\n',
@@ -467,9 +467,7 @@ describe('repairQueue §4.1B — .active-items/ marker-based checks', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Track B: check-5 partial-publish repair clears ImplementationSteps artifacts
-// ---------------------------------------------------------------------------
+// Partial-publish repair clears ImplementationSteps artifacts.
 
 describe('repairQueue check-5: partial-publish repair clears ImplementationSteps', () => {
   let tmpRoot: string;

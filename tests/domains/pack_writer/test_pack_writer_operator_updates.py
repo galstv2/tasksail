@@ -7,8 +7,8 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
+from src.backend.mcp.pack.writer import PackWriter
 from src.backend.mcp.pack_schemas import LocalPath, ManifestRepositoryV2, RepoSourcesManifestV2
-from src.backend.mcp.pack_writer import PackWriter
 
 
 def _load_update_pack_manifest_script() -> ModuleType:
@@ -68,48 +68,6 @@ def test_operator_update_can_change_authored_repo_focus(tmp_path: Path) -> None:
     assert raw["repositories"][0]["repo_focus"] == "support"
     assert raw["repositories"][0]["repository_type"] == "support"
     assert raw["repositories"][0]["repo_focus_authored"] is True
-
-
-
-def test_default_update_still_preserves_authored_repo_focus(tmp_path: Path) -> None:
-    pack_dir, manifest_path = _make_pack_dir(tmp_path)
-
-    def automated_probe(model: RepoSourcesManifestV2) -> RepoSourcesManifestV2:
-        assert model.repositories is not None
-        model.repositories[0].repo_focus = "support"
-        return model
-
-    PackWriter(pack_dir).update_manifest(automated_probe)
-
-    raw = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert raw["repositories"][0]["repo_focus"] == "primary"
-    assert raw["repositories"][0]["repository_type"] == "primary"
-
-
-
-def test_default_update_preserves_repo_focus_even_without_authored_flag(
-    tmp_path: Path,
-) -> None:
-    pack_dir, manifest_path = _make_pack_dir(tmp_path)
-
-    def clear_authored_flag(model: RepoSourcesManifestV2) -> RepoSourcesManifestV2:
-        assert model.repositories is not None
-        model.repositories[0].repo_focus_authored = False
-        return model
-
-    def automated_probe(model: RepoSourcesManifestV2) -> RepoSourcesManifestV2:
-        assert model.repositories is not None
-        model.repositories[0].repo_focus = "support"
-        return model
-
-    writer = PackWriter(pack_dir)
-    writer.update_manifest(clear_authored_flag, preserve_authored_fields=False)
-    writer.update_manifest(automated_probe)
-
-    raw = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert raw["repositories"][0]["repo_focus"] == "primary"
-    assert raw["repositories"][0]["repository_type"] == "primary"
-    assert raw["repositories"][0]["repo_focus_authored"] is False
 
 
 

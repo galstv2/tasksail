@@ -1,5 +1,4 @@
-"""QMD record creation, markdown builders, path helpers, and I/O
-wrappers extracted from app.py (slice 02)."""
+"""QMD record creation, markdown builders, path helpers, and I/O wrappers."""
 
 from __future__ import annotations
 

@@ -11,10 +11,6 @@ from src.backend.mcp.repo_context_mcp.services.archive_service import TaskArchiv
 from src.backend.mcp.repo_context_mcp.services.qmd_index_service import QmdIndexService
 from src.backend.mcp.repo_context_mcp.services.record_cache import ScopedRecordCache
 
-# ---------------------------------------------------------------------------
-# merge_scope — unit tests on ScopedRecordCache
-# ---------------------------------------------------------------------------
-
 
 class TestMergeScopeOverlays:
     def test_overlays_new_records_on_existing(self, tmp_path: Path) -> None:
@@ -68,24 +64,16 @@ class TestMergeScopeOverlays:
             "task-archive": [(tmp_path / "a.json", {"record_type": "task-archive"})],
         })
 
-        # Age the entry close to expiry.
         entry = cache._store[str(tmp_path)]
         entry.stored_at -= 1.8
 
-        # Merge resets the TTL.
         cache.merge_scope(tmp_path, [
             (tmp_path / "b.json", {"record_type": "repo-artifact", "id": "R-1"}),
         ])
 
-        # The entry should survive past the original expiry window.
         time.sleep(0.5)
         assert cache.get(tmp_path, "task-archive") is not None
         assert cache.get(tmp_path, "repo-artifact") is not None
-
-
-# ---------------------------------------------------------------------------
-# Write-through integration — ArchiveService + QmdIndexService
-# ---------------------------------------------------------------------------
 
 
 class TestSeedWriteThrough:
@@ -102,15 +90,12 @@ class TestSeedWriteThrough:
         })
 
         service = TaskArchiveService(workspace_root=tmp_path)
-        # Warm the cache with a full scan.
         service.iter_task_archive_records(scope_dir)
 
-        # Merge new records into the warm cache.
         new_record_path = scope_dir / "new.json"
         new_payload = {"record_type": "repo-artifact", "id": "R-1"}
         service.merge_written_records(scope_dir, [(new_record_path, new_payload)])
 
-        # Verify the cache has both old and new records without rglob.
         with patch.object(Path, "rglob", side_effect=AssertionError("rglob called")):
             archives = service.iter_task_archive_records(scope_dir)
             artifacts = service._iter_records_by_type(scope_dir, "repo-artifact")
@@ -133,11 +118,8 @@ class TestSeedWriteThrough:
         })
 
         index_svc = QmdIndexService(workspace_root=tmp_path)
-        # Warm cache.
         index_svc.archive_service.iter_task_archive_records(scope_dir)
 
-        # Write a new task-archive record to disk and merge it via the
-        # encapsulated warm_and_merge_records method.
         t2_record = {
             "record_type": "task-archive",
             "task_id": "T-002",
@@ -148,18 +130,12 @@ class TestSeedWriteThrough:
         }
         new_path = write_record(scope_dir, "t2.json", t2_record)
         index_svc.warm_and_merge_records(scope_dir, [(new_path, t2_record)])
-        # Clear descriptor cache to force rebuild from (now-warm) record cache.
         index_svc.invalidate_descriptor_cache(scope_dir)
 
         task_index = index_svc.build_global_task_index(scope_dir=scope_dir)
         task_ids = {t["task_id"] for t in task_index["tasks"]}
         assert "T-001" in task_ids
         assert "T-002" in task_ids
-
-
-# ---------------------------------------------------------------------------
-# Parallel preview reads
-# ---------------------------------------------------------------------------
 
 
 class TestParallelPreviewReads:

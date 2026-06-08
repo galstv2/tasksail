@@ -36,13 +36,9 @@ export async function deleteErrorItem(
     try { await removeTask(repoRoot, deletedTaskId); } catch { /* best-effort */ }
   });
 
-  // Failed tasks reach error-items via moveFailedItemToErrorItems, which calls
-  // finalizeTaskWorktrees. With retain_failed_task_worktrees=true that helper
-  // KEEPS the worktree dir, the task/<taskId> branch in each origin, and the
-  // .platform-state/runtime/tasks/<taskId>/ subtree for forensic inspection.
-  // Operator-initiated delete is the signal that this forensic affordance is
-  // no longer needed — mirrors the requeueErrorItem and moveErrorItemToDropbox
-  // disposal contracts.
+  // Deleting an error item is the operator signal to drop retained forensic
+  // state: worktree dirs, task branches, and per-task runtime state. This
+  // mirrors requeue and dropbox disposal.
   await discardRetainedTaskWorktrees(deletedTaskId, repoRoot);
 }
 

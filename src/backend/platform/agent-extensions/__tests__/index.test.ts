@@ -119,12 +119,10 @@ describe('deleteAgentExtension', () => {
     };
     await saveAgentLaunchExtensionAssignments(tmpDir, assignments, seams);
 
-    // Delete should fail (no opt-in to clear assignments)
     await expect(deleteAgentExtension(tmpDir, 'del-skill', {}, seams)).rejects.toMatchObject({
       code: 'delete-blocked-by-active-assignment',
     });
 
-    // Manifest entry must still be present
     const manifestRaw = fs.readFileSync(
       path.join(tmpDir, 'config', 'agent-extensions.default.json'),
       'utf-8',
@@ -141,7 +139,6 @@ describe('deleteAgentExtension', () => {
     await materializeExtension(tmpDir, entry, seams);
     writeManifest([entry]);
 
-    // Do NOT assign it; delete should succeed
     await deleteAgentExtension(tmpDir, 'safe-del', {}, seams);
 
     const manifestRaw = fs.readFileSync(
@@ -151,7 +148,6 @@ describe('deleteAgentExtension', () => {
     const manifest = JSON.parse(manifestRaw) as { extensions: { id: string }[] };
     expect(manifest.extensions.some((e) => e.id === 'safe-del')).toBe(false);
 
-    // Runtime copy should be removed
     const runtimePath = path.join(tmpDir, '.platform-state', 'skills', 'safe-del');
     expect(fs.existsSync(runtimePath)).toBe(false);
   });
@@ -173,7 +169,7 @@ describe('listAgentExtensions commit_sha status', () => {
 
     const seams: AgentExtensionMutationSeams = { now: () => NOW, providerAgentIds: PROVIDER_AGENT_IDS };
 
-    // Materialize using a fake git execFile (no subpath, just clones SKILL.md)
+    // Materialize using a fake git execFile with no subpath.
     const fakeExecFile = async (
       _file: string,
       args: string[],

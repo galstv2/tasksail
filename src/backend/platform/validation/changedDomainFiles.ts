@@ -18,6 +18,7 @@ import { findRepoRoot } from '../core/paths.js';
 import { detectPythonBin } from '../core/pythonRunner.js';
 import { runCliBoundary } from '../core/cliBoundary.js';
 import { writeProtocolStderr, writeProtocolStdout } from '../core/protocolOutput.js';
+import { getActiveProvider } from '../cli-provider/index.js';
 
 const RUN_TARGETED_TESTS_REL = 'src/backend/scripts/python/run-targeted-tests.py';
 const DEFAULT_MANIFEST_REL = 'tests/test_manifest.json';
@@ -85,6 +86,16 @@ export function buildTargetedTestArgs(options: TargetedTestArgsOptions): string[
   return args;
 }
 
+export function buildTargetedTestEnv(
+  repoRoot: string,
+  baseEnv: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  return {
+    ...baseEnv,
+    TASKSAIL_AGENT_REGISTRY_PATH: path.join(repoRoot, getActiveProvider(repoRoot).agentConfigPaths().registry),
+  };
+}
+
 interface ParsedArgs {
   baseSha?: string;
   headSha?: string;
@@ -134,10 +145,11 @@ async function main(): Promise<void> {
     ? parsed.manifest
     : path.join(repoRoot, parsed.manifest);
 
-  // Phase 1: resolve-only to detect "no manifest-mapped domains" (treated as a
+  // Resolve-only pass detects "no manifest-mapped domains" (treated as a
   // pass — there is simply nothing to run for these paths).
   const resolveArgs = buildTargetedTestArgs({ scriptPath, manifestPath, changedFiles, resolveOnly: true });
-  const resolved = spawnSync(python, resolveArgs, { cwd: repoRoot, encoding: 'utf-8' });
+  const targetedTestEnv = buildTargetedTestEnv(repoRoot);
+  const resolved = spawnSync(python, resolveArgs, { cwd: repoRoot, env: targetedTestEnv, encoding: 'utf-8' });
   const resolvedOutput = `${resolved.stdout ?? ''}${resolved.stderr ?? ''}`;
   if (resolved.error) {
     writeProtocolStderr(`Failed to run run-targeted-tests.py: ${resolved.error.message}\n`);
@@ -153,9 +165,9 @@ async function main(): Promise<void> {
   }
   writeProtocolStdout(`Resolved changed-path modules:\n${resolvedOutput}\n`);
 
-  // Phase 2: run the targeted tests with inherited stdio so output streams.
+  // Then run the targeted tests with inherited stdio so output streams.
   const runArgs = buildTargetedTestArgs({ scriptPath, manifestPath, changedFiles, resolveOnly: false });
-  const run = spawnSync(python, runArgs, { cwd: repoRoot, stdio: 'inherit' });
+  const run = spawnSync(python, runArgs, { cwd: repoRoot, env: targetedTestEnv, stdio: 'inherit' });
   if (run.error) {
     writeProtocolStderr(`Failed to run run-targeted-tests.py: ${run.error.message}\n`);
     process.exit(1);

@@ -5,7 +5,7 @@ import type {
   BuildWizardStep,
   ContextPackCreationDraft,
   PartDraft,
-} from '../../contextPackCreationTypes';
+} from '../../contextPack/contextPackCreationTypes';
 import { classNames } from '../../utils/classNames';
 import WizardBuildParts from './WizardBuildParts';
 import WizardLocation from './WizardLocation';

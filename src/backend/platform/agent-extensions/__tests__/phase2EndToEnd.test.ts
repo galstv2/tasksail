@@ -1,10 +1,8 @@
-// Phase 2 end-to-end confirmation: catalog import → assignment → per-launch staging.
+// End-to-end confirmation: catalog import -> assignment -> per-launch staging.
 //
-// Proves layers 1–5 of the spec proof-layers decision against the REAL production
-// helpers (addAgentExtension / saveAgentLaunchExtensionAssignments /
-// createAgentExtensionStage) with no production mocks — only a temp repo and the
-// shared phase2 fixture. Live model visibility (layer 6) is proven by the manual
-// canary runbook, not here.
+// Exercises catalog import, assignment, and per-launch staging against the real
+// production helpers with no production mocks, only a temp repo and the shared
+// fixture. Live model visibility is covered by the manual canary runbook, not here.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';

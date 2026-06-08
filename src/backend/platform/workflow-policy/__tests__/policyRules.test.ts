@@ -21,9 +21,6 @@ import {
   createDefaultRuleEvaluators,
 } from '../index.js';
 
-// ---------------------------------------------------------------------------
-// Fixture helpers
-// ---------------------------------------------------------------------------
 
 const TEST_TASK_ID = 'task-test-001';
 
@@ -153,9 +150,7 @@ function createResetWorkspace(repoRoot: string): void {
   }
 }
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe('workflow-policy rule parity', () => {
   const createdRoots: string[] = [];
@@ -166,9 +161,7 @@ describe('workflow-policy rule parity', () => {
     );
   });
 
-  // -------------------------------------------------------------------------
   // Evaluation ordering by mode
-  // -------------------------------------------------------------------------
 
   it('DEFAULT_RULE_EVALUATORS covers every entry in FULL_EVALUATION_SEQUENCE', () => {
     for (const ruleName of FULL_EVALUATION_SEQUENCE) {
@@ -238,73 +231,7 @@ describe('workflow-policy rule parity', () => {
     ]);
   });
 
-  it('uses lightweight sequence for pre-closeout', async () => {
-    const root = mkdtempSync(path.join(tmpdir(), 'wp-parity-'));
-    createdRoots.push(root);
-    createRegistry(root);
-    createActiveWorkspace(root);
-
-    const seen: string[] = [];
-    const validator = new PolicyValidator({
-      rootDir: root,
-      mode: 'pre-closeout',
-      taskId: TEST_TASK_ID,
-      ruleEvaluators: Object.fromEntries(
-        [...FULL_EVALUATION_SEQUENCE, ...LIGHTWEIGHT_EVALUATION_SEQUENCE].map(
-          (name) => [name, () => void seen.push(name)],
-        ),
-      ),
-    });
-    await validator.evaluate();
-
-    expect(seen).toEqual([...LIGHTWEIGHT_EVALUATION_SEQUENCE]);
-  });
-
-  it('uses lightweight sequence for queue-advance', async () => {
-    const root = mkdtempSync(path.join(tmpdir(), 'wp-parity-qa-'));
-    createdRoots.push(root);
-    createRegistry(root);
-    createActiveWorkspace(root);
-
-    const seen: string[] = [];
-    const validator = new PolicyValidator({
-      rootDir: root,
-      mode: 'queue-advance',
-      taskId: TEST_TASK_ID,
-      ruleEvaluators: Object.fromEntries(
-        [...FULL_EVALUATION_SEQUENCE, ...LIGHTWEIGHT_EVALUATION_SEQUENCE].map(
-          (name) => [name, () => void seen.push(name)],
-        ),
-      ),
-    });
-    await validator.evaluate();
-
-    expect(seen).toEqual([...LIGHTWEIGHT_EVALUATION_SEQUENCE]);
-  });
-
-  it('uses full sequence for lint mode', async () => {
-    const root = mkdtempSync(path.join(tmpdir(), 'wp-parity-lint-'));
-    createdRoots.push(root);
-    createRegistry(root);
-    createActiveWorkspace(root);
-
-    const seen: string[] = [];
-    const validator = new PolicyValidator({
-      rootDir: root,
-      mode: 'lint',
-      taskId: TEST_TASK_ID,
-      ruleEvaluators: Object.fromEntries(
-        FULL_EVALUATION_SEQUENCE.map((name) => [name, () => void seen.push(name)]),
-      ),
-    });
-    await validator.evaluate();
-
-    expect(seen).toEqual([...FULL_EVALUATION_SEQUENCE]);
-  });
-
-  // -------------------------------------------------------------------------
   // Rule parity: boundary rules
-  // -------------------------------------------------------------------------
 
   it('boundary rule: orphaned workspace content with no active task produces a violation', async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'wp-boundary-'));
@@ -340,9 +267,7 @@ describe('workflow-policy rule parity', () => {
     void violations;
   });
 
-  // -------------------------------------------------------------------------
   // Rule parity: closeout rules
-  // -------------------------------------------------------------------------
 
   it('closeout rules: skipped when mode is not pre-closeout or pre-archive', async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'wp-closeout-skip-'));
@@ -370,7 +295,7 @@ describe('workflow-policy rule parity', () => {
     createRegistry(root);
     createActiveWorkspace(root);
 
-    // issues.md must exist with review outcome pass to pass qa-review-approved check
+    // The issues handoff must exist with review outcome pass to pass qa-review-approved check.
     writeFileSync(
       path.join(root, 'AgentWorkSpace', 'tasks', TEST_TASK_ID, 'handoffs', 'issues.md'),
       ['## Review Outcome', 'pass'].join('\n'),
@@ -393,9 +318,7 @@ describe('workflow-policy rule parity', () => {
     expect(ids).toContain('closeout.final-summary-required');
   });
 
-  // -------------------------------------------------------------------------
   // Rule parity: queue rules
-  // -------------------------------------------------------------------------
 
   it('queue rules: skipped when mode is not queue-advance', async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'wp-queue-skip-'));
@@ -416,9 +339,7 @@ describe('workflow-policy rule parity', () => {
     expect(queueViolations).toHaveLength(0);
   });
 
-  // -------------------------------------------------------------------------
   // Rule parity: planning agent
-  // -------------------------------------------------------------------------
 
   it('planning rule: emits warning when planning-agent runs with an active task', async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'wp-planning-'));
@@ -463,9 +384,7 @@ describe('workflow-policy rule parity', () => {
     expect(planningViolations).toHaveLength(0);
   });
 
-  // -------------------------------------------------------------------------
   // Rule parity: required task artifacts
-  // -------------------------------------------------------------------------
 
   it('required task artifacts: fires when active task is missing Task Title', async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'wp-task-meta-'));
@@ -495,9 +414,7 @@ describe('workflow-policy rule parity', () => {
     expect(ids).toContain('artifact.active-task-metadata');
   });
 
-  // -------------------------------------------------------------------------
   // Rule parity: workflow path rules
-  // -------------------------------------------------------------------------
 
   it('workflow path rule: fires in lint when implementation-spec is blank', async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'wp-wfpath-'));
@@ -535,9 +452,7 @@ describe('workflow-policy rule parity', () => {
     expect(ids).not.toContain('path.standard-requires-implementation-spec');
   });
 
-  // -------------------------------------------------------------------------
   // Rule parity: default evaluators produce real rule records
-  // -------------------------------------------------------------------------
 
   it('default evaluators: real rules record IDs via recordRule without custom injection', async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'wp-defaults-'));

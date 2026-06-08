@@ -273,6 +273,10 @@ async function buildDirectRuntimeEnv(opts: DirectProcessSpawnOptions): Promise<N
   }
   return {
     ...createSharedMcpBootstrapEnv(opts.port, baseEnv),
+    // Default-on GET-auth in direct mode, mirroring the compose environment.
+    // (Direct mode never reads the compose files.) Operator-overridable via
+    // REPO_CONTEXT_MCP_REQUIRE_GET_AUTH in .env / shell.
+    REPO_CONTEXT_MCP_REQUIRE_GET_AUTH: baseEnv.REPO_CONTEXT_MCP_REQUIRE_GET_AUTH ?? '1',
     REPO_CONTEXT_MCP_HOST: '127.0.0.1',
     REPO_CONTEXT_MCP_PORT: String(opts.port),
     REPO_CONTEXT_MCP_CONTAINER_PORT: '8811',

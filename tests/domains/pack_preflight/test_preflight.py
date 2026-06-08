@@ -1,11 +1,11 @@
-"""Tests for src.backend.mcp.pack_preflight (Phase 2 G1–G6)."""
+"""Tests for src.backend.mcp.pack.preflight."""
 from __future__ import annotations
 
 from pathlib import Path
 
 import pytest
 
-from src.backend.mcp.pack_preflight import (
+from src.backend.mcp.pack.preflight import (
     CONTEXT_PACK_ID_PATTERN,
     PackPreflightRequest,
     PackPreflightValidator,
@@ -14,9 +14,6 @@ from src.backend.mcp.pack_preflight import (
 )
 from src.backend.mcp.pack_schemas.answers import BootstrapAnswers, BootstrapRepository
 
-# ---------------------------------------------------------------------------
-# Test helpers
-# ---------------------------------------------------------------------------
 
 def _make_repo(repo_root: str, *, repo_id: str = "repo-a") -> BootstrapRepository:
     return BootstrapRepository(
@@ -77,9 +74,7 @@ def _codes(result: PreflightResult, where: str = "errors") -> set[str]:
     return {e.code for e in bucket}
 
 
-# ---------------------------------------------------------------------------
-# G1: aggregation / non-short-circuit
-# ---------------------------------------------------------------------------
+# Aggregation and non-short-circuit behavior.
 
 def test_passing_payload_emits_no_errors_or_warnings(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo-a"
@@ -100,7 +95,7 @@ def test_passing_payload_emits_no_errors_or_warnings(tmp_path: Path) -> None:
 
 
 def test_three_independent_failures_all_surface(tmp_path: Path) -> None:
-    """G1 acceptance: validator does not short-circuit; all errors surface."""
+    """Validator does not short-circuit; all errors surface."""
     answers = _make_answers(
         context_pack_id="-bad-slug-",
         repositories=[_make_repo("/no/such/path")],
@@ -121,9 +116,7 @@ def test_three_independent_failures_all_surface(tmp_path: Path) -> None:
     assert "scary-path" in codes
 
 
-# ---------------------------------------------------------------------------
-# G2: path checks
-# ---------------------------------------------------------------------------
+# Path checks.
 
 def test_existing_flow_typo_repo_root_emits_path_not_found(tmp_path: Path) -> None:
     answers = _make_answers(repositories=[_make_repo("/no/such/path")])
@@ -158,7 +151,7 @@ def test_new_flow_unwritable_parent_emits_parent_not_writable(tmp_path: Path) ->
 
 def test_context_pack_parent_not_writable_emits_dedicated_code(tmp_path: Path) -> None:
     answers = _make_answers(repositories=[_make_repo(str(tmp_path))])
-    pack_dir = Path("/dev/null/some-pack")  # parent not writable
+    pack_dir = Path("/dev/null/some-pack")
 
     result = _run(_make_request(
         context_pack_dir=pack_dir,
@@ -170,9 +163,37 @@ def test_context_pack_parent_not_writable_emits_dedicated_code(tmp_path: Path) -
     assert "context-pack-parent-not-writable" in _codes(result)
 
 
-# ---------------------------------------------------------------------------
-# G3: pack collision
-# ---------------------------------------------------------------------------
+def test_existing_source_rejects_context_pack_dir_inside_repository_root(tmp_path: Path) -> None:
+    repo_root = tmp_path / "source-repo"
+    repo_root.mkdir()
+    answers = _make_answers(repositories=[_make_repo(str(repo_root))])
+
+    result = _run(_make_request(
+        context_pack_dir=repo_root / "source-repo",
+        discovery_root=repo_root,
+        creation_origin="existing",
+        answers=answers,
+    ))
+
+    assert "context-pack-dir-inside-repository-root" in _codes(result)
+
+
+def test_existing_source_allows_generated_sibling_contextpacks_parent(tmp_path: Path) -> None:
+    repo_root = tmp_path / "source-repo"
+    repo_root.mkdir()
+    answers = _make_answers(repositories=[_make_repo(str(repo_root))])
+
+    result = _run(_make_request(
+        context_pack_dir=tmp_path / "contextpacks" / "source-repo",
+        discovery_root=repo_root,
+        creation_origin="existing",
+        answers=answers,
+    ))
+
+    assert result.ok is True
+
+
+# Pack collision checks.
 
 def test_existing_pack_without_overwrite_emits_pack_already_exists(tmp_path: Path) -> None:
     pack_dir = tmp_path / "valid-pack"
@@ -248,9 +269,7 @@ def test_unrelated_files_in_pack_dir_emit_not_empty_warning(tmp_path: Path) -> N
     assert "context-pack-dir-not-empty" in _codes(result, where="warnings")
 
 
-# ---------------------------------------------------------------------------
-# G4: scary path
-# ---------------------------------------------------------------------------
+# Risky path checks.
 
 @pytest.mark.parametrize("path", [
     "/", "/tmp", "/etc/foo", "~", "C:\\Windows",
@@ -292,9 +311,7 @@ def test_scary_path_with_override_downgrades_to_warning(tmp_path: Path) -> None:
     assert "scary-path-confirmed" in _codes(result, where="warnings")
 
 
-# ---------------------------------------------------------------------------
-# G5: slug + reserved-name
-# ---------------------------------------------------------------------------
+# Slug and reserved-name checks.
 
 @pytest.mark.parametrize("slug", [
     "my-pack", "valid-pack", "abc123", "x" + ("a" * 62) + "y",  # 64 chars
@@ -349,28 +366,14 @@ def test_reserved_names_rejected(
     )
 
 
-# ---------------------------------------------------------------------------
-# G6: tool availability (Python only — git probe varies by host)
-# ---------------------------------------------------------------------------
+# Python tool availability checks; git probing varies by host.
 
-def test_python_version_check_passes_on_current_host(tmp_path: Path) -> None:
-    repo_root = tmp_path / "repo-a"
-    repo_root.mkdir()
-    answers = _make_answers(repositories=[_make_repo(str(repo_root))])
-    pack_dir = tmp_path / "context-packs" / "valid-pack"
-    pack_dir.parent.mkdir(parents=True)
-
-    result = _run(_make_request(
-        context_pack_dir=pack_dir,
-        discovery_root=tmp_path,
-        answers=answers,
-    ))
-
-    assert "python-version-too-old" not in _codes(result)
-
-
+@pytest.mark.parametrize("minor,expect_error", [
+    (11, True),   # below floor — must emit too-old
+    (12, False),  # at floor — must not emit too-old
+])
 def test_python_version_below_floor_emits_too_old(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, minor: int, expect_error: bool,
 ) -> None:
     import types
 
@@ -381,8 +384,8 @@ def test_python_version_below_floor_emits_too_old(
     pack_dir.parent.mkdir(parents=True)
 
     monkeypatch.setattr(
-        "src.backend.mcp.pack_preflight.sys.version_info",
-        types.SimpleNamespace(major=3, minor=11),
+        "src.backend.mcp.pack.preflight.sys.version_info",
+        types.SimpleNamespace(major=3, minor=minor),
     )
 
     result = _run(_make_request(
@@ -391,38 +394,16 @@ def test_python_version_below_floor_emits_too_old(
         answers=answers,
     ))
 
-    assert "python-version-too-old" in _codes(result)
-
-
-def test_python_version_floor_3_12_passes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import types
-
-    repo_root = tmp_path / "repo-floor"
-    repo_root.mkdir()
-    answers = _make_answers(repositories=[_make_repo(str(repo_root))])
-    pack_dir = tmp_path / "context-packs" / "floor-python-pack"
-    pack_dir.parent.mkdir(parents=True)
-
-    monkeypatch.setattr(
-        "src.backend.mcp.pack_preflight.sys.version_info",
-        types.SimpleNamespace(major=3, minor=12),
-    )
-
-    result = _run(_make_request(
-        context_pack_dir=pack_dir,
-        discovery_root=tmp_path,
-        answers=answers,
-    ))
-
-    assert "python-version-too-old" not in _codes(result)
+    if expect_error:
+        assert "python-version-too-old" in _codes(result)
+    else:
+        assert "python-version-too-old" not in _codes(result)
 
 
 def test_existing_flow_does_not_require_git(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """G6 acceptance: existing-flow create must not emit git-unavailable.
+    """Existing-flow create must not emit git-unavailable.
 
     Hide git from PATH for the duration of this test and confirm no git error
     surfaces under existing creation_origin.
@@ -448,7 +429,7 @@ def test_existing_flow_does_not_require_git(
 def test_new_flow_without_git_emits_git_unavailable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("src.backend.mcp.pack_preflight.shutil.which", lambda _name: None)
+    monkeypatch.setattr("src.backend.mcp.pack.preflight.shutil.which", lambda _name: None)
 
     repo_root = tmp_path / "repo-a"
     repo_root.mkdir()

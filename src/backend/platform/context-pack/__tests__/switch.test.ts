@@ -39,75 +39,28 @@ describe('switchContextPackWorkspace', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('preview mode calls Python with preview action and returns output', async () => {
-    const previewPayload = { add: ['/repo/src'], remove: [] };
-    mockedRunPython.mockResolvedValue({
-      stdout: JSON.stringify(previewPayload),
-      stderr: '',
-      exitCode: 0,
-    });
+  it.each([
+    ['preview', '/some/pack', JSON.stringify({ add: ['/repo/src'], remove: [] }), false] as const,
+    ['apply',   '/some/pack', '{"ok": true}',                                      true ] as const,
+    ['clear',   '',           '{"ok": true}',                                      true ] as const,
+  ])('%s mode calls Python with %s action', async (mode, contextPackDir, stdout, needEnvExample) => {
+    if (needEnvExample) {
+      writeFileSync(path.join(tmpDir, '.env.example'), '# defaults\n');
+    }
+    mockedRunPython.mockResolvedValue({ stdout, stderr: '', exitCode: 0 });
 
-    const result = await switchContextPackWorkspace({
-      contextPackDir: '/some/pack',
-      mode: 'preview',
-    });
+    const result = await switchContextPackWorkspace({ contextPackDir, mode });
 
-    expect(result.mode).toBe('preview');
-    const parsed = JSON.parse(result.output);
-    expect(parsed.add).toEqual(['/repo/src']);
-    expect(parsed.remove).toEqual([]);
-
-    expect(mockedRunPython).toHaveBeenCalledOnce();
+    expect(result.mode).toBe(mode);
     const args = mockedRunPython.mock.calls[0];
-    expect(args[1]).toContain('--action');
-    expect(args[1]).toContain('preview');
-  });
+    expect(args[1]).toContain(mode);
 
-  it('apply mode calls Python with apply action and updates .env', async () => {
-    // Create .env.example so ensureEnvFile can create .env
-    writeFileSync(path.join(tmpDir, '.env.example'), '# defaults\n');
-
-    mockedRunPython.mockResolvedValue({
-      stdout: '{"ok": true}',
-      stderr: '',
-      exitCode: 0,
-    });
-
-    const result = await switchContextPackWorkspace({
-      contextPackDir: '/some/pack',
-      mode: 'apply',
-    });
-
-    expect(result.mode).toBe('apply');
-    const args = mockedRunPython.mock.calls[0];
-    expect(args[1]).toContain('apply');
-
-    // Verify .env was updated with the context pack dir
-    const envContent = readFileSync(path.join(tmpDir, '.env'), 'utf-8');
-    expect(envContent).toContain('ACTIVE_CONTEXT_PACK_DIR=/some/pack');
-  });
-
-  it('clear mode calls Python with clear action and clears env state', async () => {
-    // Create .env.example so ensureEnvFile can create .env
-    writeFileSync(path.join(tmpDir, '.env.example'), '# defaults\n');
-
-    mockedRunPython.mockResolvedValue({
-      stdout: '{"ok": true}',
-      stderr: '',
-      exitCode: 0,
-    });
-
-    const result = await switchContextPackWorkspace({
-      contextPackDir: '',
-      mode: 'clear',
-    });
-
-    expect(result.mode).toBe('clear');
-    const args = mockedRunPython.mock.calls[0];
-    expect(args[1]).toContain('clear');
-
-    // Verify .env was updated (cleared)
-    if (existsSync(path.join(tmpDir, '.env'))) {
+    if (mode === 'preview') {
+      const parsed = JSON.parse(result.output);
+      expect(parsed.add).toEqual(['/repo/src']);
+      expect(parsed.remove).toEqual([]);
+      expect(args[1]).toContain('--action');
+    } else if (existsSync(path.join(tmpDir, '.env'))) {
       const envContent = readFileSync(path.join(tmpDir, '.env'), 'utf-8');
       expect(envContent).toContain('ACTIVE_CONTEXT_PACK_DIR=');
     }

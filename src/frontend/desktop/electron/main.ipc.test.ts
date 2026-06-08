@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   PLANNER_FOCUS_FALLBACK_MESSAGE,
   PLANNER_FOCUS_VALID_MESSAGE,
-} from './plannerFocusValidation';
+} from './planner/focusValidation';
 
 const SYSTEM_SETTINGS_CONFIG = {
   schema_version: 1,
@@ -836,7 +836,7 @@ describe('electron main bootstrap — IPC dispatch', () => {
   });
 
   it('reports restart unavailable when no restartApp dependency is wired', async () => {
-    const { createDefaultDesktopActionHandlers } = await import('./main.desktopActionHandlers');
+    const { createDefaultDesktopActionHandlers } = await import('./ipc/desktopActionHandlers');
 
     const result = await createDefaultDesktopActionHandlers().restartApp();
 

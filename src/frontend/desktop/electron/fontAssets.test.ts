@@ -22,7 +22,7 @@ const readSource = (rel: string): string => readFileSync(join(process.cwd(), rel
 const SOURCES = {
   'index.html': 'index.html',
   'variables.css': 'src/renderer/styles/variables.css',
-  'main.windowManager.ts': 'electron/main.windowManager.ts',
+  'app/windowManager.ts': 'electron/app/windowManager.ts',
 };
 
 describe('desktop fonts are self-hosted (no remote font dependency)', () => {
@@ -44,7 +44,7 @@ describe('desktop fonts are self-hosted (no remote font dependency)', () => {
   });
 
   it("production CSP keeps font-src 'self' and drops Google font hosts", () => {
-    const csp = readSource(SOURCES['main.windowManager.ts']);
+    const csp = readSource(SOURCES['app/windowManager.ts']);
     expect(csp).toMatch(/font-src 'self'/);
     for (const marker of FORBIDDEN) {
       expect(csp).not.toContain(marker);

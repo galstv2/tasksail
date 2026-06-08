@@ -1,5 +1,4 @@
-/* ── Reinforcement Modal ──────────────────────────────────────────────── */
-/* Light-theme surface palette, matching the Context Pack modal aesthetic. */
+/* Reinforcement modal uses the same light surface palette as Context Pack. */
 
 .reinforcement-modal__overlay {
   position: fixed;
@@ -37,7 +36,7 @@
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-/* ── Header ──────────────────────────────────────────────────────────── */
+/* Header */
 
 .reinforcement-modal__header {
   display: flex;
@@ -84,7 +83,7 @@
   opacity: 0.7;
 }
 
-/* ── Modal Tabs ──────────────────────────────────────────────────────── */
+/* Modal Tabs */
 
 .reinforcement-modal__tabs {
   display: flex;
@@ -126,7 +125,7 @@
     0 0 0 0.5px color-mix(in srgb, var(--ts-surface-terminal) 6%, transparent);
 }
 
-/* ── Body ────────────────────────────────────────────────────────────── */
+/* Body */
 
 .reinforcement-modal__body {
   flex: 1;
@@ -153,7 +152,7 @@
   background: var(--ts-scrollbar-thumb-hover);
 }
 
-/* ── Footer ──────────────────────────────────────────────────────────── */
+/* Footer */
 
 .reinforcement-modal__footer {
   display: flex;
@@ -171,7 +170,7 @@
   opacity: 0.55;
 }
 
-/* ── Shared Panel-level Empty / Loading ──────────────────────────────── */
+/* Shared Panel-level Empty / Loading */
 /* Collapses the five near-duplicate panel-level empty/loading variants
    into one rule. The task-picker variant is intentionally NOT included
    here because it's an inline-list empty state with smaller padding.    */
@@ -191,7 +190,7 @@
   padding: 1.6rem 0;
 }
 
-/* ── Feedback Panel ──────────────────────────────────────────────────── */
+/* Feedback Panel */
 
 .feedback-panel__success {
   text-align: center;
@@ -279,7 +278,7 @@
     0 0 0 0.5px color-mix(in srgb, var(--ts-surface-terminal) 6%, transparent);
 }
 
-/* ── Star Rating ─────────────────────────────────────────────────────── */
+/* Star Rating */
 
 .feedback-panel__star-row {
   display: flex;
@@ -318,7 +317,7 @@
   color: var(--ts-accent);
 }
 
-/* ── Textarea ────────────────────────────────────────────────────────── */
+/* Textarea */
 
 .feedback-panel__textarea {
   width: 100%;
@@ -355,7 +354,7 @@
   padding-top: 0.2rem;
 }
 
-/* ── Task Picker ─────────────────────────────────────────────────────── */
+/* Task Picker */
 
 .task-picker__header {
   display: flex;
@@ -444,16 +443,14 @@
   letter-spacing: -0.005em;
 }
 
-/* ── Overview Panel ──────────────────────────────────────────────────── */
+/* Overview Panel */
 
 .overview-panel__error {
   color: var(--ts-error);
   font-size: 0.62rem;
 }
 
-/* Shared muted explainer line — small grey preamble used by Overview,
-   Ledger, Realignment, and Document panels. Sans by default (mono was
-   the wrong family for prose). */
+/* Shared muted explainer line for prose panels; keep it sans, not mono. */
 .overview-panel__source-label,
 .ledger-table__source-label,
 .realignment-panel__source-label,
@@ -482,9 +479,7 @@
   background: var(--ts-surface-alt);
 }
 
-/* Apple-forward dashboard tile: large neutral display digit, small caps
-   label beneath. Accent is reserved for the active tab + primary CTA,
-   not splashed onto every KPI. */
+/* Dashboard tiles keep accents reserved for active tabs and primary actions. */
 .overview-stat__value {
   font-family: var(--ts-font-sans);
   font-size: 1.05rem;
@@ -552,8 +547,7 @@
   color: var(--ts-text);
 }
 
-/* Multiplier as a small sans chip — not mono. Apple uses chips, not raw
-   numbers, for small contextual metadata. */
+/* Multiplier stays a small sans chip, not a mono number. */
 .overview-agent-card__multiplier {
   font-family: var(--ts-font-sans);
   font-size: 0.52rem;
@@ -582,15 +576,14 @@
   margin-top: 0.7rem;
 }
 
-/* Identifier portion of the settlement line stays mono — that's a real
-   identifier and earns the typographic distinction. */
+/* Settlement IDs stay mono because they are identifiers. */
 .overview-panel__settlement-id {
   font-family: var(--ts-font-mono);
   font-size: 0.55rem;
   color: var(--ts-text-muted);
 }
 
-/* ── Task Ledger Table ───────────────────────────────────────────────── */
+/* Task Ledger Table */
 
 .ledger-table__controls {
   display: flex;
@@ -598,8 +591,7 @@
   margin-bottom: 0.48rem;
 }
 
-/* Search input with leading icon. The icon sits absolutely inside a
-   relative wrapper so the input still owns layout/focus behavior. */
+/* The icon is absolute so the input still owns layout and focus. */
 .ledger-table__search-wrap {
   position: relative;
   flex: 1;
@@ -677,8 +669,7 @@
   transition: background var(--ts-duration) var(--ts-ease);
 }
 
-/* Zebra row anchoring — subtle alternating fill helps scan a dense table
-   without resorting to hard borders. */
+/* Subtle alternating fill keeps dense rows scannable without hard borders. */
 .ledger-table__table tbody tr:nth-child(2n) td {
   background: color-mix(in srgb, var(--ts-surface-alt) 55%, transparent);
 }
@@ -687,8 +678,7 @@
   background: var(--ts-bg-hover);
 }
 
-/* Outcome chip — small neutral pill so qualityOutcome lines up visually
-   with the Status and Review chips next to it. */
+/* Neutral pill aligns qualityOutcome with the Status and Review chips. */
 .ledger-table__outcome-chip {
   display: inline-block;
   font-size: 0.52rem;
@@ -707,14 +697,14 @@
   white-space: nowrap;
 }
 
-/* ── Realignment Review Panel ────────────────────────────────────────── */
+/* Realignment Review Panel */
 
 .realignment-panel__error {
   color: var(--ts-error);
   font-size: 0.62rem;
 }
 
-/* ── Active Work Guard ──────────────────────────────────────────────── */
+/* Active Work Guard */
 
 .realignment-panel__guard {
   margin-top: 0.7rem;
@@ -791,7 +781,7 @@
   cursor: not-allowed;
 }
 
-/* ── Session List ────────────────────────────────────────────────────── */
+/* Session List */
 
 .session-list {
   list-style: none;
@@ -867,7 +857,7 @@
   color: var(--ts-text-muted);
 }
 
-/* ── Session Detail ──────────────────────────────────────────────────── */
+/* Session Detail */
 
 .session-detail__back {
   border: none;
@@ -970,7 +960,7 @@
   color: var(--ts-text);
 }
 
-/* ── Document Editor ─────────────────────────────────────────────── */
+/* Document Editor */
 
 .document-editor {
   padding: 0.4rem 0;
@@ -1001,8 +991,7 @@
   border-top: 1px solid color-mix(in srgb, var(--ts-border) 60%, transparent);
 }
 
-/* Small-caps eyebrow heading — gives scan-able hierarchy to learnings
-   sections without the heaviness of an h-tag. */
+/* Small-caps label gives learnings sections hierarchy without a heading tag. */
 .document-editor__label {
   display: block;
   font-family: var(--ts-font-sans);
@@ -1014,8 +1003,7 @@
   margin-bottom: 0.28rem;
 }
 
-/* Long-form prose, NOT a code block — sans, comfortable line-height,
-   max-width for readability. Preserves authored newlines via pre-wrap. */
+/* Long-form prose stays sans and preserves authored newlines via pre-wrap. */
 .document-editor__readonly {
   margin: 0;
   padding: 0;

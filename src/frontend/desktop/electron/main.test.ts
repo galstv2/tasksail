@@ -34,7 +34,7 @@ const browserWindowInstance = {
   show,
 };
 
-const BrowserWindowMock = vi.fn(() => browserWindowInstance) as unknown as {
+const BrowserWindowMock = vi.fn(function () { return browserWindowInstance; }) as unknown as {
   (): typeof browserWindowInstance;
   getAllWindows: ReturnType<typeof vi.fn>;
 };
@@ -78,7 +78,7 @@ vi.mock('electron', () => ({
   },
 }));
 
-vi.mock('./main.services', () => ({
+vi.mock('./app/services', () => ({
   autoStartBackendServices: vi.fn(async () => undefined),
   startBackendServices: vi.fn(async () => ({
     status: 'idle',
@@ -96,7 +96,7 @@ vi.mock('./main.services', () => ({
   })),
 }));
 
-vi.mock('./main.cleanup', () => ({
+vi.mock('./app/cleanup', () => ({
   cleanupWorkspaceOnQuit: cleanupWorkspaceOnQuitMock,
 }));
 
@@ -233,12 +233,12 @@ describe('electron main bootstrap', () => {
   it('starts the runtime stream watcher with an active context-pack scope provider', async () => {
     vi.resetModules();
     const startRuntimeStreamWatcher = vi.fn(() => vi.fn());
-    vi.doMock('./main.runtimeStream', () => ({
+    vi.doMock('./runtime/runtimeStream', () => ({
       refreshRuntimeStreamState: vi.fn(async () => undefined),
       resetRuntimeStreamState: vi.fn(),
       startRuntimeStreamWatcher,
     }));
-    vi.doMock('./main.stream', () => ({
+    vi.doMock('./runtime/stream', () => ({
       clearTerminalTaskScopeForWebContents: vi.fn(),
       emitStreamEvent: vi.fn(),
       refreshStreamTaskMetadataForScope: vi.fn(async () => undefined),
@@ -246,14 +246,14 @@ describe('electron main bootstrap', () => {
       setTerminalTaskScopeForWebContents: vi.fn(),
       withStreamEvent: vi.fn(async (promise: Promise<unknown>) => promise),
     }));
-    vi.doMock('./main.taskBoard', async (importOriginal) => {
-      const actual = await importOriginal<typeof import('./main.taskBoard')>();
+    vi.doMock('./tasks/board', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./tasks/board')>();
       return {
         ...actual,
         startTaskBoardWatcher: vi.fn(() => vi.fn()),
       };
     });
-    vi.doMock('./main.contextPackWatcher', () => ({
+    vi.doMock('./contextPack/watcher', () => ({
       startContextPackCatalogWatcher: vi.fn(),
       stopContextPackCatalogWatcher: vi.fn(),
     }));
@@ -295,11 +295,11 @@ describe('electron main bootstrap', () => {
     BrowserWindowMock.getAllWindows.mockReturnValue([
       { isDestroyed: () => false, webContents: { send: windowSend } },
     ]);
-    vi.doMock('./main.contextPackTaskVisibility', async (importOriginal) => ({
-      ...(await importOriginal<typeof import('./main.contextPackTaskVisibility')>()),
+    vi.doMock('./contextPack/taskVisibility', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('./contextPack/taskVisibility')>()),
       refreshCurrentActiveContextPackTaskScope,
     }));
-    vi.doMock('./main.stream', () => ({
+    vi.doMock('./runtime/stream', () => ({
       clearTerminalTaskScopeForWebContents: vi.fn(),
       emitStreamEvent: vi.fn(),
       refreshStreamTaskMetadataForScope,
@@ -307,19 +307,19 @@ describe('electron main bootstrap', () => {
       setTerminalTaskScopeForWebContents: vi.fn(),
       withStreamEvent: vi.fn(async (promise: Promise<unknown>) => promise),
     }));
-    vi.doMock('./main.runtimeStream', () => ({
+    vi.doMock('./runtime/runtimeStream', () => ({
       refreshRuntimeStreamState: vi.fn(async () => undefined),
       resetRuntimeStreamState,
       startRuntimeStreamWatcher: vi.fn(() => vi.fn()),
     }));
-    vi.doMock('./main.taskBoard', async (importOriginal) => {
-      const actual = await importOriginal<typeof import('./main.taskBoard')>();
+    vi.doMock('./tasks/board', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./tasks/board')>();
       return {
         ...actual,
         startTaskBoardWatcher: vi.fn(() => vi.fn()),
       };
     });
-    vi.doMock('./main.contextPackWatcher', () => ({
+    vi.doMock('./contextPack/watcher', () => ({
       startContextPackCatalogWatcher,
       stopContextPackCatalogWatcher: vi.fn(),
     }));
@@ -357,11 +357,11 @@ describe('electron main bootstrap', () => {
       { type: 'identity-changed' },
     );
 
-    vi.doUnmock('./main.contextPackTaskVisibility');
-    vi.doUnmock('./main.stream');
-    vi.doUnmock('./main.runtimeStream');
-    vi.doUnmock('./main.taskBoard');
-    vi.doUnmock('./main.contextPackWatcher');
+    vi.doUnmock('./contextPack/taskVisibility');
+    vi.doUnmock('./runtime/stream');
+    vi.doUnmock('./runtime/runtimeStream');
+    vi.doUnmock('./tasks/board');
+    vi.doUnmock('./contextPack/watcher');
   });
 
   it('logs startup task-registry repair failures without blocking bootstrap', async () => {
@@ -383,23 +383,23 @@ describe('electron main bootstrap', () => {
         throw new Error('registry repair denied');
       }),
     }));
-    vi.doMock('./main.taskBoard', async (importOriginal) => {
-      const actual = await importOriginal<typeof import('./main.taskBoard')>();
+    vi.doMock('./tasks/board', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./tasks/board')>();
       return {
         ...actual,
         startTaskBoardWatcher: vi.fn(() => vi.fn()),
       };
     });
-    vi.doMock('./main.contextPackWatcher', () => ({
+    vi.doMock('./contextPack/watcher', () => ({
       startContextPackCatalogWatcher: vi.fn(),
       stopContextPackCatalogWatcher: vi.fn(),
     }));
-    vi.doMock('./main.runtimeStream', () => ({
+    vi.doMock('./runtime/runtimeStream', () => ({
       refreshRuntimeStreamState: vi.fn(async () => undefined),
       resetRuntimeStreamState: vi.fn(),
       startRuntimeStreamWatcher: vi.fn(() => vi.fn()),
     }));
-    vi.doMock('./main.recovery', () => ({
+    vi.doMock('./app/recovery', () => ({
       startTaskRecoveryController: vi.fn(() => ({ stop: vi.fn() })),
     }));
 
@@ -414,10 +414,10 @@ describe('electron main bootstrap', () => {
     expect(appMock.whenReady).toHaveBeenCalled();
     vi.doUnmock('./log/logger');
     vi.doUnmock('../../../backend/platform/queue/taskRegistry.js');
-    vi.doUnmock('./main.taskBoard');
-    vi.doUnmock('./main.contextPackWatcher');
-    vi.doUnmock('./main.runtimeStream');
-    vi.doUnmock('./main.recovery');
+    vi.doUnmock('./tasks/board');
+    vi.doUnmock('./contextPack/watcher');
+    vi.doUnmock('./runtime/runtimeStream');
+    vi.doUnmock('./app/recovery');
   });
 
   it('logs unreadable stale agent receipts during startup cleanup', async () => {
@@ -455,23 +455,23 @@ describe('electron main bootstrap', () => {
       loadTaskRegistry: vi.fn(async () => ({ schema_version: 2, tasks: {} })),
       repairTaskRegistry: vi.fn(async () => ({})),
     }));
-    vi.doMock('./main.taskBoard', async (importOriginal) => {
-      const actual = await importOriginal<typeof import('./main.taskBoard')>();
+    vi.doMock('./tasks/board', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./tasks/board')>();
       return {
         ...actual,
         startTaskBoardWatcher: vi.fn(() => vi.fn()),
       };
     });
-    vi.doMock('./main.contextPackWatcher', () => ({
+    vi.doMock('./contextPack/watcher', () => ({
       startContextPackCatalogWatcher: vi.fn(),
       stopContextPackCatalogWatcher: vi.fn(),
     }));
-    vi.doMock('./main.runtimeStream', () => ({
+    vi.doMock('./runtime/runtimeStream', () => ({
       refreshRuntimeStreamState: vi.fn(async () => undefined),
       resetRuntimeStreamState: vi.fn(),
       startRuntimeStreamWatcher: vi.fn(() => vi.fn()),
     }));
-    vi.doMock('./main.recovery', () => ({
+    vi.doMock('./app/recovery', () => ({
       startTaskRecoveryController: vi.fn(() => ({ stop: vi.fn() })),
     }));
 
@@ -490,10 +490,10 @@ describe('electron main bootstrap', () => {
     vi.doUnmock('node:fs/promises');
     vi.doUnmock('./log/logger');
     vi.doUnmock('../../../backend/platform/queue/taskRegistry.js');
-    vi.doUnmock('./main.taskBoard');
-    vi.doUnmock('./main.contextPackWatcher');
-    vi.doUnmock('./main.runtimeStream');
-    vi.doUnmock('./main.recovery');
+    vi.doUnmock('./tasks/board');
+    vi.doUnmock('./contextPack/watcher');
+    vi.doUnmock('./runtime/runtimeStream');
+    vi.doUnmock('./app/recovery');
   });
 
   it('focuses the existing main window when a second instance is launched', async () => {
@@ -620,8 +620,8 @@ describe('electron main bootstrap', () => {
   it('ends the planner session during before-quit cleanup', async () => {
     vi.resetModules();
     const endSession = vi.fn(async () => undefined);
-    vi.doMock('./plannerSession', async (importOriginal) => {
-      const actual = await importOriginal<typeof import('./plannerSession')>();
+    vi.doMock('./planner/session', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./planner/session')>();
       return {
         ...actual,
         endSession,
@@ -655,8 +655,8 @@ describe('electron main bootstrap', () => {
     const endSession = vi.fn(async () => {
       throw new Error('cleanup boom');
     });
-    vi.doMock('./plannerSession', async (importOriginal) => {
-      const actual = await importOriginal<typeof import('./plannerSession')>();
+    vi.doMock('./planner/session', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./planner/session')>();
       return {
         ...actual,
         endSession,
@@ -826,11 +826,11 @@ describe('electron main bootstrap', () => {
     const resetRuntimeStreamState = vi.fn();
     const emitStreamEvent = vi.fn();
     const refreshStreamTaskMetadataForScope = vi.fn(async () => undefined);
-    vi.doMock('./main.contextPackTaskVisibility', async (importOriginal) => ({
-      ...(await importOriginal<typeof import('./main.contextPackTaskVisibility')>()),
+    vi.doMock('./contextPack/taskVisibility', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('./contextPack/taskVisibility')>()),
       refreshCurrentActiveContextPackTaskScope,
     }));
-    vi.doMock('./main.stream', () => ({
+    vi.doMock('./runtime/stream', () => ({
       clearTerminalTaskScopeForWebContents: vi.fn(),
       emitStreamEvent,
       refreshStreamTaskMetadataForScope,
@@ -838,7 +838,7 @@ describe('electron main bootstrap', () => {
       setTerminalTaskScopeForWebContents: vi.fn(),
       withStreamEvent: vi.fn(async (promise: Promise<unknown>) => promise),
     }));
-    vi.doMock('./main.runtimeStream', () => ({
+    vi.doMock('./runtime/runtimeStream', () => ({
       refreshRuntimeStreamState: vi.fn(async () => undefined),
       resetRuntimeStreamState,
       startRuntimeStreamWatcher: vi.fn(() => vi.fn()),
@@ -937,11 +937,11 @@ describe('electron main bootstrap', () => {
     const resetRuntimeStreamState = vi.fn();
     const emitStreamEvent = vi.fn();
     const refreshStreamTaskMetadataForScope = vi.fn(async () => undefined);
-    vi.doMock('./main.contextPackTaskVisibility', async (importOriginal) => ({
-      ...(await importOriginal<typeof import('./main.contextPackTaskVisibility')>()),
+    vi.doMock('./contextPack/taskVisibility', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('./contextPack/taskVisibility')>()),
       refreshCurrentActiveContextPackTaskScope,
     }));
-    vi.doMock('./main.stream', () => ({
+    vi.doMock('./runtime/stream', () => ({
       clearTerminalTaskScopeForWebContents: vi.fn(),
       emitStreamEvent,
       refreshStreamTaskMetadataForScope,
@@ -949,7 +949,7 @@ describe('electron main bootstrap', () => {
       setTerminalTaskScopeForWebContents: vi.fn(),
       withStreamEvent: vi.fn(async (promise: Promise<unknown>) => promise),
     }));
-    vi.doMock('./main.runtimeStream', () => ({
+    vi.doMock('./runtime/runtimeStream', () => ({
       refreshRuntimeStreamState: vi.fn(async () => undefined),
       resetRuntimeStreamState,
       startRuntimeStreamWatcher: vi.fn(() => vi.fn()),
@@ -1035,11 +1035,11 @@ describe('electron main bootstrap', () => {
     const resetStreamState = vi.fn();
     const resetRuntimeStreamState = vi.fn();
     const emitStreamEvent = vi.fn();
-    vi.doMock('./main.contextPackTaskVisibility', async (importOriginal) => ({
-      ...(await importOriginal<typeof import('./main.contextPackTaskVisibility')>()),
+    vi.doMock('./contextPack/taskVisibility', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('./contextPack/taskVisibility')>()),
       refreshCurrentActiveContextPackTaskScope,
     }));
-    vi.doMock('./main.stream', () => ({
+    vi.doMock('./runtime/stream', () => ({
       clearTerminalTaskScopeForWebContents: vi.fn(),
       emitStreamEvent,
       refreshStreamTaskMetadataForScope: vi.fn(async () => undefined),
@@ -1047,7 +1047,7 @@ describe('electron main bootstrap', () => {
       setTerminalTaskScopeForWebContents: vi.fn(),
       withStreamEvent: vi.fn(async (promise: Promise<unknown>) => promise),
     }));
-    vi.doMock('./main.runtimeStream', () => ({
+    vi.doMock('./runtime/runtimeStream', () => ({
       refreshRuntimeStreamState: vi.fn(async () => undefined),
       resetRuntimeStreamState,
       startRuntimeStreamWatcher: vi.fn(() => vi.fn()),
@@ -1198,8 +1198,8 @@ describe('electron main bootstrap', () => {
         pathExists,
       };
     });
-    vi.doMock('./main.taskBoard', async (importOriginal) => {
-      const actual = await importOriginal<typeof import('./main.taskBoard')>();
+    vi.doMock('./tasks/board', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./tasks/board')>();
       return {
         ...actual,
         moveToPending,
@@ -1288,12 +1288,12 @@ describe('electron main bootstrap', () => {
       const readPlannerStagingSidecar = vi.fn(async () => sidecar);
       const getObservability = vi.fn(() => ({ sessionId }));
 
-      vi.doMock('./main.staging', async (importOriginal) => {
-        const actual = await importOriginal<typeof import('./main.staging')>();
+      vi.doMock('./planner/staging', async (importOriginal) => {
+        const actual = await importOriginal<typeof import('./planner/staging')>();
         return { ...actual, readPlannerStagingSidecar };
       });
-      vi.doMock('./plannerSession', async (importOriginal) => {
-        const actual = await importOriginal<typeof import('./plannerSession')>();
+      vi.doMock('./planner/session', async (importOriginal) => {
+        const actual = await importOriginal<typeof import('./planner/session')>();
         return { ...actual, getObservability };
       });
 
@@ -1368,7 +1368,7 @@ describe('electron main bootstrap', () => {
       ).resolves.toEqual({
         ok: false,
         action: 'planner.uploadSpec',
-        error: 'Bypass Lily upload for child-task or recent-task mode requires the active planner sidecar. Wait for the selected task session to finish connecting, then retry.',
+        error: 'Bypass Planner upload for child-task or recent-task mode requires the active planner sidecar. Wait for the selected task session to finish connecting, then retry.',
       });
       expect(uploadSpec).not.toHaveBeenCalled();
     });
@@ -1393,7 +1393,7 @@ describe('electron main bootstrap', () => {
       ).resolves.toEqual({
         ok: false,
         action: 'planner.uploadSpec',
-        error: 'Bypass Lily upload for child-task or recent-task mode requires the active planner sidecar. Wait for the selected task session to finish connecting, then retry.',
+        error: 'Bypass Planner upload for child-task or recent-task mode requires the active planner sidecar. Wait for the selected task session to finish connecting, then retry.',
       });
       expect(readPlannerStagingSidecar).not.toHaveBeenCalled();
       expect(uploadSpec).not.toHaveBeenCalled();
@@ -1426,12 +1426,12 @@ describe('electron main bootstrap', () => {
     it('rejects uploads when the active sidecar task kind does not match the selected bypass mode', async () => {
       vi.resetModules();
       const sidecar = buildSidecar('planner-active', 'standard');
-      vi.doMock('./main.staging', async (importOriginal) => {
-        const actual = await importOriginal<typeof import('./main.staging')>();
+      vi.doMock('./planner/staging', async (importOriginal) => {
+        const actual = await importOriginal<typeof import('./planner/staging')>();
         return { ...actual, readPlannerStagingSidecar: vi.fn(async () => sidecar) };
       });
-      vi.doMock('./plannerSession', async (importOriginal) => {
-        const actual = await importOriginal<typeof import('./plannerSession')>();
+      vi.doMock('./planner/session', async (importOriginal) => {
+        const actual = await importOriginal<typeof import('./planner/session')>();
         return { ...actual, getObservability: vi.fn(() => ({ sessionId: 'planner-active' })) };
       });
       const { handleDesktopAction } = await import('./main');

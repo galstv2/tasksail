@@ -122,11 +122,6 @@ def _find_per_repo_test_infrastructure(
     return result
 
 
-# ---------------------------------------------------------------------------
-# Frontend surface discovery
-# ---------------------------------------------------------------------------
-
-
 def _frontend_framework_tags(repo: dict[str, Any]) -> list[str]:
     tags = _collect_declared_values([repo], "tags")
     framework_tags: list[str] = []
@@ -430,11 +425,6 @@ def discover_frontend_surfaces(
     return surfaces
 
 
-# ---------------------------------------------------------------------------
-# UI standards rendering
-# ---------------------------------------------------------------------------
-
-
 def _format_ui_surface_root(surface_root: str) -> str:
     return f"{surface_root}/" if surface_root != "." else "repo-root"
 
@@ -597,11 +587,6 @@ def _build_ui_standards_lines(
         )
 
     return lines
-
-
-# ---------------------------------------------------------------------------
-# Backend platform detection
-# ---------------------------------------------------------------------------
 
 
 def _detect_backend_platform_signal_types(paths: list[str]) -> list[str]:

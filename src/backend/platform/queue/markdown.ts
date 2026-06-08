@@ -369,7 +369,7 @@ export function extractContextPackBinding(
 
   const dir = extractLabeledValue(section, 'Context Pack Dir', SECTION_NAMES.CONTEXT_PACK_BINDING);
   if (!dir) return { kind: 'invalid', reason: 'missing-context-pack-dir', section };
-  // SEC-TS-04: a relative Context Pack Dir must not escape via '..'. Agent-authored
+  // A relative Context Pack Dir must not escape via '..'. Agent-authored
   // task markdown could otherwise drive reads outside the repo root once resolved.
   if (relativePathEscapes(dir)) return { kind: 'invalid', reason: 'unsafe-context-pack-dir', section };
 
@@ -418,6 +418,7 @@ export function extractContextPackBinding(
   ) {
     return { kind: 'invalid', reason: 'malformed-targets', section };
   }
+  const selectedFocusPath = extractLabeledValue(section, 'Selected Focus Path', SECTION_NAMES.CONTEXT_PACK_BINDING);
 
   return {
     kind: 'binding',
@@ -426,7 +427,7 @@ export function extractContextPackBinding(
       deepFocusEnabled: true,
       ...(deepFocusPrimaryRepoId ? { deepFocusPrimaryRepoId } : {}),
       ...(deepFocusPrimaryFocusId ? { deepFocusPrimaryFocusId } : {}),
-      selectedFocusPath: extractLabeledValue(section, 'Selected Focus Path', SECTION_NAMES.CONTEXT_PACK_BINDING),
+      ...(hasLabeledValue(section, 'Selected Focus Path') ? { selectedFocusPath } : {}),
       selectedFocusTargetKind: parseTargetKind(
         extractLabeledValue(section, 'Selected Focus Target Kind', SECTION_NAMES.CONTEXT_PACK_BINDING),
       ),
@@ -710,6 +711,13 @@ function isBranchChainRepoSourceKind(value: unknown): value is TaskBranchChainRe
 function optionalLabeledValue(section: string, label: string): string | undefined {
   const value = extractLabeledValue(section, label, SECTION_NAMES.CONTEXT_PACK_BINDING).trim();
   return value || undefined;
+}
+
+function hasLabeledValue(section: string, label: string): boolean {
+  const contract = loadMarkdownContract();
+  return section.split(/\r?\n/).some((line) => (
+    contract.compiled.label.exec(line.trim())?.[contract.groups.labelName]?.trim() === label
+  ));
 }
 
 function parseTargetKind(value: string): 'directory' | 'file' | undefined {

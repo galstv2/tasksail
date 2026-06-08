@@ -124,7 +124,7 @@ export {
 /**
  * Return the task IDs of all currently active tasks.
  * Reads `.active-items/<taskId>` markers, filtering out `.completing` sentinels
- * per §4.1 marker-dir contract. Sentinels are bookkeeping and MUST NOT be
+ * per marker-dir contract. Sentinels are bookkeeping and MUST NOT be
  * counted by the activation cap guard.
  */
 export function getActiveTaskIds(paths: QueuePaths): string[] {
@@ -403,9 +403,8 @@ function pendingNameForDropboxSource(sourcePath: string): string {
 }
 
 /**
- * Move .md files from the dropbox directory into the pending directory.
- * Non-markdown files are ignored with a warning.
- * Returns the number of files moved.
+ * Move task files from the dropbox directory into the pending directory.
+ * Other files are ignored with a warning. Returns the number of files moved.
  */
 export async function moveDropboxItemsOnce(
   dropboxDir: string,
@@ -756,7 +755,7 @@ export async function activateNextPendingItemIfReady(
 
   const releaseActivation = await acquireDirLockOrThrow(paths.queueLockDir, 'Activation');
   try {
-    // §4.2 cap check: compare active task count against platform config limit.
+    // Compare active task count against platform config limit.
     let cap = 1;
     try {
       const config = await getPlatformConfig(repoRoot);
@@ -806,7 +805,7 @@ export async function activateNextPendingItemIfReady(
       }
 
       // Resolve per-task paths early so readiness check uses the task-specific dir.
-      // Per-task handoffs live at AgentWorkSpace/tasks/<taskId>/handoffs/ (§4.2).
+      // Per-task handoffs live at AgentWorkSpace/tasks/<taskId>/handoffs/.
       // They are always "ready" (empty) for a new task since the directory won't exist yet.
       taskId = path.basename(nextItem, '.md');
       taskHandoffsDir = paths.taskHandoffs(taskId);
@@ -886,7 +885,7 @@ export async function activateNextPendingItemIfReady(
       activeMarkerPath = path.join(paths.activeItemsDir, taskId);
 
       // Lock precedence: 1 (queue lock; task sidecar write is part of activation critical section)
-      // §4.14 — Worktree + dependency materialization.
+      // Worktree and dependency materialization.
       // For every visible repo root in the activating context pack: run `git worktree add`,
       // CoW-clone dependency directories, and write real worktreeRoot into .task.json.
       // MUST happen AFTER activation lock is acquired and BEFORE pipelineSupervisor.startPipeline.
@@ -1501,7 +1500,7 @@ export async function activateNextPendingItemIfReady(
     return { activated: true, activatedTaskId: taskId, reason: ACTIVATION_GATE_REASON.OPERATOR_KILL_REQUESTED };
   }
 
-  // §5.3: pipelineSupervisor.startPipeline — MUST be the last write before returning.
+  // pipelineSupervisor.startPipeline MUST be the last write before returning.
   // On failure, roll back the active markers so the queue can re-activate.
   let pipelineResult: Awaited<ReturnType<typeof startPipeline>>;
   try {
@@ -1561,14 +1560,9 @@ export async function activateNextPendingItemIfReady(
     return { activated: true, activatedTaskId: taskId };
   }
 
-  // Intentionally do NOT unlink the pending markdown here. Per the contract
-  // documented above (search "while active"), the file remains in pendingitems/
-  // for the duration of the run so the terminal paths own its disposition:
-  //   - completion: completePendingItem unlinks it after archival.
-  //   - failure:    moveFailedItemToErrorItems renames it into error-items/.
-  // Unlinking here races the failure path: if the pipeline child crashes after
-  // this point, the rename in errorItems.ts hits ENOENT and falls back to a
-  // blank-template recovery that loses the original task content.
+  // Keep the pending item until a terminal path owns it. Completion archives
+  // then unlinks it; failure renames it into error-items. Unlinking here can
+  // race a child crash and force blank-template recovery, losing the task.
 
   await clearProgress('pipeline-started');
   await emitTaskProgressEvent({
@@ -1596,7 +1590,7 @@ export interface CompleteActiveItemOptions {
  * - 'completed': marker was present, handoffs reset, manifest updated.
  * - 'no-active-marker': the per-task marker in .active-items/<taskId> was already
  *   absent (crash-recovery re-drive observed step-4 already done). Caller
- *   (§4.3 §5.2 recovery) interprets this as "skip to sentinel-delete only".
+ *   recovery interprets this as "skip to sentinel-delete only".
  *   Does NOT advance the queue — the caller decides whether to call
  *   activateNextPendingItemIfReady after observing this status.
  */
@@ -1617,9 +1611,9 @@ function readonlyContextSourceForReason(reason: string): ReadonlyContextSource {
  * Complete the active pending item: reset handoffs, update queue-order manifest,
  * and optionally activate the next pending item.
  *
- * Uses the per-task `.active-items/<taskId>` marker introduced in §4.1.
+ * Uses the per-task `.active-items/<taskId>` marker.
  * Returns a discriminated result instead of throwing when the marker is absent
- * (F9 idempotency fix): callers treat 'no-active-marker' as crash-recovery
+ * for idempotency: callers treat 'no-active-marker' as crash-recovery
  * step-4 already executed and skip to sentinel-delete only.
  */
 export async function completeActiveItem(
@@ -1636,12 +1630,12 @@ export async function completeActiveItem(
   const defaults = deriveQueueStatePaths(pendingDir);
   const resolvedQueueOrderPath = queueOrderPath ?? defaults.queueOrderPath;
 
-  // Per-task marker path in the .active-items/ directory (§4.1 parallel model).
+  // Per-task marker path in the .active-items/ directory.
   const activeItemsDir = path.join(pendingDir, '.active-items');
   const markerPath = path.join(activeItemsDir, taskId);
 
   if (!existsSync(markerPath)) {
-    // F9 idempotency: marker already absent — step 4 already happened in a
+    // Idempotency: marker already absent because active-marker unlink already happened in a
     // prior (crashed) run. Return early without re-driving handoff reset or
     // manifest update, and without throwing. Caller handles sentinel-delete.
     return { status: 'no-active-marker', taskId };
@@ -1725,7 +1719,7 @@ async function rollbackActivationClaim(options: {
     }
     if (rollbackBinding.createdBranch && binding.worktreeBranch) {
       await execFileAsync('git', [
-        // SEC-TS-05: '--' guards against an agent-authored branch name starting with '-'.
+        // '--' guards against an agent-authored branch name starting with '-'.
         '-C', binding.originalRoot,
         'branch', '-D', '--', binding.worktreeBranch,
       ]).catch(() => {});

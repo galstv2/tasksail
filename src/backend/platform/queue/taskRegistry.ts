@@ -49,7 +49,7 @@ export interface TaskRegistryEntry {
 export interface ContextPackTaskSet {
   open: TaskRegistryEntry[];
   pending: TaskRegistryEntry[];
-  /** Breaking change §4.5: active is now an array (was TaskRegistryEntry | null). */
+  /** Breaking change: active is now an array (was TaskRegistryEntry | null). */
   active: TaskRegistryEntry[];
   failed: TaskRegistryEntry[];
   completed: TaskRegistryEntry[];
@@ -60,7 +60,7 @@ export interface TaskRegistry {
   tasks: Record<string, ContextPackTaskSet>;
 }
 
-// ── In-process async mutex (no third-party deps) ──────────────────────────
+// In-process async mutex (no third-party deps).
 
 let _registryMutexChain: Promise<void> = Promise.resolve();
 
@@ -95,8 +95,6 @@ async function withRegistryWrite<T>(
     releaseMutex();
   }
 }
-
-// ── Helpers ───────────────────────────────────────────────────────────────
 
 function emptyTaskSet(): ContextPackTaskSet {
   return { open: [], pending: [], active: [], failed: [], completed: [] };
@@ -175,7 +173,7 @@ function collectTaskGuids(registry: TaskRegistry): Map<string, string> {
   return taskGuids;
 }
 
-// ── Schema version handling ───────────────────────────────────────────────
+// Schema version handling.
 
 /**
  * Raw on-disk v1 shape: active was TaskRegistryEntry | null.
@@ -381,7 +379,7 @@ export async function repairTaskRegistry(repoRoot: string): Promise<TaskRegistry
       { dir: path.join(repoRoot, 'AgentWorkSpace', 'error-items'), state: 'failed' },
     ];
 
-  // Check for active items via .active-items/ directory (§4.5)
+  // Check for active items via .active-items/ directory.
   const activeItemsDir = path.join(repoRoot, 'AgentWorkSpace', 'pendingitems', '.active-items');
   let activeFileNames: string[] = [];
   try {
@@ -389,7 +387,7 @@ export async function repairTaskRegistry(repoRoot: string): Promise<TaskRegistry
     activeFileNames = entries.filter((f) => !f.endsWith('.completing'));
   } catch { /* absent */ }
 
-  // Build a set of active taskIds (without .md suffix) for quick lookup
+  // Build a set of active taskIds without queue-file suffixes for quick lookup.
   const activeTaskIds = new Set(activeFileNames.map((f) => f.replace(/\.md$/, '')));
 
   for (const { dir, state } of dirs) {
@@ -447,8 +445,6 @@ export async function repairTaskRegistry(repoRoot: string): Promise<TaskRegistry
     return registry;
   });
 }
-
-// ── Helpers ──────────────────────────────────────────────────────────────
 
 function stateList(
   set: ContextPackTaskSet,

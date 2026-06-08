@@ -23,7 +23,7 @@ export type ComposerStage = 'compose' | 'preview' | 'confirm';
 
 export type PlannerTaskKind = 'standard' | 'child-task';
 export type SuggestedPath = 'sequential' | 'parallel';
-export type PlannerLilyPersonalityId = 'balanced' | 'clinical';
+export type PlannerPersonalityId = 'balanced' | 'clinical';
 
 export type PlannerEditableDraftModel = {
   summary: string;
@@ -116,13 +116,13 @@ export type PlannerSubmitResponse = {
 
 export interface PlannerStartSessionPayload {
   contextPackDir: string;
-  lilyPersonalityId?: PlannerLilyPersonalityId;
+  plannerPersonalityId?: PlannerPersonalityId;
   deepFocusSelection?: PlannerStartSessionDeepFocusSelection;
   replayConversationId?: string;
   childTaskFocusSnapshot?: PlannerFocusSnapshot;
   childTaskLineage?: PlannerChildTaskLineage;
   childTaskExecutionScope?: PlannerChildTaskExecutionScope;
-  lilyPlanningReloadScope?: PlannerLilyPlanningReloadScope;
+  plannerPlanningReloadScope?: PlannerPlanningReloadScope;
   parentTaskBranchView?: PlannerParentBranchViewRequest;
 }
 
@@ -158,9 +158,9 @@ export type PlannerChildTaskExecutionScope = {
   selectedSupportTargets: ContextPackDeepFocusTarget[];
 };
 
-export type PlannerLilyPlanningReloadScope = PlannerChildTaskExecutionScope & {
+export type PlannerPlanningReloadScope = PlannerChildTaskExecutionScope & {
   schemaVersion: 1;
-  purpose: 'lily-planning-read-context';
+  purpose: 'planner-planning-read-context';
 };
 
 export type PlannerFocusSnapshot = {
@@ -242,7 +242,7 @@ export type PlannerParentBranchViewStatus = {
   warning?: string;
 };
 
-export const PARENT_BRANCH_VIEW_MISSING_HANDOFFS_MESSAGE = 'Parent branch view unavailable: archived parent has no branch handoffs. Lily will use archived parent archive context only.';
+export const PARENT_BRANCH_VIEW_MISSING_HANDOFFS_MESSAGE = 'Parent branch view unavailable: archived parent has no branch handoffs. The planner will use archived parent archive context only.';
 
 export type PlannerStartSessionRequest = {
   action: 'planner.startSession';
@@ -262,7 +262,7 @@ export type PlannerStartSessionResponse = {
 export type PlannerUpdateSessionPersonalityRequest = {
   action: 'planner.updateSessionPersonality';
   payload: {
-    lilyPersonalityId: PlannerLilyPersonalityId;
+    plannerPersonalityId: PlannerPersonalityId;
   };
 };
 
@@ -271,7 +271,7 @@ export type PlannerUpdateSessionPersonalityResponse = {
   mode: 'updated';
   accepted: true;
   message: string;
-  lilyPersonalityId: PlannerLilyPersonalityId;
+  plannerPersonalityId: PlannerPersonalityId;
 };
 
 export type PlannerSendMessageRequest = {

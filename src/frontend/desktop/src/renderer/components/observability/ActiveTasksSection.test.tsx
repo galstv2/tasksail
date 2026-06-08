@@ -65,11 +65,6 @@ describe('ActiveTasksSection', () => {
     expect(screen.getByText('No tasks are currently active.')).toBeInTheDocument();
   });
 
-  it('renders section title', () => {
-    render(<ActiveTasksSection activeTasks={[]} />);
-    expect(screen.getByText('Active Tasks')).toBeInTheDocument();
-  });
-
   it('renders a single active task with title and taskId', () => {
     render(<ActiveTasksSection activeTasks={[makeTask()]} />);
     expect(screen.getByText('Build feature A')).toBeInTheDocument();

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  evaluateWorkflowPolicy,
   FULL_EVALUATION_SEQUENCE,
   LIGHTWEIGHT_EVALUATION_SEQUENCE,
   PolicyValidator,
@@ -214,21 +215,21 @@ describe('PolicyValidator', () => {
     expect(validator.sliceArtifactFormat).toBe('xml');
   });
 
-  it('defaults to markdown format when no taskId is provided (repo-level lint)', async () => {
-    // Without taskId, sliceArtifactFormat defaults to markdown without reading .task.json.
-    // The validator cannot fully initialize without a taskId (handoffsDir throws), but the
-    // field default is verifiable from construction intent. This is tested indirectly through
-    // the markdown-default behavior in lint mode.
-    const repoRoot = mkdtempSync(path.join(tmpdir(), 'workflow-policy-lint-no-taskid-'));
+  it('allows repo-level lint evaluation without task runtime state', async () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'workflow-policy-repo-lint-'));
     createdRoots.push(repoRoot);
     createRegistryFixture(repoRoot);
-    createWorkspaceFixture(repoRoot);
 
-    // Validator with taskId but no .task.json: defaults to markdown (no sidecar = legacy markdown)
-    const validator = new PolicyValidator({ rootDir: repoRoot, mode: 'runtime', taskId: TEST_TASK_ID });
-    await validator.initialize();
+    const result = await evaluateWorkflowPolicy({
+      repoRoot,
+      mode: 'lint',
+      format: 'text',
+    });
 
-    expect(validator.sliceArtifactFormat).toBe('markdown');
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Workflow policy status: ok');
+    expect(result.stdout).toContain('Mode: lint');
+    expect(result.stdout).toContain('Repository-level workflow-policy lint completed without task-scoped validation.');
   });
 
   it('QA execution rules still fire when task has xml slices', async () => {

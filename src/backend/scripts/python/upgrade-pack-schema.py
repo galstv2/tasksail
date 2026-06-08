@@ -24,8 +24,8 @@ _REPO_ROOT = Path(__file__).resolve().parents[4]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from src.backend.mcp.pack_constants import MANIFEST_VERSION_V2
-from src.backend.mcp.pack_io import write_text_atomic
+from src.backend.mcp.pack.constants import MANIFEST_VERSION_V2
+from src.backend.mcp.pack.io import write_text_atomic
 from src.backend.mcp.pack_schemas import canonicalize, dump_manifest_v2, validate_manifest_v2
 from src.backend.mcp.pack_schemas.upgrade import (
     build_repo_roots_from_manifest,
