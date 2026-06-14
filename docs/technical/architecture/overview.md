@@ -1,8 +1,10 @@
 # Architecture Overview
 
-TaskSail is a local control plane around agentic engineering work. The backend TypeScript platform owns queue state, runtime config, provider launch, workflow policy, validation, and desktop-facing contracts. Python services own repo-context MCP, QMD indexing, context-estate discovery, archive filing, workspace sync, and reinforcement support. The Electron and React desktop shell is the operator surface; it does not own workflow legality or queue mutation rules.
+TaskSail is a Unix-based local control plane around UI-driven agentic engineering work. The backend TypeScript platform owns queue state, runtime config, provider launch, workflow policy, validation, and desktop-facing contracts. Python services own repo-context MCP, QMD indexing, context-estate discovery, archive filing, workspace sync, and reinforcement support. The Electron and React desktop shell is the operator surface; it does not own workflow legality or queue mutation rules.
 
 The platform is intentionally source-owned. Mutable facts such as provider registry entries, model catalog options, runtime defaults, task concurrency, and MCP service shape are described here as ownership boundaries and linked to their source files.
+
+TaskSail currently supports Unix-based systems such as Linux and macOS. Windows is not a supported runtime target today; Windows-aware branches in source code are compatibility or defensive implementation details, not a public support commitment.
 
 ## Runtime Shape
 
@@ -10,11 +12,11 @@ The platform is intentionally source-owned. Mutable facts such as provider regis
 - The checked-in default runtime is direct local execution; Docker and Podman remain optional compose runtimes.
 - The active CLI provider resolves from platform config or a temporary environment override.
 - Context packs bound agent work to selected repositories and focus targets before broad execution is allowed.
-- Queue activation materializes task worktrees, launches the pipeline, tracks terminal/progress events, and requires closeout artifacts before advancement.
+- Queue activation materializes task worktrees, launches the automated agentic loop, tracks terminal/progress events, and requires closeout artifacts before advancement.
 
 ## Documentation Boundary
 
-Getting Started explains how to install, run, and create a first task. The technical pages explain the code seams that own the behavior. Technical pages should link source files rather than copy long mutable values.
+Getting Started is the non-technical operator path for install, first run, and first task flow. The technical pages explain the code seams that own the behavior. Technical pages should link source files rather than copy long mutable values.
 
 ## Sources of truth
 

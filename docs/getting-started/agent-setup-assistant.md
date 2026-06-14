@@ -9,13 +9,16 @@ Use this page when an AI assistant is helping install or run TaskSail. The assis
 - Do not change package manifests, lockfiles, platform defaults, or runtime state while helping with setup.
 - Do not recommend unsupported package scripts.
 - Do not bypass the desktop context-pack flow for normal first-task setup.
+- Do not suggest Windows-specific setup, package, or PowerShell workarounds; Windows is not supported today.
 
 ## First Questions To Answer
 
-- Which operating system is the operator using?
+- Which Unix-based operating system is the operator using?
 - Are Git, Node.js 24, pnpm 9+, and Python 3.12+ installed?
 - Does the operator need internal npm, PyPI, Electron, Docker, or Podman mirrors?
 - Does the operator have GitHub Copilot CLI access configured locally?
+
+If the operator is using Windows, stop and explain that TaskSail does not support Windows today.
 
 ## Safe Command Sequence
 

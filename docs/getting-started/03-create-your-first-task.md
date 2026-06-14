@@ -13,18 +13,18 @@ A context pack tells TaskSail which codebase and files the agents may use.
 
 The planner stays locked until a context pack is active. This prevents broad agent work without a bounded source context.
 
-## Draft The Task
+## Draft The Task Spec
 
 1. Open the planner.
 2. Describe the change or bug in normal language.
-3. Review the draft task.
+3. Review the generated task spec.
 4. Finalize it when the scope and expected result look right.
 
-TaskSail publishes the task into the local queue. The task board shows pending and active work, and the terminal feed shows platform and agent progress.
+TaskSail publishes the spec into the local queue. The task board shows pending and active work, and the terminal feed shows platform and agent progress.
 
 ## Watch The Work
 
-Keep the app open while the agents work. Alice prepares the implementation plan, Dalton performs the code work, and Ron verifies the result. If Ron finds a problem, the task routes back through the implementation loop.
+Keep the app open while the agents work. Alice prepares the implementation plan, Dalton performs the code work, and Ron verifies the result. If Ron finds a problem, the task routes back through the implementation loop instead of silently closing.
 
 For command-line smoke checks, these are valid from the repository root:
 

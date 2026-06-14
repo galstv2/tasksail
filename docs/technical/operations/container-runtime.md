@@ -2,6 +2,8 @@
 
 The checked-in runtime default is direct local execution. Direct runtime starts the repo-context MCP as a local process and requires a compatible Python interpreter. Python 3.12 is preferred, and Python 3.12+ is compatible. Docker and Podman remain optional compose runtimes for environments that need containerized services.
 
+TaskSail currently supports Unix-based systems such as Linux and macOS. Windows is not a supported runtime target today.
+
 ## Resolution Order
 
 Runtime selection resolves from a temporary runtime override, then runtime platform state, then the checked-in default config. Container engine host selection follows the same platform-config ownership model.
@@ -17,9 +19,9 @@ npx tsx src/backend/platform/container/cli.ts healthcheck
 
 The `up` command is compose-runtime-only. It fails closed when the selected runtime is direct.
 
-## Windows Notes
+## Platform Notes
 
-Windows host topology is represented through platform detection and container engine host config. ReFS Copy-on-Write is auto-detected when available; there is no environment variable to force it.
+Some source code contains Windows-aware platform detection for compatibility and defensive path handling. That code does not make Windows a supported operator or runtime platform.
 
 ## Sources of truth
 

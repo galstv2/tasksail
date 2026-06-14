@@ -12,7 +12,7 @@ Model choice is source-owned by the agent registry and model catalog. Documentat
 
 ## Provider Boundary
 
-GitHub Copilot is the shipped CLI provider in this repository today. The platform still resolves provider behavior through a provider abstraction so agent launch, model selection, MCP config rendering, and planner transport can stay provider-aware.
+GitHub Copilot CLI is the only shipped provider in this repository today. Copilot-specific roster mapping, command behavior, model handling, MCP rendering, and planner transport are expected to stay behind the provider boundary. The platform still resolves provider behavior through the abstraction so future adapters can be added without recasting queue, workflow, or QMD concepts as Copilot-only concepts.
 
 ## Sources of truth
 

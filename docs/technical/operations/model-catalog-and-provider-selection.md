@@ -4,7 +4,9 @@ Provider and model selection are source-owned. The platform registry owns agent 
 
 ## Provider Selection
 
-The shipped provider today is GitHub Copilot. Active provider selection resolves through platform config or a temporary provider override and must match a registered provider.
+The only shipped provider today is GitHub Copilot CLI. Active provider selection resolves through platform config or a temporary provider override and must match a registered provider.
+
+The provider boundary is intentional. Copilot-specific model capability checks and command behavior should remain in the Copilot adapter so new provider adapters can be added without changing provider-neutral task, workflow, or QMD behavior.
 
 ## Model Catalog
 

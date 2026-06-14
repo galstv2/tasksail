@@ -1,5 +1,9 @@
 # Troubleshooting
 
+## Unsupported Host
+
+TaskSail currently supports Unix-based systems such as Linux and macOS. Windows hosts are unsupported today; do not treat Windows setup failures as normal prerequisite issues.
+
 ## Setup Cannot Find Python
 
 Install Python 3.12 or newer, then rerun:

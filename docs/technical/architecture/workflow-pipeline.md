@@ -1,10 +1,10 @@
 # Workflow Pipeline
 
-TaskSail turns operator input into queue items, activates eligible work, launches role agents, and closes tasks through workflow-policy checks. The user-facing names are Lily, Alice, Dalton, Dalton Verify, and Ron, but runtime routing is driven by registry ids and workflow order.
+TaskSail turns operator input into an anchored task spec, activates eligible work, launches role agents, and closes tasks through workflow-policy checks. The automated loop is designed to keep planning, implementation, verification, and closeout in a deterministic order, increasing repeatability without promising that every agent result will be correct. The user-facing names are Lily, Alice, Dalton, Dalton Verify, and Ron, but runtime routing is driven by registry ids and workflow order.
 
 ## Queue To Pipeline
 
-New work enters through the queue CLI or the desktop planner. Published items move through dropbox, pending, active, and completion states. Parallel task support uses task-specific active markers and activation markers, so closeout must disambiguate the task id when more than one task is active.
+New work enters through the queue CLI or the desktop planner. Published task specs move through dropbox, pending, active, and completion states. Parallel task support uses task-specific active markers and activation markers, so closeout must disambiguate the task id when more than one task is active.
 
 The agent pipeline runs from the canonical role-agent entrypoint. The direct package aliases expose a single-agent run and the unattended pipeline. The lower-level parser also supports kill and clear-kill subcommands, but those are direct parser commands rather than package aliases.
 

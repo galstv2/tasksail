@@ -1,6 +1,6 @@
 # TaskSail
 
-TaskSail is a local, operator-controlled workbench for running AI coding agents through a disciplined engineering workflow. You describe the work, keep control from the desktop app, and TaskSail coordinates planning, implementation, verification, queue state, guardrails, MCP services, and local memory on your machine.
+TaskSail is a Unix-based, UI-driven agentic workbench for spec-driven development. You use the desktop app to turn a request into a bounded task spec, then TaskSail coordinates an automated agentic loop for planning, implementation, verification, queue state, guardrails, MCP services, and local memory on your machine. The loop is designed to anchor agent work and make successful outcomes more repeatable.
 
 The current product documentation starts at [TaskSail docs](docs/README.md).
 
@@ -11,6 +11,8 @@ The current product documentation starts at [TaskSail docs](docs/README.md).
 - Desktop contributors: [Desktop shell README](src/frontend/desktop/README.md)
 
 ## Requirements
+
+TaskSail currently targets Unix-based development systems such as Linux and macOS. Windows is not a supported runtime target today.
 
 TaskSail is developed against Node.js 24, pnpm, Python 3.12+, Git, and the local desktop package. The checked-in runtime default is direct local execution; Docker and Podman are optional compose runtimes.
 
@@ -27,7 +29,7 @@ npm install
 npm run dev
 ```
 
-The shipped CLI provider is GitHub Copilot behind the provider abstraction. Configure provider access locally before launching agent work.
+The only shipped CLI provider today is GitHub Copilot CLI. It runs behind TaskSail's CLI-provider abstraction, with Copilot-specific launch, model, MCP, and planner behavior compartmentalized for future provider adapters.
 
 ## License
 
