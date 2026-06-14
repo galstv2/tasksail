@@ -7,6 +7,8 @@ Choose the reader path that matches what you need:
 
 TaskSail is a Unix-based, UI-driven agentic workbench for spec-driven development. It currently targets Unix-based systems such as Linux and macOS; Windows is not supported today.
 
+![TaskSail desktop workbench showing context pack scope, terminal output, and task board](assets/tasksail-workbench.png)
+
 The Getting Started path is self-contained. Use it first if you are installing or running TaskSail for the first time.
 
 The Technical Reference is concise and source-linked. Each technical page ends with the repository files that own the facts on that page.

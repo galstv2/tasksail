@@ -8,6 +8,8 @@ You stay in control. TaskSail does not move your work into a hosted service. It 
 
 TaskSail currently targets Unix-based systems such as Linux and macOS. Windows is not supported today.
 
+![TaskSail desktop workbench showing context pack scope, terminal output, and task board](../assets/tasksail-workbench.png)
+
 ## The Team You See
 
 - Lily helps shape the request before work starts.
