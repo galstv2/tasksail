@@ -40,12 +40,6 @@ class DocsOperatingModelTests(unittest.TestCase):
             / "docs-alignment"
             / "python-service-map.md"
         ).read_text(encoding="utf-8")
-        cls.screenshot_manifest = (
-            cls.repo_root
-            / "scratchspace"
-            / "docs-alignment"
-            / "screenshot-manifest.md"
-        ).read_text(encoding="utf-8")
         cls.package_json = json.loads(
             (cls.repo_root / "package.json").read_text(encoding="utf-8")
         )
@@ -84,12 +78,13 @@ class DocsOperatingModelTests(unittest.TestCase):
         r"claude-sonnet-4\.6",
     )
 
-    def test_docs_tree_has_two_reader_paths(self) -> None:
+    def test_docs_tree_has_two_reader_paths_and_assets(self) -> None:
         top_dirs = {path.name for path in self.docs_root.iterdir() if path.is_dir()}
         top_files = {path.name for path in self.docs_root.iterdir() if path.is_file()}
 
-        self.assertEqual(top_dirs, {"getting-started", "technical"})
+        self.assertEqual(top_dirs, {"assets", "getting-started", "technical"})
         self.assertEqual(top_files, {"README.md"})
+        self.assertTrue((self.docs_root / "assets" / "tasksail-workbench.png").exists())
 
     def test_required_getting_started_files_exist_and_are_closed(self) -> None:
         getting_started = self.docs_root / "getting-started"
@@ -213,8 +208,8 @@ class DocsOperatingModelTests(unittest.TestCase):
             with self.subTest(service=service):
                 self.assertIn(service, self.python_service_map)
 
-    def test_screenshot_manifest_records_missing_evidence_without_assets(self) -> None:
-        self.assertIn("No screenshots were captured", self.screenshot_manifest)
+    def test_docs_screenshot_asset_lives_outside_getting_started_images(self) -> None:
+        self.assertTrue((self.docs_root / "assets" / "tasksail-workbench.png").exists())
         self.assertFalse((self.docs_root / "getting-started" / "images").exists())
 
 
